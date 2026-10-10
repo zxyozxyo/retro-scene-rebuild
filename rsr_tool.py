@@ -12255,6 +12255,7 @@ class RsrToolAPI:
         # content file hashes to its release on the way in, so what is present
         # is already known; the rest is one query.
         incomplete = {}
+        needs: dict = {}        # release -> (size, crc32) of ALL its content
         try:
             con = self._db()
             try:
@@ -12262,6 +12263,8 @@ class RsrToolAPI:
                     need = con.execute(
                         "SELECT name, size, crc32 FROM files "
                         "WHERE release=? AND source='content'", (rel,)).fetchall()
+                    needs[rel] = {(int(sz or 0), int(cr or 0) & 0xFFFFFFFF)
+                                  for _n, sz, cr in need}
                     gone = [n for n, sz, cr in need
                             if (int(sz or 0), int(cr or 0) & 0xFFFFFFFF)
                             not in present]
@@ -12294,10 +12297,30 @@ class RsrToolAPI:
         # Which releases still need each source file. DELETE SOURCES must not
         # remove a rom the moment the first of its releases is built, or the
         # other four have nothing left to rebuild from.
+        #
+        # Keyed by CONTENT (size, crc32), and over every content file of the
+        # release, not by the one path it happened to be matched on. A release
+        # is matched on the first of its files the walk reaches, so a two-disc
+        # release claimed disc 1 only: Enter_The_Matrix_PAL_GERMAN_NGC-RoME
+        # and the later -LaKiTu re-release share both discs, both claimed
+        # dvd1, nobody claimed dvd2, and it was deleted the moment the first
+        # of them verified -- 40 "missing source" failures on 2026-10-10, all
+        # of them a second disc.
         claims: dict = {}
-        for rel, (p, _h) in matched.items():
-            claims.setdefault(p, set()).add(rel)
-        consumed_by: dict = {}
+        for rel, (_p, h) in matched.items():
+            keys = set(needs.get(rel, ()))
+            keys.add((int(h["size"]), int(str(h["crc32"]), 16)))
+            for k in keys:
+                claims.setdefault(k, set()).add(rel)
+
+        def _content_key(c: Path):
+            # Memoised: the rebuild hashed this file to find it.
+            try:
+                return (c.stat().st_size, _file_crc32_memo(c))
+            except OSError:
+                return None
+
+        consumed_by: dict = {}      # source path -> its content key
         failed_rels: set = set()
         built: set = set()          # releases rebuilt AND verified so far
 
@@ -12390,14 +12413,16 @@ class RsrToolAPI:
                 self._log(traceback.format_exc(), "dim")
                 res = {"ok": False}
             if res.get("ok"):
-                mine = list(self._consumed)
+                mine = ([(c, _content_key(c))
+                         for c in dict.fromkeys(self._consumed)]
+                        if delete_content else [])
                 with book:
                     done += 1
                     built.add(rel)
                     ready = []
                     if delete_content:
-                        for c in mine:
-                            consumed_by.setdefault(c, set()).add(rel)
+                        for c, k in mine:
+                            consumed_by[c] = k
                             # Delete NOW if nothing else is still owed this
                             # file. Waiting for the whole batch was safe but
                             # could need the unpacked corpus and the rebuilt
@@ -12408,7 +12433,9 @@ class RsrToolAPI:
                             # applied, just applied sooner. A release still in
                             # flight has not been added to `built`, so its
                             # sources cannot be freed out from under it.
-                            if not (claims.get(c, set()) - built):
+                            # A file that cannot be keyed is never freed.
+                            if k is not None and not (
+                                    claims.get(k, set()) - built):
                                 ready.append(c)
                         for c in ready:
                             consumed_by.pop(c, None)
@@ -12480,9 +12507,8 @@ class RsrToolAPI:
             # or that the run never reached, stays where it is.
             held = 0
             keep = []
-            for srcp, claimed_by in consumed_by.items():
-                owed = claims.get(srcp, set())
-                if owed - claimed_by:
+            for srcp, k in consumed_by.items():
+                if k is None or claims.get(k, set()) - built:
                     held += 1
                     continue
                 keep.append(srcp)
