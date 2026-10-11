@@ -4421,7 +4421,12 @@ class RsrToolAPI:
         remembering a setting that is itself the thing in doubt."""
         want = str(path or self.get_settings()["store"]).strip()
         try:
-            con = sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True)
+            # Through the lock, like every other reader. This used to open
+            # its own read-only connection beside it, unlocked -- the likely
+            # cause of a scan's first write failing with "attempt to write a
+            # readonly database" 30 s after start (mir-rncd, 2026-10-11): a
+            # read-only connection cannot create a WAL database's -shm file.
+            con = self._db()
             try:
                 rows = [r[0] for r in con.execute(
                     "SELECT rsr_path FROM releases WHERE rsr_path IS NOT NULL "
@@ -14869,7 +14874,21 @@ class RsrToolAPI:
         nextra = sum(1 for s in sets for f in s.get("files", [])
                      if f.get("source") == "extra")
         verified = int(all(s.get("verify") in ("exact", "delta") for s in sets))
-        con = self._db()
+        # The .rsr is already on disk by now, and skip_done matches on the
+        # file -- so a row lost here leaves the release invisible until a
+        # reindex. A read-only verdict from sqlite is about the moment (who
+        # else has the WAL open), not about the file: look again.
+        for attempt in range(6):
+            con = self._db()
+            try:
+                con.execute("BEGIN IMMEDIATE")
+                con.execute("ROLLBACK")
+                break
+            except sqlite3.OperationalError as e:
+                con.close()
+                if "readonly" not in str(e).lower() or attempt == 5:
+                    raise
+                time.sleep(1 + attempt)
         try:
             con.execute("DELETE FROM releases WHERE name=?", (rel,))
             con.execute("DELETE FROM files WHERE release=?", (rel,))
