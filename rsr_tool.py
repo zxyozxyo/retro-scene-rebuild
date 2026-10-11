@@ -9453,8 +9453,14 @@ class RsrToolAPI:
                             return False
                 finally:
                     _rmtree(look)
-            # Then volume one, as the Windows sweep does.
-            if prefix and vb and want_vols > 1:
+            # Then volume one, as the Windows sweep does -- unless the full
+            # pack below is watched volume by volume, which gives the same
+            # verdict on volume one at the same moment (when volume two opens)
+            # and, for a build that passes, does not pack volume one twice.
+            # At DOSBox's pace that second copy was minutes per combo.
+            watched = (orig_stream is not None and fmt == "RAR4" and vb
+                       and want_vols > 2)
+            if prefix and vb and want_vols > 1 and not watched:
                 if not self._run_dos_pack(ex, wdir, groups[0][0], solid, srcs,
                                           vb, extra=extra[1:],
                                           rr_sectors=rrs,
@@ -9479,8 +9485,7 @@ class RsrToolAPI:
             dos_timeout = max(1800, min(4 * 3600, int(_dos_mb * 6)))
             # ...and watched volume by volume, as the Windows pack is, so the
             # longer leash costs nothing on a combo that parts in volume two.
-            roll = (_rolled_off if orig_stream is not None and fmt == "RAR4"
-                    and vb and want_vols > 2 else None)
+            roll = _rolled_off if watched else None
             if not self._run_dos_pack(ex, wdir, groups[0][0], solid, srcs,
                                       vb, timeout=dos_timeout,
                                       extra=extra[1:], rr_sectors=rrs,
