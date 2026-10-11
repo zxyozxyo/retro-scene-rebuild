@@ -2105,7 +2105,7 @@ END_UNKNOWN = "?"          # no reading taken; anything else is a real answer
 # Bumped whenever a change makes the sweep JUDGE combos differently. It feeds
 # _order_sig, so parked releases start over instead of resuming past combos
 # that would now be accepted.
-SWEEP_JUDGE_GEN = "2026-10-11 DOS full pack no longer killed at 1,800 s"
+SWEEP_JUDGE_GEN = "2026-10-11 RAR/DOS32 packs no longer starved of memory"
 
 
 def end_block_sig(vol: Path) -> tuple | None:
@@ -9204,7 +9204,19 @@ class RsrToolAPI:
             mounts = f"mount c \"{wdir}\"\n"
             if srcdir is not None:
                 mounts += f"mount d \"{srcdir}\" -t dir\n"
-            conf = (f"[sdl]\noutput=texture\n[cpu]\ncore=auto\ncycles=max\n"
+            # RAR/DOS32 gets real memory. DOSBox's default machine has 16 MB,
+            # and a 4 MB dictionary's match finder does not fit in it: RSX
+            # pages to disk instead and the pack crawls. Measured 2026-10-11
+            # on Viewtiful_Joe_JAP_GC-RARE (1.4 GB, -m5 -md4096) with
+            # dosrar32-311: 622 KB of output in 150 s at 16 MB, a whole
+            # 50,000,000 B volume in the same 150 s at 63 MB -- and that volume
+            # matched the original's. Until now no such combo lived to give a
+            # verdict: the first look timed out short of its megabyte, the
+            # volume-one probe after it, 40 min a combo, all tallied as
+            # misses. The 16-bit line is left alone: its output depends on
+            # the memory it finds (see @LOADFIX64).
+            mem = "[dosbox]\nmemsize=63\n" if self._is_dos32_exe(ex) else ""
+            conf = (f"[sdl]\noutput=texture\n{mem}[cpu]\ncore=auto\ncycles=max\n"
                     f"[autoexec]\n{mounts}c:\ncall GO.BAT\nexit\n")
             cfg = wdir / "dosbox.conf"
             cfg.write_text(conf, encoding="utf-8")
