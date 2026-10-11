@@ -2105,7 +2105,7 @@ END_UNKNOWN = "?"          # no reading taken; anything else is a real answer
 # Bumped whenever a change makes the sweep JUDGE combos differently. It feeds
 # _order_sig, so parked releases start over instead of resuming past combos
 # that would now be accepted.
-SWEEP_JUDGE_GEN = "2026-09-16 partN-probe + end-block-none"
+SWEEP_JUDGE_GEN = "2026-10-11 DOS full pack no longer killed at 1,800 s"
 
 
 def end_block_sig(vol: Path) -> tuple | None:
@@ -9107,7 +9107,8 @@ class RsrToolAPI:
     def _run_dos_pack(self, ex: Path, wdir: Path, level: int, solid: bool,
                       srcs: list, vol_bytes: int, timeout: int = 1800,
                       extra=(), first_volume_only: bool = False,
-                      stop_after: int = 0, rr_sectors: int = -1) -> bool:
+                      stop_after: int = 0, rr_sectors: int = -1,
+                      ready=None) -> bool:
         """Pack `srcs` with a 16-bit DOS RAR, under DOSBox, into `wdir`.
 
         DOSBox gets its own mount per combo so nothing is shared between
@@ -9247,9 +9248,16 @@ class RsrToolAPI:
                                 heartbeat=f"DOS probe {_exe_label(ex.name)}",
                                 cwd=None, env=env)
                 return (wdir / "PROBE.RAR").is_file() and _second_volume()
-            self._run(argv, timeout=timeout,
-                      heartbeat=f"DOS {_exe_label(ex.name)}", cwd=None,
-                      env=env)
+            if ready is not None:
+                # Killed the moment `ready` has seen enough (a finished volume
+                # that departs from the original); the caller reads why.
+                self._run_until(argv, ready, timeout=timeout,
+                                heartbeat=f"DOS {_exe_label(ex.name)}",
+                                cwd=None, env=env)
+            else:
+                self._run(argv, timeout=timeout,
+                          heartbeat=f"DOS {_exe_label(ex.name)}", cwd=None,
+                          env=env)
             log = wdir / "RARLOG.TXT"
             if not log.is_file():
                 self._log(f"      DOS {_exe_label(ex.name)}: produced no log — "
@@ -9317,6 +9325,29 @@ class RsrToolAPI:
         # it is 16-bit, so it goes through DOSBox and produces its output
         # before the ordinary verification below picks up from _probe_head.
         filled = ""
+        rolling = {"done": 0, "pos": 0, "bad": False}
+
+        def _rolled_off() -> bool:
+            """A volume rar has finished (it has opened the next one) whose
+            file data departs from the original's at the same stream position.
+            The volume-one probe cannot see a build that agrees for the first
+            50 MB and parts later -- Cafe_Cuillere-HR's .at9 run -- and every
+            such combo used to pay for the whole 1.6 GB pack."""
+            made = sorted((q for q in wdir.iterdir() if _classify_volume(q.name)),
+                          key=lambda q: _classify_volume(q.name)[2])
+            for v in made[rolling["done"]:len(made) - 1]:
+                data = v.read_bytes()
+                for o, t, _f, sz, ad in _rar4_walk(data):
+                    if t != 0x74 or not ad:
+                        continue
+                    chunk = data[o + sz:o + sz + ad]
+                    if orig_stream.read(rolling["pos"], len(chunk)) != chunk:
+                        rolling["bad"] = True
+                        return True
+                    rolling["pos"] += len(chunk)
+                rolling["done"] += 1
+            return False
+
         if extra and extra[0] == self.DOS_MARK:
             if len(groups) != 1:
                 return None            # appending under DOS is not modelled
@@ -9421,8 +9452,32 @@ class RsrToolAPI:
                 if self._prefix_verdict(wdir / "PROBE.RAR", prefix) is False:
                     self._tally_reject(self.PREFIX_DIVERGED)
                     return False
+            # Sized, like the Windows pack below, and for the same reason. The
+            # flat 1,800 s default is about 950 MB of output at DOSBox's pace:
+            # every 1.4 GB GameCube image RARE packed under DOS in 2003 was
+            # killed some 20 volumes into 26 and tallied "the pack command
+            # itself failed to run" -- AFTER its volume one had matched the
+            # original for 50 MB. Soul_Calibur_2_JAP_GC-RARE spent a whole
+            # 120 min budget on four such packs (2026-10-10), and so did nine
+            # more. No DOS combo could ever capture a set that size.
+            try:
+                _dos_mb = sum(Path(s).stat().st_size for s in srcs) / (1 << 20)
+            except OSError:
+                _dos_mb = 0
+            dos_timeout = max(1800, min(4 * 3600, int(_dos_mb * 6)))
+            # ...and watched volume by volume, as the Windows pack is, so the
+            # longer leash costs nothing on a combo that parts in volume two.
+            roll = (_rolled_off if orig_stream is not None and fmt == "RAR4"
+                    and vb and want_vols > 2 else None)
             if not self._run_dos_pack(ex, wdir, groups[0][0], solid, srcs,
-                                      vb, extra=extra[1:], rr_sectors=rrs):
+                                      vb, timeout=dos_timeout,
+                                      extra=extra[1:], rr_sectors=rrs,
+                                      ready=roll):
+                if rolling["bad"]:
+                    self._tally_reject(
+                        "a later volume's compressed data diverged")
+                    bad = orig_stream.name_at(rolling["pos"])
+                    return [nm for nm in targets if nm != bad]
                 self._tally_reject("the pack command itself failed to run")
                 return False
             cmds = []
@@ -9574,29 +9629,6 @@ class RsrToolAPI:
             if why:
                 self._tally_reject(why)
                 return False
-
-        rolling = {"done": 0, "pos": 0, "bad": False}
-
-        def _rolled_off() -> bool:
-            """A volume rar has finished (it has opened the next one) whose
-            file data departs from the original's at the same stream position.
-            The volume-one probe cannot see a build that agrees for the first
-            50 MB and parts later -- Cafe_Cuillere-HR's .at9 run -- and every
-            such combo used to pay for the whole 1.6 GB pack."""
-            made = sorted((q for q in wdir.iterdir() if _classify_volume(q.name)),
-                          key=lambda q: _classify_volume(q.name)[2])
-            for v in made[rolling["done"]:len(made) - 1]:
-                data = v.read_bytes()
-                for o, t, _f, sz, ad in _rar4_walk(data):
-                    if t != 0x74 or not ad:
-                        continue
-                    chunk = data[o + sz:o + sz + ad]
-                    if orig_stream.read(rolling["pos"], len(chunk)) != chunk:
-                        rolling["bad"] = True
-                        return True
-                    rolling["pos"] += len(chunk)
-                rolling["done"] += 1
-            return False
 
         if (orig_stream is not None and fmt == "RAR4" and len(cmds) == 1
                 and vol_args and want_vols > 2
@@ -11081,11 +11113,19 @@ class RsrToolAPI:
                           "apps/dosrar_pack — cannot replay this recipe.",
                           "err")
                 return None
+            # Sized as the sweep's DOS pack is (see _try_combo): a 1.4 GB
+            # image is some 40 min of DOSBox, more beside another rebuild.
+            try:
+                _mb = sum(Path(q).stat().st_size for q in src_files) / (1 << 20)
+            except OSError:
+                _mb = 0
             if not self._run_dos_pack(dex, out, recipe["level"],
                                       recipe["solid"],
                                       [str(q) for q in src_files],
                                       recipe.get("volume_bytes") or 0,
-                                      timeout=3600, extra=mc[1:],
+                                      timeout=max(3600, min(4 * 3600,
+                                                            int(_mb * 6))),
+                                      extra=mc[1:],
                                       rr_sectors=(
                                           int(recipe.get("rr_sectors") or 0)
                                           if recipe.get("rr_pct") else -1)):
