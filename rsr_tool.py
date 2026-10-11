@@ -9780,6 +9780,7 @@ class RsrToolAPI:
         # follows, so it is masked off: a single-volume or last volume of the
         # same build writes the same block without it.
         fam, fam_name = [], ""
+        fam_dos = None      # the same family on the RAR/DOS32 line: (lo, hi)
         # Only on a volume that CONTINUES (bit 0). A single archive ends with
         # (0x4000, 7) from every build 3.00-4.20 alike -- measured 2026-10-02
         # on 3.30, 3.42, 3.93 and 4.20 -- so masking the bit off pinned every
@@ -9791,8 +9792,10 @@ class RsrToolAPI:
             eflags, esize = end_sig[0] & ~1, end_sig[1]
             if (eflags, esize) == (0x4000, 7):
                 fam_name, pat = "RAR 3.00", r"_rar300(b\d)?\.exe$"
+                fam_dos = (300, 300)
             elif (eflags, esize) == (0x4006, 18):
                 fam_name, pat = "RAR 3.10-3.30", r"_rar3[123][01](b\d)?\.exe$"
+                fam_dos = (310, 330)
             if fam_name:
                 fam = [e for e in exes if re.search(pat, e.name, re.I)]
         if fam:
@@ -10067,6 +10070,19 @@ class RsrToolAPI:
             dos32 = [e for e in dos if self._is_dos32_exe(e)
                      and _dos32_number(e.name) >= 300]
             dropped = len(dos) - len(dos32)
+            # RAR/DOS32 writes the same end block as WinRAR of the same
+            # version -- measured 2026-10-11 on all 43 builds, first volume of
+            # a volumed set: 3.00 (0x4001, 7), 3.10-3.30 (0x4007, 18), 3.40-3.93
+            # (0x400f, 20). So an end block that names the family names it on
+            # this line too, and here a wrong build costs a DOSBox pack.
+            if fam_dos and dos32:
+                kept = [e for e in dos32
+                        if fam_dos[0] <= _dos32_number(e.name) <= fam_dos[1]]
+                if len(kept) < len(dos32):
+                    self._log(f"    {len(dos32) - len(kept)} RAR/DOS32 build(s) "
+                              f"skipped — they do not write {fam_name}'s end "
+                              f"block either.", "dim")
+                dos32 = kept
             dos = dos32
             if dos:
                 self._log(f"    {dropped} 16-bit DOS build(s) skipped: this "
