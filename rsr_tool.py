@@ -8526,14 +8526,18 @@ class RsrToolAPI:
         if size > (4 << 30):
             return None
         unp = rar4_unp_max(st["volumes"])
-        # Not 2.0x: those builds hang on a free-space prompt or predate the
-        # switches this needs (Tomb_Raider_La_Revelation_Finale-GENESIA sat an
-        # hour on rar 2.03), and every 2.x win here is 2.50 or later.
+        # Not 2.02-2.06: those predate the switches this needs (Tomb_Raider_
+        # La_Revelation_Finale-GENESIA sat an hour on rar 2.03). But 2.00 and
+        # 2.01 ARE that release's packer -- the 1996-97 builds write its
+        # whole first volume, 19,982,016 B, where every later one parts
+        # inside the first megabyte -- and they run through their patched
+        # twins (see _runnable), so they are asked too.
         lo, hi = (300, 329) if unp >= 29 else (250, 299)
         seen, cands = set(), []
         for ex in exes:
             n = _exe_number(ex.name)
-            if lo <= n <= hi and n not in seen:
+            if ((lo <= n <= hi or (unp < 29 and n in (200, 201)))
+                    and n not in seen):
                 seen.add(n)
                 cands.append(ex.name)
         if not cands:
@@ -11730,8 +11734,13 @@ class RsrToolAPI:
         if not cmds:
             return None
         mb = sum(p.stat().st_size for p in src_files if p.is_file()) / (1 << 20)
+        # By the size of the job, as the probe's limit already is: a flat hour
+        # killed rar 2.01 at volume 19 of 32 of Tomb_Raider_La_Revelation_
+        # Finale-GENESIA (773 MB at -m4, some 35 min alone and over an hour
+        # beside another scan), and the build that writes every one of its
+        # volumes byte for byte read as "0 of 1 streams".
         for c in cmds:
-            if not self._run(c, timeout=3600,
+            if not self._run(c, timeout=max(3600, min(4 * 3600, int(mb * 12))),
                              heartbeat=f"replaying {recipe['version']} "
                                        f"{_mt_label(recipe.get('exe', ''), recipe['mt'])}"
                                        f" over {mb:,.0f} MB",
