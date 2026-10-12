@@ -9,6 +9,8 @@ import re
 import json
 import time
 import shutil
+import stat
+import sys
 import hashlib
 import tempfile
 import threading
@@ -462,9 +464,22 @@ class MiscToolsAPI:
         L(f"  Retention: {len(found)} backup(s) here, keeping the newest "
           f"{keep} complete — removing {len(old)}.", "info")
         removed = 0
+
+        def _writable(func, path, _exc):
+            # A backup holds the toolkit's .git, and git's object files are
+            # read-only: Windows will not delete one, so rmtree stopped at
+            # the first of them (.git sorts near the top) and the whole old
+            # backup stayed -- `keep` was honoured in the count and never on
+            # the disk. Clear the attribute and try that one again.
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+
         for p in old:
             try:
-                shutil.rmtree(str(p))
+                if sys.version_info >= (3, 12):
+                    shutil.rmtree(str(p), onexc=_writable)
+                else:
+                    shutil.rmtree(str(p), onerror=_writable)
                 removed += 1
                 L(f"    removed {p.name}", "dim")
             except Exception as e:
