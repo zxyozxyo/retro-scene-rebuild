@@ -3877,13 +3877,21 @@ class RsrToolAPI:
         original in ONE token of 43 million -- the build the forced-decision
         solver has to start from (see _mm_flip_recipe)."""
         try:
-            cur = getattr(self._tl, "best_depth", None)
-            if depth > 0 and (cur is None or depth > cur[0] or (
-                    depth == cur[0] and not self._mmv_ok(cur[1])
-                    and self._mmv_ok(ex.name))):
-                self._tl.best_depth = (int(depth), ex.name, n,
-                                       tuple(str(x) for x in (extra or ())),
-                                       dict_kb)
+            # Called on a sweep slot's own thread: the box is the capture
+            # thread's, handed to each slot (a plain thread-local was written
+            # here and never seen by the sweep loop that reads it).
+            box = getattr(self._tl, "depth_box", None)
+            if box is None or depth <= 0:
+                return
+            ok = self._mmv_ok(ex.name)
+            with box["lock"]:
+                cur = box.get("best")
+                if (cur is None or depth > cur[0] or (
+                        depth == cur[0] and ok
+                        and not self._mmv_ok(cur[1]))):
+                    box["best"] = (int(depth), ex.name, n,
+                                   tuple(str(x) for x in (extra or ())),
+                                   dict_kb)
         except Exception:
             pass
 
@@ -8395,7 +8403,7 @@ class RsrToolAPI:
             import dosrar_fill
         except ImportError:
             return None
-        bd = getattr(self._tl, "best_depth", None)
+        bd = (getattr(self._tl, "depth_box", None) or {}).get("best")
         bp = self._best_partial
         if bd and self._mmv_ok(bd[1]):
             exe, mt_, sw_, dkb = bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
@@ -10578,7 +10586,7 @@ class RsrToolAPI:
                     if len(c) > 2 and c[2] and c[2][0] == self.DOS_MARK)
         # A previous release's near-miss must not be reported against this one.
         self._best_partial = None
-        self._tl.best_depth = None
+        self._tl.depth_box = {"best": None, "lock": threading.Lock()}
         # WHY combos are being rejected, not just that they were. "rejected on
         # volume structure, end block or header" lumps six distinct checks into
         # one sentence, so a release that burns 7,000 combos without ever
@@ -10675,7 +10683,7 @@ class RsrToolAPI:
             # exact for 11 MB of a 53 MB stream, one token out) and F1_World_
             # Grand_Prix-UTOPIA each spent over an hour here on 750 MB DOSBox
             # packs before the forced-decision solver got its turn.
-            bd_ = getattr(self._tl, "best_depth", None)
+            bd_ = (getattr(self._tl, "depth_box", None) or {}).get("best")
             if (bd_ and bd_[0] >= 4 << 20 and idx and len(cur) > 2 and cur[2]
                     and cur[2][0] == self.DOS_MARK
                     and not (len(combos[0]) > 2 and combos[0][2]
@@ -10764,11 +10772,13 @@ class RsrToolAPI:
             results: list = [None] * len(chunk)
             slot_rel = getattr(self._tl, "rel", None)
             slot_tag = getattr(self._tl, "tag", "")
+            slot_box = getattr(self._tl, "depth_box", None)
 
             def _slot(s: int):
                 # A fresh thread has none of the capture thread's locals: the
                 # release name is what a per-release Skip is matched on.
                 self._tl.rel, self._tl.tag = slot_rel, slot_tag
+                self._tl.depth_box = slot_box
                 ex_, n_, *rest_ = chunk[s]
                 extra_ = rest_[0] if rest_ else ()
                 try:
@@ -10995,9 +11005,11 @@ class RsrToolAPI:
         return known[ex.name]
 
     @staticmethod
-    def _fill_from_look(probe_head: Path, prefix: dict) -> int | None:
+    def _fill_from_look(probe_head: Path,
+                        prefix: dict) -> int | str | None:
         """The leftover-memory value a failed DOS first look points at, or
-        None when its divergence is not that kind.
+        None when its divergence is not that kind. A whole `@SLOTS` switch
+        instead, for a stream whose per-slot state is on record.
 
         RAR 2.x for DOS leaves some hash links unwritten when a match crosses
         window position 32768 and reads them on a later walk -- zero under
@@ -11029,6 +11041,9 @@ class RsrToolAPI:
                 continue
             if len(ours) < 4096 or len(orig) < 4096:
                 continue
+            known = dosrar_fill.known_memory(orig)
+            if known:
+                return known
             to = dosrar_fill.rar20_tokens(orig, 70_000)
             tg = {t[0]: t for t in dosrar_fill.rar20_tokens(ours, 70_000)}
             at = next((i for i, t in enumerate(to) if tg.get(t[0]) != t), None)

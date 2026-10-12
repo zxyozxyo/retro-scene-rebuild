@@ -190,6 +190,26 @@ _SLOT_AFTER = bytes.fromhex("2ec706c40000002ec706c80000002ec706c6000000")
 _SLOT_TABLE = 0x1570          # init block back to cs:0x1A3
 
 
+# Leftover-memory states worked out by hand, keyed by the SHA-1 of the first
+# 64 KB of the original's packed stream. A per-slot state cannot be read off
+# one diverging token the way a uniform fill can (the stale link has to point
+# AHEAD of the walk that first reads it), so until a search for it exists the
+# sweep is told the answer for the streams where it is known.
+#   Gunbird_2_JAP_DC-KALISTO (dosrar200 -m5 -s -mm): slot 32809 held a link to
+#   a position not yet packed; 249,170,937 B identical with it. 2026-10-12.
+KNOWN_MEMORY = {
+    "74101b821948a3e79a7901664df33976cd950152":
+        "@SLOTS32809:32852,32852:1,32768:25902",
+}
+
+
+def known_memory(head: bytes) -> str | None:
+    """The recorded `@SLOTS` switch for an original stream starting with
+    `head` (its first 64 KB, or all of a shorter one), or None."""
+    import hashlib
+    return KNOWN_MEMORY.get(hashlib.sha1(head[:65536]).hexdigest())
+
+
 def parse_slots(switches) -> list[tuple[int, int]]:
     """[(window position, value)] from '@SLOTS32809:32852,32852:1'."""
     out = []
