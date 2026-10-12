@@ -8121,6 +8121,13 @@ class RsrToolAPI:
         # every wall this fixes parks on the budget, because no build can
         # ever finish it.
         if not recipe and not (self._skip.is_set() or self._stop.is_set()):
+            recipe = self._solo_recipe(
+                st, targets, src_files, work, level, solid, mgroups,
+                sweep_vol, head_vol, newnum, dir_send, dirs_first, comment,
+                base=srcdir if keep_paths else None)
+            if recipe:
+                self._budget_hit = False
+        if not recipe and not (self._skip.is_set() or self._stop.is_set()):
             recipe = self._mm_flip_recipe(
                 st, meta, targets, blocks, order, src_files, work, level,
                 solid, mgroups, sweep_vol, head_vol, newnum, dir_send,
@@ -8817,6 +8824,58 @@ class RsrToolAPI:
                   "decision(s).", "warn")
         return None
 
+    def _solo_recipe(self, st, targets, src_files, work, level, solid,
+                     groups, vol_bytes, head_vol, newnum, dirs, dirs_first,
+                     comment, base=None) -> dict | None:
+        """The closest combo packed once more, with every file NAMED in the
+        original's order -- or None.
+
+        A file list too long for a command line is replaced by its folders
+        (see _pack_cmds), and rar then adds their files in its own order.
+        That is harmless while each file's stream stands alone, and it does
+        not: under rar 3.60 -mt2 a file's stream depends on the file packed
+        before it. Hellgate_(Unreleased)_Dreamcast_DEV-BOX-Xcult -- 4,591
+        files, 347 folders, non-solid -- reproduces every stream from a full
+        list in the original's order (by hand, twice), while the folder form
+        moved 202 of them and the release stood at "closest: 3600 of 4591
+        under 3.60 -mt2" on every run.
+
+        Only for a combo that already matched at least half the streams, so
+        a set no build is near costs nothing here; one full pack."""
+        bp = self._best_partial
+        if (not bp or len(bp) < 7 or not dirs or len(groups) != 1
+                or bp[0] * 2 < len(targets) or len(targets) < 2):
+            return None
+        exe, mt_, sw_, dkb = bp[5], bp[2], [str(x) for x in (bp[3] or ())], bp[6]
+        if sw_ and sw_[0] == self.DOS_MARK:
+            return None
+        rec = {"exe": exe, "version": _exe_label(exe), "mt": mt_,
+               "dict_kb": dkb, "level": level, "solid": bool(solid),
+               "volume_bytes": vol_bytes, "new_numbering": newnum,
+               "dirs": list(dirs), "dirs_first": bool(dirs_first),
+               "dirs_form": "listed", "mc": sw_, "tried": 0}
+        if head_vol:
+            rec["volume_head_bytes"] = head_vol
+        self._log(f"    ◐ {bp[1]}{'' if mt_ < 0 else f' -mt{mt_}'} reproduced "
+                  f"{bp[0]} of {len(targets)} stream(s) — packing it once "
+                  "more with every file named in the original's order "
+                  "rather than by folder.", "info")
+        t0 = time.monotonic()
+        made = self._replay(dict(rec), src_files, work / "solo", comment,
+                            st["format"], base=base)
+        if not made:
+            self._log("      the pack produced nothing.", "warn")
+            return None
+        got = self._streams_match(made[0], targets)
+        if len(got) == len(targets):
+            self._log(f"      ✓ in that order every stream reproduces "
+                      f"({time.monotonic() - t0:,.0f}s).", "ok")
+            rec.pop("volume_head_bytes", None)
+            return rec
+        self._log(f"      {len(got)} of {len(targets)} "
+                  f"({time.monotonic() - t0:,.0f}s) — not the order.", "dim")
+        return None
+
     def _mmv_ok(self, exe: str) -> bool:
         """Whether rar2_mmv can patch this build -- asked per combo by
         _note_depth, so answered once per build."""
@@ -9083,7 +9142,7 @@ class RsrToolAPI:
                 # folder entries inline under this form, which the default
                 # form already gets right for those archives.
                 names = _inline_dirs(names, dirs)
-            elif dirs and dirs_form in (None, "given"):
+            elif dirs and dirs_form in (None, "given", "listed"):
                 dn = list(dirs)
                 if dirs_first and gi == 0:
                     names = dn + names
@@ -9101,7 +9160,11 @@ class RsrToolAPI:
             # and stays as it was -- the seven MAME 0.145 DVDs (2.70b4, one
             # folder each) were captured exact through this fallback.
             nested = any(len(Path(str(n)).parts) > 2 for n in plain)
-            if (dirs and len(groups) == 1 and dirs_form != "omit"
+            # "listed": every file named, in a listfile, whatever its length
+            # -- for a set whose file order is not rar's own (see
+            # _solo_recipe).
+            if (dirs and len(groups) == 1
+                    and dirs_form not in ("omit", "listed")
                     and not (nested and 0 < _exe_number(ex.name) < 280)
                     and used + sum(len(str(n)) + 3 for n in names)
                     > CMDLINE_MAX):
