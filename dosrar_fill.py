@@ -163,6 +163,66 @@ def fill_exe(stock: bytes, value: int) -> bytes:
     img = img[:at] + new + img[at + len(new):]
     return _build_mz(stock, img, rel, regs)
 
+# ── per-slot leftover memory ──────────────────────────────────────────────────
+
+# One value for every never-written link is not always enough. Measured on
+# Gunbird_2_JAP_DC-KALISTO (2026-10-12): stock differs from the original in two
+# tokens (34996, 35082); pre-setting the one slot both walks read (32809) to a
+# value that mends them makes the walk at 32816 find a 30-byte match the
+# original did not. What reproduces all 249,170,937 B is THREE slots:
+#
+#     32809 -> 32852   a position not yet packed when 32816 is searched
+#     32852 -> 1       ...so that walk reads this, fails the hash check, stops
+#     32768 -> 25902   by 34996, 32852 holds its real link (zero), and a zero
+#                      link in the upper segment reads slot 32768
+#
+# -- leftover memory that a later insertion overwrites, i.e. a stale link whose
+# meaning changes during the pass. The init block and the 15 + 21 bytes around
+# it are the same in every LZEXE build 2.00-2.50; the table is read from the
+# 2-byte table's own area (cs:0x1A3) before that is initialised.
+_SLOT_CODE = bytes.fromhex(
+    "8CC8" "8EC0" "FC" "31C0" "B92000" "BF5201" "F3AA" "BFC400" "ABABAB"
+    "2E8E069301" "31FF" "B580" "2E803EC300FF" "7402" "B540" "F3AB"
+    "2E8E069701" "BEA301" "2EAD" "91" "E308" "2EAD" "97" "2EAD" "AB" "E2F8"
+    "B8C0C0" "0E07" "BFA301" "B508" "F3AB")
+_SLOT_BEFORE = bytes.fromhex("8cc88ec0fc2bc0b92000bf5201f3aa")
+_SLOT_AFTER = bytes.fromhex("2ec706c40000002ec706c80000002ec706c6000000")
+_SLOT_TABLE = 0x1570          # init block back to cs:0x1A3
+
+
+def parse_slots(switches) -> list[tuple[int, int]]:
+    """[(window position, value)] from '@SLOTS32809:32852,32852:1'."""
+    out = []
+    for x in switches:
+        x = str(x)
+        if x.startswith("@SLOTS"):
+            for part in filter(None, x[6:].split(",")):
+                a, b = part.split(":")
+                out.append((int(a), int(b)))
+    return out
+
+
+def slot_exe(stock: bytes, pairs) -> bytes:
+    """`stock` with the upper link segment's slot for each window position in
+    `pairs` pre-set to its value (everything else zero, as under DOSBox)."""
+    if stock[0x1C:0x20] != b"LZ91":
+        raise ValueError("not an LZEXE RAR 2.x DOS packer")
+    img, rel, regs = unlzexe(stock)
+    at = img.find(_INIT_OLD)
+    if (at < _SLOT_TABLE or img.find(_INIT_OLD, at + 1) >= 0
+            or img[at - 15:at] != _SLOT_BEFORE
+            or img[at + 39:at + 60] != _SLOT_AFTER):
+        raise ValueError("not a RAR 2.x DOS packer this patch knows")
+    tab = struct.pack("<H", len(pairs)) + b"".join(
+        struct.pack("<HH", (2 * int(p)) & 0xFFFF, int(v) & 0xFFFF)
+        for p, v in pairs)
+    if len(tab) > 4096:
+        raise ValueError("too many slots")
+    img = bytearray(img)
+    img[at - 15:at - 15 + len(_SLOT_CODE)] = _SLOT_CODE
+    img[at - _SLOT_TABLE:at - _SLOT_TABLE + len(tab)] = tab
+    return _build_mz(stock, bytes(img), rel, regs)
+
 
 # ── where the original used a stale slot ─────────────────────────────────────
 
@@ -183,7 +243,7 @@ _SDBIT = (2, 2, 3, 4, 5, 6, 6, 6)
 
 
 def rar20_tokens(data: bytes, max_out: int, blocks: list | None = None,
-                 tokens: bool = True):
+                 tokens: bool = True, since_bit: int = 0, limit: int = 0):
     """[(output position, kind, detail)] of a RAR 2.0 stream up to max_out
     bytes of output. kind: L literal, M new match (len, dist), OLD/REP/S the
     distance-reuse forms, A audio. After unrar's Unpack20; no window needed.
@@ -191,7 +251,11 @@ def rar20_tokens(data: bytes, max_out: int, blocks: list | None = None,
     `blocks`, when given, collects (output position, audio?, channels) at
     every table read -- where each block starts and what it is. With
     tokens=False nothing else is kept, which is what a whole CD image needs
-    (hundreds of millions of tokens would not fit in memory)."""
+    (hundreds of millions of tokens would not fit in memory).
+
+    `since_bit` keeps only the tokens that END at or after that bit of the
+    stream and `limit` stops after that many are kept -- the few tokens
+    either side of a late divergence, without the millions before it."""
     buf = bytes(data) + b"\0" * 8
     nbits = len(data) * 8
     pos = 0
@@ -283,20 +347,21 @@ def rar20_tokens(data: bytes, max_out: int, blocks: list | None = None,
     last = (0, 0)
     try:
         tables()
-        while out < max_out and pos < nbits:
+        while (out < max_out and pos < nbits
+               and not (limit and len(ev) >= limit)):
             if st["audio"]:
                 n = dec(tab["MD"][st["cur"]])
                 if n == 256:
                     tables()
                     continue
-                if tokens:
+                if tokens and pos >= since_bit:
                     ev.append((out, "A", n))
                 out += 1
                 st["cur"] = (st["cur"] + 1) % st["chan"]
                 continue
             n = dec(tab["LD"])
             if n < 256:
-                if tokens:
+                if tokens and pos >= since_bit:
                     ev.append((out, "L", n))
                 out += 1
                 continue
@@ -332,7 +397,7 @@ def rar20_tokens(data: bytes, max_out: int, blocks: list | None = None,
             olds[optr & 3] = d
             optr += 1
             last = (ln, d)
-            if tokens:
+            if tokens and pos >= since_bit:
                 ev.append((out, kind, (ln, d)))
             out += ln
     except (ValueError, IndexError):

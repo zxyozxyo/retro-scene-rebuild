@@ -2105,7 +2105,7 @@ END_UNKNOWN = "?"          # no reading taken; anything else is a real answer
 # Bumped whenever a change makes the sweep JUDGE combos differently. It feeds
 # _order_sig, so parked releases start over instead of resuming past combos
 # that would now be accepted.
-SWEEP_JUDGE_GEN = "2026-10-11 RAR/DOS32 packs no longer starved of memory"
+SWEEP_JUDGE_GEN = "2026-10-12 a first look reads past the finished .cue"
 
 
 def end_block_sig(vol: Path) -> tuple | None:
@@ -2912,10 +2912,17 @@ def rar4_reserved_data_offset(path: Path, name: str):
     -- and the geometry is fixed: 32 bytes plus the name. T.BIN (5) puts data
     at 57; KAL-LSR.BIN (11) puts it at 63, which is exactly where the finished
     original has it. None when the reserved area is not zeroed, which means
-    the guess about which file comes first is wrong."""
+    the guess about which file comes first is wrong.
+
+    Files rar has already FINISHED sit in front of the placeholder with real
+    headers, and are stepped over: a .cue packed ahead of its .bin is done in
+    the first few hundred bytes, and without this every cue-first archive got
+    no first look at all (and no leftover-memory value from one) --
+    Resident_Evil_Code_Veronica_USA_DC-KALISTO disc 1, dosrar250 -s1 -ds,
+    whose .bin parts from the original at 32,816 on exactly such a link."""
     try:
         with open(path, "rb") as fh:
-            head = fh.read(4096)
+            head = fh.read(1 << 16)
     except OSError:
         return None
     if not head.startswith(RAR4_SIG) or len(head) < 64:
@@ -2926,6 +2933,19 @@ def rar4_reserved_data_offset(path: Path, name: str):
         return None
     add = int.from_bytes(head[14:18], "little") if flags & 0x8000 else 0
     main_end = 7 + hsize + add
+    while main_end + 32 <= len(head) and head[main_end + 2] == 0x74:
+        hs = int.from_bytes(head[main_end + 5:main_end + 7], "little")
+        if hs < 32 or main_end + hs > len(head):
+            return None
+        if (zlib.crc32(head[main_end + 2:main_end + hs]) & 0xFFFF
+                != int.from_bytes(head[main_end:main_end + 2], "little")):
+            return None
+        nl = int.from_bytes(head[main_end + 26:main_end + 28], "little")
+        if head[main_end + 32:main_end + 32 + nl] == name.encode("latin-1",
+                                                                "replace"):
+            return None        # this file is finished, not in flight
+        main_end += hs + int.from_bytes(head[main_end + 7:main_end + 11],
+                                        "little")
     off = main_end + 32 + len(name)
     if off > len(head):
         return None
@@ -2958,7 +2978,7 @@ def rar4_reserved_data_offsets(path: Path, name: str) -> list:
         return []
     try:
         with open(path, "rb") as fh:
-            head = fh.read(4096)
+            head = fh.read(1 << 16)
     except OSError:
         return [base]
     # Extended time is 2 bytes of flags plus 0-3 per stored time (and 4 more
@@ -3846,6 +3866,26 @@ class RsrToolAPI:
     @_best_partial.setter
     def _best_partial(self, v):
         self._tl.best_partial = v
+
+    def _note_depth(self, depth: int, ex, n, extra, dict_kb) -> None:
+        """Remember the Windows combo whose big stream agreed with the
+        original for LONGEST before parting: (bytes, exe, mt, switches, dict).
+
+        The count of matched streams cannot rank these. Virtua_Cop_2-ULFC is a
+        stored .cue and one image: every build "matches 1 of 2", while rar
+        2.70 alone runs 11,115,527 B into the image and differs from the
+        original in ONE token of 43 million -- the build the forced-decision
+        solver has to start from (see _mm_flip_recipe)."""
+        try:
+            cur = getattr(self._tl, "best_depth", None)
+            if depth > 0 and (cur is None or depth > cur[0] or (
+                    depth == cur[0] and not self._mmv_ok(cur[1])
+                    and self._mmv_ok(ex.name))):
+                self._tl.best_depth = (int(depth), ex.name, n,
+                                       tuple(str(x) for x in (extra or ())),
+                                       dict_kb)
+        except Exception:
+            pass
 
     def set_window(self, w):
         self._window = w
@@ -7870,7 +7910,8 @@ class RsrToolAPI:
             recipe = self._mm_flip_recipe(
                 st, meta, targets, blocks, order, src_files, work, level,
                 solid, mgroups, sweep_vol, head_vol, newnum, dir_send,
-                dirs_first, base=srcdir if keep_paths else None)
+                dirs_first, base=srcdir if keep_paths else None,
+                comment=comment)
             if recipe:
                 self._budget_hit = False
         if not recipe and not (self._skip.is_set() or self._stop.is_set()):
@@ -8325,74 +8366,62 @@ class RsrToolAPI:
 
     def _mm_flip_recipe(self, st, meta, targets, blocks, order, src_files,
                         work, level, solid, groups, vol_bytes, head_vol,
-                        newnum, dirs, dirs_first, base=None) -> dict | None:
-        """The closest -mm combo, with the multimedia verdicts that went the
-        other way on the scene's PC forced (see rar2_mmv) -- or None.
+                        newnum, dirs, dirs_first, base=None,
+                        comment=None) -> dict | None:
+        """The closest RAR 2.7x combo with the one or two DECISIONS that went
+        the other way on the scene's PC forced (see rar2_mmv) -- or None.
 
-        Only for the shape it was proven on: a RAR 2.0-format, non-solid set
-        where a Windows 2.70/2.71 combo with -mm reproduced every stream but
-        one or two big ones. Oni_Zero_Fukkatsu and FURAIKI (HOOLiGANS) each
-        needed exactly ONE forced call out of ~600,000. Each round is a full
-        traced pack; the original's block starts are decoded once."""
-        bp = self._best_partial
-        if not bp or len(bp) < 7 or st["format"] != "RAR4":
+        Two kinds, both proven: a multimedia verdict (`@MMV`: audio or not,
+        and with how many channels) and the lazy-match answer (`@LZV`). Each
+        wall so far needed exactly one, out of hundreds of thousands of
+        calls -- Oni_Zero and FURAIKI (HOOLiGANS), Jet_Coaster_Dream_2
+        (STONEARTS) and F1_World_Grand_Prix (UTOPIA) a verdict,
+        Virtua_Cop_2 (ULFC) a lazy answer in a set packed without -mm.
+
+        Starts from the combo that ran deepest into the big stream, or the
+        one that matched most streams. Each round is one full pack. A solid
+        set is taken only as far as its first stream: the decoder cannot
+        enter a solid stream part-way.
+
+        Packed WITH the archive comment, as the verifying replay and every
+        rebuild will be: rar compresses the comment through the same
+        routines, so it uses up call numbers. Jet_Coaster_Dream_2's 4,756 B
+        comment moved the forced verdict onto the wrong chunk and the capture
+        came back unverified with every stream "byte-exact"."""
+        if st["format"] != "RAR4" or rar4_unp_max(st["volumes"]) >= 29:
             return None
-        n_ok, label, mt_, sw_, names, exe, dkb = bp[:7]
-        sw_ = [str(x) for x in (sw_ or ())]
-        if solid or any(f.get("solid") for f in meta):
-            return None
-        if rar4_unp_max(st["volumes"]) >= 29:
-            return None
-        miss = [f["name"] for f in meta
-                if f["name"] in targets and f["name"] not in set(names)]
-        if not miss or len(miss) > 2:
-            return None
-        ex = self._app_dir / "apps" / "winrar_pack-4.20" / exe
         try:
             import rar2_mmv
             import dosrar_fill
-            if not rar2_mmv.supported(ex.read_bytes()):
-                return None
-        except (OSError, ImportError):
+        except ImportError:
             return None
-        self._log(f"    ◐ {label} reproduces every stream but "
-                  f"{', '.join(n.split('/')[-1] for n in miss)} — trying the "
-                  "multimedia verdicts that can differ between PCs (one full "
-                  "pack per round).", "info")
+        bd = getattr(self._tl, "best_depth", None)
+        bp = self._best_partial
+        if bd and self._mmv_ok(bd[1]):
+            exe, mt_, sw_, dkb = bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
+            why = (f"{_exe_label(exe)} runs {bd[0]:,} B into the stream "
+                   "before parting")
+        elif bp and len(bp) >= 7 and self._mmv_ok(bp[5]):
+            exe, mt_, sw_, dkb = bp[5], bp[2], [str(x) for x in
+                                                (bp[3] or ())], bp[6]
+            why = f"{bp[1]} reproduces {bp[0]} of {len(targets)} stream(s)"
+        else:
+            return None
+        self._log(f"    ◐ {why} — trying the decisions that can differ "
+                  "between PCs (one full pack per round).", "info")
         src_of = dict(zip(order, src_files))
-        orig_blocks = {}
-        t0 = time.monotonic()
-        for name in miss:
+        fsolid = {f["name"]: bool(f.get("solid")) for f in meta}
+
+        def _stream(blist):
             data = bytearray()
-            for vol, off, size in blocks.get(name, ()):
+            for vol, off, size in blist or ():
                 with open(vol, "rb") as fh:
                     fh.seek(off)
                     data += fh.read(size)
-            bl = []
-            dosrar_fill.rar20_tokens(bytes(data), 1 << 62, blocks=bl,
-                                     tokens=False)
-            del data
-            if not bl:
-                return None
-            orig_blocks[name] = bl
-            if self._stop.is_set() or self._skip.is_set():
-                return None
-        if not any(b[1] for bl in orig_blocks.values() for b in bl):
-            return None                    # no audio anywhere: not this class
-        if "-mm" not in sw_:
-            # The closest combo was a PLAIN one -- -mm and plain write the
-            # same stream up to the first audio verdict, so the sweep keeps
-            # whichever came first. Jet_Coaster_Dream_2-STONEARTS: 46 of 47
-            # under 2.70b4 -s1 -ds, and 382 audio blocks that only start
-            # 609 MB into the image, past the multimedia check's scan.
-            sw_ = sw_ + ["-mm"]
-        self._log(f"      the original's blocks decoded in "
-                  f"{time.monotonic() - t0:,.0f}s "
-                  f"({sum(len(b) for b in orig_blocks.values()):,} blocks, "
-                  f"{sum(1 for b in orig_blocks.values() for x in b if x[1]):,}"
-                  " audio).", "dim")
+            return bytes(data)
+
         rec = {"exe": exe, "version": _exe_label(exe), "mt": mt_,
-               "dict_kb": dkb, "level": level, "solid": False,
+               "dict_kb": dkb, "level": level, "solid": bool(solid),
                "volume_bytes": vol_bytes, "new_numbering": newnum,
                "dirs": list(dirs), "dirs_first": bool(dirs_first),
                "tried": 0}
@@ -8401,63 +8430,173 @@ class RsrToolAPI:
         if len(groups) > 1:
             rec["groups"] = [list(g) for g in groups]
         trace = work / "mmv_trace.bin"
-        forced: list[tuple[int, int]] = []
+        lz_trace = work / "lzv_trace.bin"
+        forced: list[tuple] = []            # multimedia verdicts
+        lazy: list[tuple] = []              # lazy answers
+        watch = None                        # the lazy answer being placed
+        orig_blocks: dict = {}
+        orig_data: dict = {}
+        audio = "-mm" in sw_
+        last = (None, -1)                   # (stream, bytes agreed)
         for rnd in range(self.MMV_MAX_FLIPS + 1):
             if self._stop.is_set() or self._skip.is_set():
                 return None
-            mc = sw_ + ([rar2_mmv.switch(forced)] if forced else [])
-            try:
-                trace.unlink()
-            except OSError:
-                pass
+            mc = (sw_ + (["-mm"] if audio and "-mm" not in sw_ else [])
+                  + ([rar2_mmv.switch(forced)] if forced else [])
+                  + ([rar2_mmv.switch(lazy, "@LZV")] if lazy else []))
+            for t in (trace, lz_trace):
+                try:
+                    t.unlink()
+                except OSError:
+                    pass
             t0 = time.monotonic()
-            made = self._replay(dict(rec, mc=mc, _mm_trace=str(trace)),
-                                src_files, work / "mmv", None, st["format"],
-                                base=base)
+            run = dict(rec, mc=mc)
+            if audio:
+                run["_mm_trace"] = str(trace)
+            if watch:
+                run["_lz_watch"] = (str(lz_trace),) + watch
+            made = self._replay(run, src_files, work / "mmv", comment,
+                                st["format"], base=base)
             if not made:
                 self._log("      the traced pack produced nothing.", "warn")
                 return None
+            if watch:
+                try:
+                    raw = lz_trace.read_bytes()
+                except OSError:
+                    raw = b""
+                if len(raw) < rar2_mmv.LZ_REC:
+                    self._log("      the build never asked the lazy question "
+                              "at that position — the difference is "
+                              "something else.", "warn")
+                    return None
+                lazy.append((int.from_bytes(raw[:4], "little"), watch[2]))
+                mc = ([x for x in mc if not x.startswith("@LZV")]
+                      + [rar2_mmv.switch(lazy, "@LZV")])
+                watch = None
             got = set(self._streams_match(made[0], targets))
-            left = [n for n in miss if n not in got]
             if len(got) == len(targets):
                 self._log(f"      ✓ every stream reproduces with "
-                          f"{len(forced)} verdict(s) forced "
-                          f"({rar2_mmv.switch(forced)}).", "ok")
+                          f"{len(forced) + len(lazy)} decision(s) forced ("
+                          + " ".join(x for x in mc if x.startswith("@"))
+                          + ").", "ok")
                 out = dict(rec, mc=mc)
                 out.pop("volume_head_bytes", None)
                 return out
-            if any(n not in got for n in targets if n not in miss):
-                self._log("      forcing verdicts broke a stream that had "
-                          "matched — giving up.", "warn")
-                return None
             if rnd == self.MMV_MAX_FLIPS:
                 break
-            try:
-                calls = rar2_mmv.read_trace(trace.read_bytes())
-            except OSError:
+            # the first stream, in pack order, that still differs
+            name = next((n for n in order if n in targets and n not in got),
+                        None)
+            if name is None or fsolid.get(name) or name not in src_of:
+                self._log("      the stream that differs continues a solid "
+                          "one — out of reach for now.", "warn")
                 return None
+            if name not in orig_data:
+                orig_data.clear()
+                orig_data[name] = _stream(blocks.get(name))
+            try:
+                ours = _stream(packed_blocks(made[0]).get(name))
+            except Exception:
+                return None
+            a = orig_data[name]
+            lim = min(len(a), len(ours))
+            step = 1 << 16
+            fb = next((i for i in range(0, lim, step)
+                       if a[i:i + step] != ours[i:i + step]), lim)
+            fb = next((i for i in range(fb, min(lim, fb + step))
+                       if a[i] != ours[i]), lim)
+            if last[0] == name and fb <= last[1]:
+                self._log("      forcing that decision did not move the "
+                          "divergence — giving up.", "warn")
+                return None
+            last = (name, fb)
+            if name not in orig_blocks:
+                bl = []
+                dosrar_fill.rar20_tokens(a, 1 << 62, blocks=bl, tokens=False)
+                if not bl:
+                    return None
+                orig_blocks[name] = bl
+                if any(b[1] for b in bl) and not audio:
+                    # -mm and plain write the same stream up to the first
+                    # audio verdict, so the sweep keeps whichever came first.
+                    # Jet_Coaster_Dream_2: 382 audio blocks that only start
+                    # 609 MB into the image.
+                    audio = True
+                    last = (None, -1)
+                    self._log("      the original has audio blocks — "
+                              "packing with -mm from here.", "dim")
+                    continue
             nxt = None
-            for name in left:
+            if audio:
+                try:
+                    calls = rar2_mmv.read_trace(trace.read_bytes())
+                except OSError:
+                    calls = []
                 src = src_of[name].read_bytes()
-                d = rar2_mmv.first_disagreement(
+                nxt = rar2_mmv.first_disagreement(
                     rar2_mmv.place(calls, src), orig_blocks[name])
                 del src
-                if d and (nxt is None or d[0] < nxt[0]):
-                    nxt = d
-            if nxt is None or any(nxt[0] <= n for n, _ in forced):
-                self._log("      no analyser verdict disagrees with the "
-                          "original — the difference is something else.",
-                          "warn")
+                if nxt and any(nxt[0] <= f[0] for f in forced):
+                    nxt = None
+            if nxt:
+                forced.append(nxt)
+                self._log(f"      round {rnd + 1} "
+                          f"({time.monotonic() - t0:,.0f}s): multimedia call "
+                          f"{nxt[0]:,} is "
+                          + (f"audio, {nxt[2]} channel(s)" if nxt[1]
+                             else "not audio")
+                          + " in the original — forcing it.", "dim")
+                continue
+            # No verdict disagrees: read the tokens either side of the first
+            # differing byte and see whether one lazy answer explains it.
+            since = max(0, fb * 8 - 4096)
+            ta = dosrar_fill.rar20_tokens(a, 1 << 62, since_bit=since,
+                                          limit=600)
+            tb = {t[0]: t for t in dosrar_fill.rar20_tokens(
+                ours, 1 << 62, since_bit=since, limit=600)}
+            del ours
+            d = next((t for t in ta if tb.get(t[0]) != t), None)
+            o = tb.get(d[0]) if d else None
+            want = None
+            if d and o and d[1] == "L" and o[1] not in ("L", "A"):
+                want = 1                   # the original deferred here
+            elif d and o and o[1] == "L" and d[1] not in ("L", "A"):
+                want = 0                   # ...or took the match at once
+            side = rar2_mmv.FP_SIDE
+            if want is None or d[0] < side:
+                self._log("      no forced decision explains the first "
+                          "difference — it is something else.", "warn")
                 return None
-            forced.append(nxt)
-            self._log(f"      round {rnd + 1} ({time.monotonic() - t0:,.0f}s):"
-                      f" call {nxt[0]:,} answered "
-                      f"{'LZ' if nxt[1] else 'audio'} here and "
-                      f"{'audio' if nxt[1] else 'LZ'} in the original — "
-                      "forcing it.", "dim")
-        self._log(f"      still short after {len(forced)} forced verdicts.",
-                  "warn")
+            with open(src_of[name], "rb") as fh:
+                fh.seek(d[0] - side)
+                ctx = fh.read(2 * side)
+            if len(ctx) != 2 * side:
+                return None
+            watch = (ctx, 0, want)
+            self._log(f"      round {rnd + 1} "
+                      f"({time.monotonic() - t0:,.0f}s): at {d[0]:,} in "
+                      f"{name.split('/')[-1]} the original "
+                      + ("deferred to the next position's match"
+                         if want else "took the match at once")
+                      + " — forcing that answer.", "dim")
+        self._log(f"      still short after {len(forced) + len(lazy)} forced "
+                  "decision(s).", "warn")
         return None
+
+    def _mmv_ok(self, exe: str) -> bool:
+        """Whether rar2_mmv can patch this build -- asked per combo by
+        _note_depth, so answered once per build."""
+        memo = self.__dict__.setdefault("_mmv_ok_memo", {})
+        if exe not in memo:
+            try:
+                import rar2_mmv
+                memo[exe] = rar2_mmv.supported(
+                    (self._app_dir / "apps" / "winrar_pack-4.20"
+                     / exe).read_bytes())
+            except Exception:
+                memo[exe] = False
+        return memo[exe]
 
     # ── header decode ─────────────────────────────────────────────────────
 
@@ -9177,6 +9316,19 @@ class RsrToolAPI:
                     self._log(f"      {_exe_label(ex.name)} cannot take {x}: "
                               f"{e}", "dim")
                     return False
+            # @SLOTS<pos>:<value>,...: the same, slot by slot, for a release
+            # one value cannot satisfy (Gunbird_2-KALISTO; see dosrar_fill).
+            slots = [x for x in extra if x.startswith("@SLOTS")]
+            if slots:
+                extra = [x for x in extra if not x.startswith("@SLOTS")]
+                try:
+                    import dosrar_fill
+                    (wdir / "RAR.EXE").write_bytes(dosrar_fill.slot_exe(
+                        ex.read_bytes(), dosrar_fill.parse_slots(slots)))
+                except (ValueError, OSError, ImportError) as e:
+                    self._log(f"      {_exe_label(ex.name)} cannot take "
+                              f"{slots[0][:40]}: {e}", "dim")
+                    return False
             if not any(x.startswith("-s") and not x.startswith("-se")
                        for x in extra):
                 args.append("-s" if solid else "-s-")
@@ -9358,7 +9510,17 @@ class RsrToolAPI:
                     if t != 0x74 or not ad:
                         continue
                     chunk = data[o + sz:o + sz + ad]
-                    if orig_stream.read(rolling["pos"], len(chunk)) != chunk:
+                    want = orig_stream.read(rolling["pos"], len(chunk))
+                    if want != chunk:
+                        # to the byte, not to the volume: how deep a build ran
+                        # is what ranks near misses (see _note_depth)
+                        m = min(len(want), len(chunk))
+                        k = next((i for i in range(0, m, 1 << 16)
+                                  if want[i:i + (1 << 16)]
+                                  != chunk[i:i + (1 << 16)]), m)
+                        rolling["pos"] += next(
+                            (i for i in range(k, min(m, k + (1 << 16)))
+                             if want[i] != chunk[i]), m)
                         rolling["bad"] = True
                         return True
                     rolling["pos"] += len(chunk)
@@ -9403,7 +9565,8 @@ class RsrToolAPI:
                         fv = None
                         if (self._early_verdict(look / "PROBE.RAR", prefix,
                                                 1 << 20) is False
-                                and not any(str(x).startswith("@FILL")
+                                and not any(str(x).startswith(("@FILL",
+                                                               "@SLOTS"))
                                             for x in extra)
                                 and self._fill_capable(ex)):
                             fv = self._fill_from_look(look / "PROBE.RAR",
@@ -9414,7 +9577,8 @@ class RsrToolAPI:
                             # this build never wrote (see dosrar_fill). Look
                             # again with that link's memory set to where the
                             # original's walk went.
-                            fextra = tuple(extra) + (f"@FILL{fv}",)
+                            fsw = fv if isinstance(fv, str) else f"@FILL{fv}"
+                            fextra = tuple(extra) + (fsw,)
                             _rmtree(look)
                             if (self._run_dos_pack(ex, look, groups[0][0],
                                                    solid, srcs, vb,
@@ -9433,7 +9597,7 @@ class RsrToolAPI:
                                           f"hash links it never wrote — with "
                                           f"that memory set to {fv} it "
                                           f"survives the first MB.", "dim")
-                                extra, filled = fextra, f"@FILL{fv}"
+                                extra, filled = fextra, fsw
                             else:
                                 fv = None
                         if not filled and self._early_verdict(
@@ -9626,7 +9790,10 @@ class RsrToolAPI:
                 self._tally_reject("the probe pack never produced volume two")
                 return False
             head = self._probe_head(wdir) or wdir / "probe.rar"
-            verdict = self._prefix_verdict(head, prefix)
+            deep = []
+            verdict = self._prefix_verdict(head, prefix, deep)
+            if verdict is False and deep:
+                self._note_depth(deep[0], ex, n, extra, dict_kb)
             # The reason is decided HERE, while the probe is still on disk.
             # It used to be re-derived after the files below were deleted, so
             # end_block_sig read nothing and an end-block mismatch was
@@ -9662,6 +9829,8 @@ class RsrToolAPI:
                 # A near miss still has to be reported as one: the closest
                 # count and the -mm verdict solver both read it.
                 self._tally_reject("a later volume's compressed data diverged")
+                self._note_depth(int(rolling["pos"] or 0), ex, n, extra,
+                                 dict_kb)
                 # Only the file it parted in counts as missed. The files after
                 # it were never packed, and counting them as misses hid the
                 # "every stream but the image" shape the -mm solver keys on
@@ -10409,6 +10578,7 @@ class RsrToolAPI:
                     if len(c) > 2 and c[2] and c[2][0] == self.DOS_MARK)
         # A previous release's near-miss must not be reported against this one.
         self._best_partial = None
+        self._tl.best_depth = None
         # WHY combos are being rejected, not just that they were. "rejected on
         # volume structure, end block or header" lumps six distinct checks into
         # one sentence, so a release that burns 7,000 combos without ever
@@ -10499,6 +10669,30 @@ class RsrToolAPI:
             # DOSBox boot plus a full pack, so the pace drops hard here and
             # silence would read as a hang.
             cur = combos[idx]
+            # A Windows build that wrote megabytes of the original's stream
+            # byte for byte IS the compressor: the DOS line is a different
+            # one and cannot be what parts later. Virtua_Cop_2-ULFC (rar 2.70
+            # exact for 11 MB of a 53 MB stream, one token out) and F1_World_
+            # Grand_Prix-UTOPIA each spent over an hour here on 750 MB DOSBox
+            # packs before the forced-decision solver got its turn.
+            bd_ = getattr(self._tl, "best_depth", None)
+            if (bd_ and bd_[0] >= 4 << 20 and idx and len(cur) > 2 and cur[2]
+                    and cur[2][0] == self.DOS_MARK
+                    and not (len(combos[0]) > 2 and combos[0][2]
+                             and combos[0][2][0] == self.DOS_MARK)):
+                dropped_ = sum(1 for c in combos[idx:] if len(c) > 2 and c[2]
+                               and c[2][0] == self.DOS_MARK)
+                combos = combos[:idx] + [
+                    c for c in combos[idx:]
+                    if not (len(c) > 2 and c[2]
+                            and c[2][0] == self.DOS_MARK)]
+                self._log(f"    {dropped_} DOS combo(s) skipped — "
+                          f"{_exe_label(bd_[1])} already wrote "
+                          f"{bd_[0]:,} B of this stream exactly, so the "
+                          "packer was not a DOS build.", "dim")
+                if idx >= len(combos):
+                    break
+                cur = combos[idx]
             if not said_dos and len(cur) > 2 and cur[2] and \
                     cur[2][0] == self.DOS_MARK:
                 said_dos = True
@@ -10916,9 +11110,13 @@ class RsrToolAPI:
         return False if looked else None
 
     @staticmethod
-    def _prefix_verdict(probe_head: Path, prefix: dict):
+    def _prefix_verdict(probe_head: Path, prefix: dict, depth=None):
         """True if volume one agrees with the original, False if it does not,
         None if there is not enough of it to say.
+
+        `depth`, a list, receives how many bytes of the diverging file's
+        slice agreed first -- what tells a build that parts 11 MB into the
+        image from the hundreds that part in its first block.
 
         Compared over the COMMON PREFIX of the two slices, never over their
         lengths. Two builds can write different-sized headers and so fit
@@ -10947,6 +11145,9 @@ class RsrToolAPI:
                         if len(x) < step or len(y) < step:
                             return None
                         if x != y:
+                            if depth is not None:
+                                depth.append((n - left) + next(
+                                    i for i in range(step) if x[i] != y[i]))
                             return False
                         left -= step
             except OSError:
@@ -11027,13 +11228,18 @@ class RsrToolAPI:
         # nothing is shipped and the volume listing never sees it.
         mc_all = [str(x) for x in (recipe.get("mc") or ())]
         mmv = [x for x in mc_all if x.startswith("@MMV")]
-        if mmv or recipe.get("_mm_trace"):
+        # @LZV<call>:<answer>,...: likewise for the lazy-match decision.
+        lzv = [x for x in mc_all if x.startswith("@LZV")]
+        if (mmv or lzv or recipe.get("_mm_trace")
+                or recipe.get("_lz_watch")):
             try:
                 import rar2_mmv
                 pex = target.parent.parent / f"mmv_{recipe['exe']}"
                 pex.write_bytes(rar2_mmv.build(
                     ex.read_bytes(), rar2_mmv.parse(mmv),
-                    recipe.get("_mm_trace")))
+                    recipe.get("_mm_trace"),
+                    lz=rar2_mmv.parse(lzv, "@LZV"),
+                    lz_watch=recipe.get("_lz_watch")))
             except (ValueError, OSError, ImportError) as e:
                 self._log(f"    ✗ {recipe['exe']} cannot take the forced "
                           f"multimedia verdicts: {e}", "err")
@@ -11097,7 +11303,7 @@ class RsrToolAPI:
                                short_names=bool(recipe.get("short_names")))
         cmds = self._pack_cmds_extra(
             cmds, [x for x in (recipe.get("mc") or ())
-                   if not str(x).startswith("@MMV")])
+                   if not str(x).startswith(("@MMV", "@LZV"))])
         if cmds and recipe.get("sort_list"):
             # Recursive, in rar's own solid order (RARFILES_LST): the build
             # runs from a private folder holding the list, and is given the
@@ -14328,8 +14534,8 @@ class RsrToolAPI:
         # @MMV is the same: call numbers in this release's own pack.
         sw = ",".join(str(x) for x in (recipe.get("mc") or ())
                       if str(x) != self.DOS_MARK
-                      and not str(x).startswith("@FILL")
-                      and not str(x).startswith("@MMV"))
+                      and not str(x).startswith(("@FILL", "@SLOTS"))
+                      and not str(x).startswith(("@MMV", "@LZV")))
         try:
             con = self._db()
             try:
@@ -14367,7 +14573,9 @@ class RsrToolAPI:
                     "combos=excluded.combos, order_sig=excluded.order_sig",
                     (rel, kind, reason,
                      datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                     int(combos), builds, order_sig or ""))
+                     int(combos), builds,
+                     order_sig or (self._judge_tag() if kind == "wall"
+                                   else "")))
                 con.commit()
             finally:
                 con.close()
@@ -14527,21 +14735,40 @@ class RsrToolAPI:
             return 0, ""
         return int(r[0]), (r[2] or "")[:10]
 
+    @staticmethod
+    def _judge_tag() -> str:
+        """Which sweep reached a wall verdict: the judge generation, hashed."""
+        return "judge:" + hashlib.sha256(
+            SWEEP_JUDGE_GEN.encode()).hexdigest()[:16]
+
     def _known_wall(self, rel: str) -> tuple | None:
         """(seen, builds) if this release has already been swept to exhaustion
-        against a pack no larger than today's, else None."""
+        by TODAY'S sweep, against a pack no larger than today's, else None.
+
+        A wall is a verdict of the sweep that reached it. Four of the five
+        DC 2000 walls recorded on 2026-10-03 were then skipped in one line by
+        every scan for nine days, through seven fixes to how a combo is
+        judged -- two of them (a DOS pack killed at 1,800 s, a first look
+        that could not read a cue-first archive) were the whole reason
+        Resident_Evil_Code_Veronica-KALISTO had walled. So a wall stands only
+        for the judge generation that wrote it, exactly as a park's resume
+        point does; a wall with no generation recorded predates this and is
+        swept once more."""
         if not self._db_path.is_file():
             return None
         try:
             con = self._db()
             try:
-                r = con.execute("SELECT seen, builds FROM misses WHERE "
-                                "release=? AND kind='wall'", (rel,)).fetchone()
+                r = con.execute("SELECT seen, builds, order_sig FROM misses "
+                                "WHERE release=? AND kind='wall'",
+                                (rel,)).fetchone()
             finally:
                 con.close()
         except Exception:
             return None
         if not r:
+            return None
+        if (r[2] or "") != self._judge_tag():
             return None
         # A bigger build pack than the one that failed is new evidence, so the
         # old verdict no longer stands and the release is swept again.

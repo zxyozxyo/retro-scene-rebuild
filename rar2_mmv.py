@@ -30,6 +30,34 @@ the original's block starts come from decoding its stream
 (dosrar_fill.rar20_tokens(blocks=...)). A call whose verdict differs from the
 original's block type at that position is the one to force. One at a time,
 repacking between: a flip changes what follows it.
+
+CHANNELS. An audio verdict comes with a channel count (1-4), which the
+analyser leaves in the compressor object, and that can be the part that went
+the other way: `@MMV<call>:1:4` forces "audio, 4 channels". Measured on two
+DC walls where forcing "audio" alone left the pack 2-channel against the
+original's 4:
+
+  Jet_Coaster_Dream_2 (STONEARTS)   call 619,520 -> audio/4: 17,402,684 B
+                                    stream identical
+  F1_World_Grand_Prix (UTOPIA)      call 141,310 -> audio/4: 132,013,265 B
+                                    identical
+
+THE LAZY DECISION (`@LZV<call>:<v>`). The same class without -mm. After
+finding a match the compressor asks a second routine whether the NEXT
+position has a better one; if so it emits a literal and takes that instead.
+That answer, too, can differ from the scene's PC's in one place:
+
+  Virtua_Cop_2 (ULFC)   750 MB image, 43,680,498 tokens, ONE differs: at
+                        434,734,197 the original deferred (literal, then
+                        19 @ 176,400) and every 2.70-2.90 build takes
+                        17 @ 557,424. Forced: 53,179,842 B identical.
+
+The stock build skips the question there because the match's distance equals
+the last deferred one; why the original did not is not known. A recipe
+carries the call number, as with @MMV. The capture finds it by packing with
+a 32-byte context (16 bytes each side of the position) to watch for: the
+patch forces the answer on the first call made there and logs that call's
+number.
 """
 from __future__ import annotations
 
@@ -40,9 +68,19 @@ REC = 44                                  # bytes per trace record
 _SITE = bytes.fromhex("5653E8")           # push esi; push ebx; call ANALYSER
 _AFTER = bytes.fromhex("0FBED08993B4010000")  # movsx edx, al; mov [ebx+1b4], edx
 _CAVE = 0xC00
-_TAB, _NAME, _DATA, _CNT, _OVR = 0x300, 0x900, 0xB00, 0xB80, 0xB84
-_NTAB = (_NAME - _TAB - 4) // 8
+_TAB, _NAME, _DATA, _CNT, _OVR, _CHN = 0x400, 0x900, 0xB00, 0xB80, 0xB84, 0xB85
+# the lazy decision's own table, context to watch for, counters and trace
+_TAB2, _FP, _FPK, _FPV, _HITS, _LCNT = 0x600, 0x700, 0x720, 0x724, 0x728, 0x72C
+_DATA2, _NAME2 = 0x730, 0x740
+_NTAB = (_TAB2 - _TAB - 4) // 8
+_NTAB2 = (_FP - _TAB2 - 4) // 8
 _NAME_MAX = _DATA - _NAME - 0x40          # DATA-0x40 is where the code looks
+_NAME2_MAX = _NAME - _NAME2
+LZ_REC = 8                                # bytes per lazy trace record
+FP_SIDE = 16                              # context bytes each side
+# mov eax,[ebx+30]; push eax; push ebx; call LAZY; test eax,eax
+_LZ_SITE = bytes.fromhex("8B43305053E8")
+_LZ_AFTER = bytes.fromhex("85C0")
 
 
 def _sections(d):
@@ -103,12 +141,26 @@ def _target(d, secs, ib):
     return call_va + 5 + struct.unpack_from('<i', d, at + 3)[0]
 
 
+def _lz_site(d, secs):
+    """File offset of the one `call LAZY` (its E8), or None."""
+    code = secs[0]
+    end = code['ro'] + code['rs']
+    found = []
+    at = d.find(_LZ_SITE, code['ro'], end)
+    while at >= 0:
+        if d[at + 10:at + 12] == _LZ_AFTER:
+            found.append(at + 5)
+        at = d.find(_LZ_SITE, at + 1, end)
+    return found[0] if len(found) == 1 else None
+
+
 def supported(exe: bytes) -> bool:
     """Whether this build has the analyser this patch knows and room for it."""
     try:
         pe, secs, ib = _sections(exe)
         code = secs[0]
         return (_target(exe, secs, ib) is not None
+                and _lz_site(exe, secs) is not None
                 and code['vs'] - code['rs'] >= _CAVE
                 and len(_iat(exe, secs, ib, pe,
                              {"CreateFileA", "WriteFile"})) == 2)
@@ -116,25 +168,93 @@ def supported(exe: bytes) -> bool:
         return False
 
 
-def parse(switches) -> list[tuple[int, int]]:
-    """[(call, verdict)] from recipe switches like '@MMV344061:1,500000:0'."""
+def parse(switches, tag: str = "@MMV") -> list[tuple]:
+    """[(call, verdict[, channels])] from recipe switches like
+    '@MMV344061:1,500000:0,619520:1:4' -- or, with tag='@LZV', the lazy
+    decisions '@LZV1234567:1'."""
     out = []
     for x in switches:
         x = str(x)
-        if not x.startswith("@MMV"):
+        if not x.startswith(tag):
             continue
-        for part in filter(None, x[4:].split(",")):
-            n, v = part.split(":")
-            out.append((int(n), int(v)))
+        for part in filter(None, x[len(tag):].split(",")):
+            out.append(tuple(int(p) for p in part.split(":")))
     return out
 
 
-def switch(entries) -> str:
-    return "@MMV" + ",".join(f"{n}:{v}" for n, v in sorted(entries))
+def switch(entries, tag: str = "@MMV") -> str:
+    return tag + ",".join(":".join(str(int(p)) for p in e)
+                          for e in sorted(entries))
 
 
-def build(exe: bytes, entries, trace_path: str | None = None) -> bytes:
-    """The build with each (call number, verdict) in `entries` forced."""
+def _lz_code(at: int, lazy: int, cave: int, imp: dict, watch: bool) -> bytes:
+    """The stand-in for `call LAZY`, assembled to sit at virtual address
+    `at`: count the call, run the real routine, replace its answer if the
+    count is in the table -- and, with `watch`, also on the [FPK]-th call
+    whose 32 bytes of context equal [FP], logging (call, ring position)."""
+    A = lambda off: struct.pack('<I', cave + off)
+    c = bytearray()
+    c += b"\xFF\x05" + A(_LCNT)                                      # inc [LCNT]
+    c += bytes.fromhex("FF742408FF742408")                           # push depth; push obj
+    c += b"\xE8" + struct.pack('<i', lazy - (at + len(c) + 5))       # the routine
+    c += b"\x60"                                                     # pushad
+    c += b"\xA1" + A(_LCNT)                                          # eax = [LCNT]
+    c += b"\xBE" + A(_TAB2)                                          # esi = TAB2
+    c += b"\x8B\x0E\x83\xC6\x04"                                     # ecx = n
+    c += b"\xE3\x00"; j0 = len(c) - 1                                # jecxz notab
+    lp = len(c)
+    c += b"\x3B\x06" + b"\x75\x00"; jn = len(c) - 1                  # cmp eax,[esi]
+    c += b"\x0F\xB6\x5E\x04" + b"\x89\x5C\x24\x1C"                   # saved eax = v
+    c += b"\xEB\x00"; jd = len(c) - 1
+    nx = len(c)
+    c += b"\x83\xC6\x08"                                             # next entry
+    c += b"\xE2" + bytes([(lp - (len(c) + 2)) & 0xFF])               # loop
+    notab = len(c)
+    c[j0] = notab - (j0 + 1); c[jn] = nx - (jn + 1); c[jd] = notab - (jd + 1)
+    far = []                                                         # jcc -> done
+    if watch:
+        c += b"\x8B\x74\x24\x24"                                     # esi = obj
+        c += bytes.fromhex("8B96681A0000")                           # edx = ring pos
+        c += bytes([0x83, 0xFA, FP_SIDE])                            # too near 0?
+        c += b"\x0F\x82" + bytes(4); far.append(len(c))
+        c += b"\x8B\x4E\x1C" + bytes([0x83, 0xE9, FP_SIDE]) + b"\x39\xCA"
+        c += b"\x0F\x87" + bytes(4); far.append(len(c))              # or the end
+        c += b"\x8B\x06" + bytes([0x8D, 0x44, 0x10, 256 - FP_SIDE])  # eax = context
+        c += b"\xBF" + A(_FP)                                        # edi = FP
+        c += b"\xB9" + struct.pack('<I', FP_SIDE // 2)               # 8 dwords
+        cl = len(c)
+        c += b"\x8B\x18\x3B\x1F"                                     # same dword?
+        c += b"\x0F\x85" + bytes(4); far.append(len(c))
+        c += b"\x83\xC0\x04\x83\xC7\x04"
+        c += b"\xE2" + bytes([(cl - (len(c) + 2)) & 0xFF])
+        c += b"\xA1" + A(_HITS) + b"\xFF\x05" + A(_HITS)             # eax = hit#
+        c += b"\x3B\x05" + A(_FPK) + b"\x75\x0B"                     # the one?
+        c += b"\x0F\xB6\x1D" + A(_FPV) + b"\x89\x5C\x24\x1C"         # force it
+        c += b"\xBF" + A(_DATA2)                                     # edi = DATA2
+        c += b"\xA1" + A(_LCNT) + b"\x89\x47\x08" + b"\x89\x57\x0C"  # call, ring
+        c += b"\x83\x3F\x00" + b"\x75\x00"; jo = len(c) - 1          # file open?
+        c += bytes.fromhex("6A006880000000" "6A026A006A01" "6800000040")
+        c += b"\x68" + A(_NAME2)
+        c += b"\xFF\x15" + struct.pack('<I', imp["CreateFileA"]) + b"\x89\x07"
+        c[jo] = len(c) - (jo + 1)
+        c += bytes.fromhex("6A008D4704506A") + bytes([LZ_REC])
+        c += bytes.fromhex("8D470850FF37")
+        c += b"\xFF\x15" + struct.pack('<I', imp["WriteFile"])
+    done = len(c)
+    for f in far:
+        struct.pack_into('<i', c, f - 4, done - f)
+    c += b"\x61" + b"\xC2\x08\x00"                                   # popad; ret 8
+    return bytes(c)
+
+
+def build(exe: bytes, entries, trace_path: str | None = None,
+          lz=(), lz_watch=None) -> bytes:
+    """The build with each (call number, verdict[, channels]) in `entries`
+    forced, and each lazy decision (call number, answer) in `lz`.
+
+    `lz_watch` is (trace path, 32 context bytes, k, answer): force that
+    answer on the k-th lazy call made where the window holds those bytes
+    around the position, and log every such call."""
     d = bytearray(exe)
     pe, secs, ib = _sections(d)
     code = secs[0]
@@ -143,8 +263,13 @@ def build(exe: bytes, entries, trace_path: str | None = None) -> bytes:
         raise ValueError("analyser call site not found")
     if code['vs'] - code['rs'] < _CAVE:
         raise ValueError("no slack in CODE for the patch")
-    if len(entries) > _NTAB:
+    if len(entries) > _NTAB or len(lz) > _NTAB2:
         raise ValueError("too many forced verdicts")
+    lz_at = _lz_site(d, secs)
+    if lz_at is None:
+        raise ValueError("lazy call site not found")
+    lz_va = ib + code['va'] + (lz_at - code['ro'])
+    lazy = lz_va + 5 + struct.unpack_from('<i', d, lz_at + 1)[0]
     ins_at = code['ro'] + code['rs']
     cave = ib + code['va'] + code['rs']
     d[ins_at:ins_at] = bytes(_CAVE)
@@ -156,9 +281,11 @@ def build(exe: bytes, entries, trace_path: str | None = None) -> bytes:
     struct.pack_into('<I', d, code['off'] + 36, ch | 0x80000000)   # writable
     secs = _sections(d)[1]
     TAB, CNT, OVR, DATA = cave + _TAB, cave + _CNT, cave + _OVR, cave + _DATA
+    CHN = cave + _CHN
     c = bytearray()
     c += b"\xFF\x05" + struct.pack('<I', CNT)                        # inc [CNT]
     c += b"\xC6\x05" + struct.pack('<I', OVR) + b"\xFF"              # [OVR] = none
+    c += b"\xC6\x05" + struct.pack('<I', CHN) + b"\x00"              # [CHN] = as analysed
     c += b"\x60"                                                     # pushad
     c += b"\xA1" + struct.pack('<I', CNT)                            # eax = [CNT]
     c += b"\xBE" + struct.pack('<I', TAB)                            # esi = TAB
@@ -167,6 +294,7 @@ def build(exe: bytes, entries, trace_path: str | None = None) -> bytes:
     lp = len(c)
     c += b"\x3B\x06" + b"\x75\x00"; jn = len(c) - 1                  # cmp eax,[esi]
     c += b"\x8A\x5E\x04\x88\x1D" + struct.pack('<I', OVR)            # [OVR] = verdict
+    c += b"\x8A\x5E\x05\x88\x1D" + struct.pack('<I', CHN)            # [CHN] = channels
     c += b"\xEB\x00"; jd = len(c) - 1
     nx = len(c)
     c += b"\x83\xC6\x08"                                             # next entry
@@ -177,7 +305,13 @@ def build(exe: bytes, entries, trace_path: str | None = None) -> bytes:
     c += bytes.fromhex("FF742408FF742408")                           # push len; push obj
     c += b"\xE8" + struct.pack('<i', target - (cave + len(c) + 5))   # the analyser
     c += b"\x8A\x0D" + struct.pack('<I', OVR)                        # cl = [OVR]
-    c += b"\x80\xF9\xFF\x74\x02\x88\xC8"                             # forced? al = cl
+    c += b"\x80\xF9\xFF\x74\x1A\x88\xC8"                             # forced? al = cl
+    c += b"\x8A\x0D" + struct.pack('<I', CHN)                        # cl = [CHN]
+    c += b"\x84\xC9\x74\x0E"                                         # none? keep
+    c += b"\x0F\xB6\xC9"                                             # ecx = channels
+    c += b"\x8B\x54\x24\x04"                                         # edx = obj
+    c += b"\x89\x8A\xB0\x01\x00\x00"                                 # obj.channels
+    c += b"\x90"
     if trace_path:
         name = trace_path.encode("mbcs") + b"\0"
         if len(name) > _NAME_MAX:
@@ -207,11 +341,37 @@ def build(exe: bytes, entries, trace_path: str | None = None) -> bytes:
         c += b"\xFF\x15" + struct.pack('<I', imp["WriteFile"])
         c += b"\x61"                                                 # popad
     c += b"\xC2\x08\x00"                                             # ret 8
+    # the lazy decision's stand-in, behind the analyser's
+    lz_code_at = len(c)
+    if lz_watch:
+        lz_name = str(lz_watch[0]).encode("mbcs") + b"\0"
+        if len(lz_name) > _NAME2_MAX or len(lz_watch[1]) != 2 * FP_SIDE:
+            raise ValueError("lazy watch: path too long or context not "
+                             f"{2 * FP_SIDE} bytes")
+        limp = _iat(d, secs, ib, pe, {"CreateFileA", "WriteFile"})
+        if len(limp) != 2:
+            raise ValueError("CreateFileA/WriteFile not imported")
+    else:
+        limp = {}
+    c += _lz_code(cave + lz_code_at, lazy, cave, limp, bool(lz_watch))
     if len(c) > _TAB:
         raise AssertionError("patch code overflows its slot")
     d[ins_at:ins_at + len(c)] = c
+    tab2 = struct.pack('<I', len(lz)) + b''.join(
+        struct.pack('<II', int(n), int(v) & 0xFF) for n, v in sorted(lz))
+    d[ins_at + _TAB2:ins_at + _TAB2 + len(tab2)] = tab2
+    if lz_watch:
+        d[ins_at + _FP:ins_at + _FP + 2 * FP_SIDE] = bytes(lz_watch[1])
+        struct.pack_into('<I', d, ins_at + _FPK, int(lz_watch[2]))
+        d[ins_at + _FPV] = int(lz_watch[3]) & 0xFF
+        d[ins_at + _NAME2:ins_at + _NAME2 + len(lz_name)] = lz_name
+    # the moved code section shifted lz_at only if it lay past the cave,
+    # which it cannot: the cave is appended to CODE's raw data
+    struct.pack_into('<i', d, lz_at + 1, cave + lz_code_at - (lz_va + 5))
     tab = struct.pack('<I', len(entries)) + b''.join(
-        struct.pack('<II', int(n), int(v) & 0xFF) for n, v in sorted(entries))
+        struct.pack('<II', int(e[0]), (int(e[1]) & 0xFF)
+                    | (((int(e[2]) & 0xFF) << 8) if len(e) > 2 else 0))
+        for e in sorted(entries))
     d[ins_at + _TAB:ins_at + _TAB + len(tab)] = tab
     if trace_path:
         d[ins_at + _NAME:ins_at + _NAME + len(name)] = name
@@ -280,7 +440,7 @@ def place(calls, src: bytes, win: int = 1 << 17, samples: int = 48):
         if best is None:
             continue
         off = best - u
-        yield cnt, best, v
+        yield cnt, best, v, ch
 
 
 def first_disagreement(placed, blocks):
@@ -288,11 +448,13 @@ def first_disagreement(placed, blocks):
     differs from the original's block type at its position, or None.
     `blocks` is [(output position, audio?, channels)] of the ORIGINAL."""
     starts = [b[0] for b in blocks]
-    for cnt, at, v in placed:
+    for cnt, at, v, ch in placed:
         i = bisect.bisect_right(starts, at) - 1
         if i < 0:
             continue
         want = 1 if blocks[i][1] else 0
         if v != want:
-            return cnt, want
+            return (cnt, want, blocks[i][2]) if want else (cnt, 0)
+        if want and ch != blocks[i][2]:
+            return cnt, 1, blocks[i][2]
     return None
