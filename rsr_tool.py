@@ -554,6 +554,15 @@ def _runnable(cmd: list) -> list:
 _JOB = None
 _JOB_LOCK = threading.Lock()
 
+# The settings that can be changed while a scan or rebuild runs -- cores,
+# releases at once, rebuilds at once -- as THIS PROCESS last set them. They
+# used to live only in rsr_tool.json, which every open copy of the app reads:
+# two scans side by side each re-read it at every free slot, so setting one
+# to 4 and the other to 2 left both on whichever was set last. The file still
+# gets the value (it is the default the next launch opens with); a running
+# instance goes by its own.
+_LIVE: dict = {}
+
 
 def _die_with_us(p) -> None:
     """Put a child in a job that Windows kills the moment this process ends.
@@ -4452,6 +4461,10 @@ class RsrToolAPI:
                 out.setdefault(k, v)
         try:
             self._config_path.write_text(json.dumps(out, indent=2), "utf-8")
+            # the form this instance just saved is this instance's own
+            for key in ("workers", "jobs", "rebuild_jobs"):
+                if key in (s or {}) and key in out:
+                    _LIVE[key] = out[key]
         except Exception as e:
             return {"ok": False, "error": str(e)}
         global _WORK_DIR
@@ -4845,6 +4858,7 @@ class RsrToolAPI:
             return {"ok": False, "error": "Already running"}
         self.save_settings(cfg or {})
         s = self.get_settings()
+        self._pin_live(s)
         wanted = [s["source"]] + list(s["sources"])
         roots, seen = [], set()
         for w in wanted:
@@ -9414,6 +9428,7 @@ class RsrToolAPI:
         except Exception:
             cfg = {}
         cfg["workers"] = n
+        _LIVE["workers"] = n
         try:
             self._config_path.write_text(json.dumps(cfg, indent=2), "utf-8")
         except Exception as e:
@@ -9437,6 +9452,7 @@ class RsrToolAPI:
         except Exception:
             cfg = {}
         cfg["jobs"] = n
+        _LIVE["jobs"] = n
         try:
             self._config_path.write_text(json.dumps(cfg, indent=2), "utf-8")
         except Exception as e:
@@ -9445,7 +9461,7 @@ class RsrToolAPI:
         # this instance currently has in flight — the GUI's call and the
         # running scan are different objects, and quoting _cpu_budget() here
         # said "each gets about 48 of the 48" no matter what was asked for.
-        w = _num(self.get_settings().get("workers"), 0, int)
+        w = self._live("workers", 0)
         total = max(1, min(w, 256)) if w > 0 else max(1, (os.cpu_count() or 4) // 2)
         self._log(f"Releases at once: {n}"
                   + (f" — about {max(1, total // n)} rar thread(s) each, "
@@ -9466,6 +9482,7 @@ class RsrToolAPI:
         except Exception:
             cfg = {}
         cfg["rebuild_jobs"] = n
+        _LIVE["rebuild_jobs"] = n
         try:
             self._config_path.write_text(json.dumps(cfg, indent=2), "utf-8")
         except Exception as e:
@@ -9514,7 +9531,23 @@ class RsrToolAPI:
     def _job_slots(self) -> int:
         """How many releases to capture at once, read fresh every time a slot
         frees so it can be changed while a scan runs."""
-        return max(1, min(16, _num(self.get_settings().get("jobs"), 1, int)))
+        return max(1, min(16, self._live("jobs", 1)))
+
+    def _live(self, key: str, default: int) -> int:
+        """A live setting as this process last set it; the saved one the
+        first time it is asked, and from then on this process's own."""
+        if key not in _LIVE:
+            _LIVE[key] = _num(self.get_settings().get(key), default, int)
+        return _num(_LIVE[key], default, int)
+
+    def _pin_live(self, s: dict | None = None) -> None:
+        """At the start of a run: this instance's own cores / releases at
+        once / rebuilds at once, so another copy of the app saving different
+        ones to the shared settings file does not change them under it."""
+        s = s or self.get_settings()
+        for key in ("workers", "jobs", "rebuild_jobs"):
+            if key in s:
+                _LIVE[key] = s[key]
 
     def _rebuild_slots(self) -> int:
         """How many releases to REBUILD at once, re-read as each one ends.
@@ -9523,8 +9556,7 @@ class RsrToolAPI:
         sweeps many rar builds at once and is happy to take the machine, while
         a rebuild replays ONE command at the thread count its recipe recorded,
         so a single release often leaves most of the CPU idle."""
-        return max(1, min(8, _num(
-            self.get_settings().get("rebuild_jobs"), 1, int)))
+        return max(1, min(8, self._live("rebuild_jobs", 1)))
 
     def _cpu_budget(self) -> int:
         """How many rar threads the sweep may use at once.
@@ -9537,7 +9569,7 @@ class RsrToolAPI:
         0 means auto, and auto deliberately leaves half the machine alone —
         a scan runs for hours and the point is to be able to keep using the
         PC while it does."""
-        want = _num(self.get_settings().get("workers"), 0, int)
+        want = self._live("workers", 0)
         total = (max(1, min(want, 256)) if want > 0
                  else max(1, (os.cpu_count() or 4) // 2))
         # Shared between the captures actually in flight: four releases each
@@ -10923,7 +10955,7 @@ class RsrToolAPI:
                 # run — 32 threads across 3 live jobs = 10 — with nobody at
                 # the keyboard. Say which of the two it was.
                 live = max(1, getattr(self, "_live_jobs", 1))
-                want = _num(self.get_settings().get("workers"), 0, int)
+                want = self._live("workers", 0)
                 whole = (max(1, min(want, 256)) if want > 0
                          else max(1, (os.cpu_count() or 4) // 2))
                 self._log(f"    core budget now {budget} thread(s) — "
