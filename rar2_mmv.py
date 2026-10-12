@@ -62,6 +62,7 @@ number.
 from __future__ import annotations
 
 import bisect
+import re
 import struct
 
 REC = 44                                  # bytes per trace record
@@ -166,6 +167,59 @@ def supported(exe: bytes) -> bool:
                              {"CreateFileA", "WriteFile"})) == 2)
     except (ValueError, struct.error, IndexError):
         return False
+
+
+# -- a hash table directly behind the window (`@ADJ`) ------------------------
+#
+# The analyser samples up to 1,024 bytes from the window position WITHOUT
+# wrapping, and may start as late as 258 bytes before the window's end -- so
+# on the last call of every lap it reads up to ~760 bytes of whatever the
+# heap holds behind the 1 MB window. On a current Windows that is a free
+# block's header and zeros (the header even differs run to run). On the
+# packers' PCs it was one of the compressor's own 4-byte-per-entry position
+# tables, which the analyser reads as four-channel audio: that is where the
+# "one verdict went the other way on their PC" walls come from, and why the
+# forced verdicts were nearly always "audio, 4 channels" on the last call of
+# a lap (call k*1024-1) and the one after it.
+#
+# Measured on Virtua_Fighter_3tb_PAL_DC-REPLICANT (2.70 -m5 -md1024 -s -mm,
+# 814 MB, 776 laps): stock parts from the original at 40 MB and needs six
+# forced verdicts; with the table at [obj+0xc] behind the window the whole
+# 577,946,824 B stream is identical with none. The table at [obj+0x10] with
+# no heap header between does the same; the LINK table ([obj+0x14], the one
+# allocated straight after the window) gets five of the six and fails where
+# its first entries are a run's ramp. Which table it truly was is not known
+# -- this is the one that reproduces.
+_ADJ_WIN = re.compile(rb"\x68\x00\x00\x10\x00(?=\xE8....\x59\x8B\xF0\x89\x33"
+                      rb"\x8B\x43\x18\x50\x6A\x00\x56\xE8)", re.S)
+_ADJ_TAB = re.compile(rb"\x68\x00\x00\x10\x00\xE8....\x59(?=\x89\x43\x0C)",
+                      re.S)
+_ADJ_FREE = re.compile(rb"\x8B\x53\x0C\x52\xE8....\x59", re.S)
+_ADJ_HDR = 4                              # the heap's own header between them
+
+
+def adjacent_ok(exe: bytes) -> bool:
+    return all(len(r.findall(exe)) == 1
+               for r in (_ADJ_WIN, _ADJ_TAB, _ADJ_FREE))
+
+
+def adjacent(exe: bytes) -> bytes:
+    """The build with the table at [obj+0xc] allocated directly behind its
+    window, as one block: window (1 MB), a 4-byte heap header, the table."""
+    if not adjacent_ok(exe):
+        raise ValueError("window / table allocation not found")
+    d = bytearray(exe)
+    m = _ADJ_WIN.search(d)                 # push 0x100000 -> room for both
+    d[m.start():m.end()] = b"\x68" + struct.pack('<I', 0x200010)
+    m = _ADJ_TAB.search(d)                 # table = window + 1 MB + header
+    new = (b"\x8B\x03"                                    # mov eax, [ebx]
+           + b"\x05" + struct.pack('<I', 0x100000 + _ADJ_HDR)
+           + b"\x90" * 4)
+    assert len(new) == m.end() - m.start()
+    d[m.start():m.end()] = new
+    m = _ADJ_FREE.search(d)                # the table is freed with the window
+    d[m.start():m.end()] = b"\x90" * (m.end() - m.start())
+    return bytes(d)
 
 
 def parse(switches, tag: str = "@MMV") -> list[tuple]:

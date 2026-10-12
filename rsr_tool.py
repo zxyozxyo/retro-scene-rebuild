@@ -8652,10 +8652,27 @@ class RsrToolAPI:
         orig_data: dict = {}
         audio = "-mm" in sw_
         last = (None, -1)                   # (stream, bytes agreed)
+        # Before any decision is forced: the heap layout of the packers' PCs.
+        # At a 1 MB dictionary the analyser reads past the window's end on
+        # the last call of every lap, and what it read there is what made
+        # "one verdict go the other way" (see rar2_mmv.adjacent) -- Virtua_
+        # Fighter_3tb-REPLICANT needed six forced verdicts, an hour of
+        # rounds, and none at all with the table where their heap had it.
+        adj = False
+        try:
+            adj = (int(dkb or 0) == 1024 and rar2_mmv.adjacent_ok(
+                (self._app_dir / "apps" / "winrar_pack-4.20"
+                 / exe).read_bytes()))
+        except OSError:
+            adj = False
+        if adj:
+            self._log("      packing with a hash table directly behind the "
+                      "window, as the heap laid them out then.", "dim")
         for rnd in range(self.MMV_MAX_FLIPS + 1):
             if self._stop.is_set() or self._skip.is_set():
                 return None
             mc = (sw_ + (["-mm"] if audio and "-mm" not in sw_ else [])
+                  + (["@ADJ"] if adj else [])
                   + ([rar2_mmv.switch(forced)] if forced else [])
                   + ([rar2_mmv.switch(lazy, "@LZV")] if lazy else []))
             for t in (trace, lz_trace):
@@ -8690,8 +8707,10 @@ class RsrToolAPI:
                 watch = None
             got = set(self._streams_match(made[0], targets))
             if len(got) == len(targets):
-                self._log(f"      ✓ every stream reproduces with "
-                          f"{len(forced) + len(lazy)} decision(s) forced ("
+                nf = len(forced) + len(lazy)
+                self._log("      ✓ every stream reproduces "
+                          + (f"with {nf} decision(s) forced" if nf
+                             else "with that heap layout alone") + " ("
                           + " ".join(x for x in mc if x.startswith("@"))
                           + ").", "ok")
                 out = dict(rec, mc=mc)
@@ -11451,16 +11470,25 @@ class RsrToolAPI:
         mmv = [x for x in mc_all if x.startswith("@MMV")]
         # @LZV<call>:<answer>,...: likewise for the lazy-match decision.
         lzv = [x for x in mc_all if x.startswith("@LZV")]
-        if (mmv or lzv or recipe.get("_mm_trace")
+        # @ADJ: the build with a hash table directly behind its window, as
+        # the heap laid them out on the packers' PCs (see rar2_mmv.adjacent).
+        adj = "@ADJ" in mc_all
+        if (mmv or lzv or adj or recipe.get("_mm_trace")
                 or recipe.get("_lz_watch")):
             try:
                 import rar2_mmv
                 pex = target.parent.parent / f"mmv_{recipe['exe']}"
-                pex.write_bytes(rar2_mmv.build(
-                    ex.read_bytes(), rar2_mmv.parse(mmv),
-                    recipe.get("_mm_trace"),
-                    lz=rar2_mmv.parse(lzv, "@LZV"),
-                    lz_watch=recipe.get("_lz_watch")))
+                img = ex.read_bytes()
+                if adj:
+                    img = rar2_mmv.adjacent(img)
+                if (mmv or lzv or recipe.get("_mm_trace")
+                        or recipe.get("_lz_watch")):
+                    img = rar2_mmv.build(
+                        img, rar2_mmv.parse(mmv),
+                        recipe.get("_mm_trace"),
+                        lz=rar2_mmv.parse(lzv, "@LZV"),
+                        lz_watch=recipe.get("_lz_watch"))
+                pex.write_bytes(img)
             except (ValueError, OSError, ImportError) as e:
                 self._log(f"    ✗ {recipe['exe']} cannot take the forced "
                           f"multimedia verdicts: {e}", "err")
@@ -11524,7 +11552,7 @@ class RsrToolAPI:
                                short_names=bool(recipe.get("short_names")))
         cmds = self._pack_cmds_extra(
             cmds, [x for x in (recipe.get("mc") or ())
-                   if not str(x).startswith(("@MMV", "@LZV"))])
+                   if not str(x).startswith(("@MMV", "@LZV", "@ADJ"))])
         if cmds and recipe.get("sort_list"):
             # Recursive, in rar's own solid order (RARFILES_LST): the build
             # runs from a private folder holding the list, and is given the
@@ -14777,7 +14805,7 @@ class RsrToolAPI:
         sw = ",".join(str(x) for x in (recipe.get("mc") or ())
                       if str(x) != self.DOS_MARK
                       and not str(x).startswith(("@FILL", "@SLOTS"))
-                      and not str(x).startswith(("@MMV", "@LZV")))
+                      and not str(x).startswith(("@MMV", "@LZV", "@ADJ")))
         try:
             con = self._db()
             try:
