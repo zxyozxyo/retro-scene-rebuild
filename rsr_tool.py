@@ -5353,6 +5353,136 @@ class RsrToolAPI:
         return None
 
     @staticmethod
+    def _superseding_fix(folder: Path, sets) -> list[dict]:
+        """Volumes of this release that a FIX release beside it replaces with
+        different bytes, although they pass this release's own .sfv -- as
+        sfv_check records, `expected` being the fix's CRC.
+
+        Fifa_Street_2_USA_NGC-MOONCUBE and Over_The_Hedge_USA_NGC-STARCUBE
+        each shipped one volume with a single flipped bit that their .sfv was
+        computed over, and a RARFIX with the clean volume. The base passed
+        its checks and was captured alone (as a bit-flip set); the fix was
+        "two copies of one volume" to _find_pair and never captured at all.
+
+        Deliberately narrow: the sibling's name says FIX, its set has the same
+        stem and at most half our volumes, every one a same-sized file of ours
+        with different bytes, and its own .sfv does not contradict it."""
+        mine = {}
+        for st in sets:
+            if st.get("byte_split"):
+                continue
+            for v in st["volumes"]:
+                mine[(st["stem"], Path(v).name.lower())] = Path(v)
+        if not mine:
+            return []
+        try:
+            sibs = sorted(folder.parent.iterdir())
+        except OSError:
+            return []
+        for sib in sibs:
+            if (not sib.is_dir() or sib == folder
+                    or not re.search(r"(?i)fix", _release_name(sib))):
+                continue
+            try:
+                theirs = group_archive_sets(sib)
+            except Exception:
+                continue
+            want = None
+            out = []
+            for s2 in theirs:
+                vols = [Path(v) for v in s2["volumes"]]
+                n_mine = sum(1 for k in mine if k[0] == s2["stem"])
+                if (s2.get("byte_split") or not vols
+                        or len(vols) * 2 > n_mine):
+                    continue
+                recs = []
+                for p in vols:
+                    ours = mine.get((s2["stem"], p.name.lower()))
+                    try:
+                        if (ours is None
+                                or ours.stat().st_size != p.stat().st_size):
+                            recs = []
+                            break
+                        a, b = _file_crc32(ours), _file_crc32(p)
+                    except OSError:
+                        recs = []
+                        break
+                    if a == b:
+                        recs = []
+                        break
+                    if want is None:
+                        want = sfv_expected(sib)
+                    if want.get(p.name.lower(), b) != b:
+                        recs = []               # the fix's own copy is bad
+                        break
+                    recs.append({"name": ours.name, "expected": b,
+                                 "actual": a, "size": ours.stat().st_size,
+                                 "superseded": sib.name})
+                out += recs
+            if out:
+                return out
+        return []
+
+    @staticmethod
+    def _superseded_base(folder: Path, st: dict):
+        """The release beside this FIX whose volumes it replaces (see
+        _superseding_fix), or None."""
+        if not re.search(r"(?i)fix", _release_name(folder)):
+            return None
+        try:
+            sibs = sorted(folder.parent.iterdir())
+        except OSError:
+            return None
+        for sib in sibs:
+            if not sib.is_dir() or sib == folder:
+                continue
+            try:
+                sets = [x for x in group_archive_sets(sib)
+                        if x["stem"] == st["stem"]]
+            except Exception:
+                continue
+            if sets and any(r.get("superseded") == folder.name
+                            for r in RsrToolAPI._superseding_fix(sib, sets)):
+                return sib
+        return None
+
+    @staticmethod
+    def _volume_patch(bad: Path, good: Path, limit: int = 1 << 16):
+        """[[offset, hex bytes], ...] turning `good` into `bad`, or None when
+        they differ in size or in more than `limit` bytes."""
+        try:
+            if bad.stat().st_size != good.stat().st_size:
+                return None
+            runs, total, pos = [], 0, 0
+            with open(bad, "rb") as a, open(good, "rb") as b:
+                while True:
+                    x, y = a.read(1 << 20), b.read(1 << 20)
+                    if not x:
+                        break
+                    if x != y:
+                        i = 0
+                        while i < len(x):
+                            if x[i] == y[i]:
+                                i += 1
+                                continue
+                            j = i
+                            while j < len(x) and x[j] != y[j]:
+                                j += 1
+                            total += j - i
+                            if total > limit:
+                                return None
+                            if (runs and runs[-1][0] + len(runs[-1][1])
+                                    == pos + i):
+                                runs[-1][1] += x[i:j]
+                            else:
+                                runs.append([pos + i, bytearray(x[i:j])])
+                            i = j
+                    pos += len(x)
+            return [[o, bytes(d).hex()] for o, d in runs]
+        except OSError:
+            return None
+
+    @staticmethod
     def _twin_volume(folder: Path, vol: Path, crc: int, by_sfv: bool):
         """(sibling folder, its file) holding exactly these bytes under another
         name, or None.
@@ -5574,12 +5704,25 @@ class RsrToolAPI:
                           "ok")
                 twin_seed = (sib, {n: t[1].name for n, t in twins.items()})
                 damaged = []
+        superseded = False
+        if not damaged and not twin_seed:
+            damaged = self._superseding_fix(folder, sets)
+            superseded = bool(damaged)
         if damaged:
             names = ", ".join(d["name"] for d in damaged[:4])
-            self._log(f"  ✗ {len(damaged)} volume(s) fail the .sfv: {names}"
-                      + (" …" if len(damaged) > 4 else ""), "err")
+            if superseded:
+                self._log(f"  {names} pass(es) this release's .sfv, but "
+                          f"{damaged[0]['superseded']} ships a different copy "
+                          "— the release went out with a bad volume its "
+                          ".sfv was computed over.", "warn")
+            else:
+                self._log(f"  ✗ {len(damaged)} volume(s) fail the .sfv: "
+                          f"{names}" + (" …" if len(damaged) > 4 else ""),
+                          "err")
             for d in damaged[:4]:
-                self._log(f"      {d['name']}: sfv says {d['expected']:08X}, "
+                self._log(f"      {d['name']}: "
+                          + ("the fix is" if superseded else "sfv says")
+                          + f" {d['expected']:08X}, "
                           f"the file is {d['actual']:08X} "
                           f"({d['size']:,} B)", "dim")
             bad_names = [d["name"] for d in damaged]
@@ -5692,6 +5835,29 @@ class RsrToolAPI:
                                   "that release, with this one as its pair.",
                                   "ok")
                         return self._capture_release(sib, store, s, exes)
+                    over = None if pair else self._superseded_base(folder, st)
+                    if over is not None:
+                        # A fix for a release that is complete without it:
+                        # the two are one capture, filed under that release.
+                        done = self._existing_rsr(store, over,
+                                                  _release_name(over))
+                        paired = False
+                        if done:
+                            try:
+                                man_, z_ = self.read_rsr(done)
+                                z_.close()
+                                paired = folder.name in (man_.get("pair") or ())
+                            except Exception:
+                                paired = False
+                        if paired and s.get("skip_done"):
+                            self._log(f"    already captured with its pair as "
+                                      f"{done.name}.", "dim")
+                            return {"ok": False, "partial": True,
+                                    "error": "captured with its pair"}
+                        self._log(f"    ✓ this replaces a volume of {over.name}"
+                                  " — capturing that release as repaired, "
+                                  "with this one as its pair.", "ok")
+                        return self._capture_release(over, store, s, exes)
                     if not pair:
                         self._log("    the other half is not in this scan "
                                   "folder, so there is nothing to join it to.",
@@ -5828,6 +5994,30 @@ class RsrToolAPI:
                 kept = []
                 for path, rec in broken_keep:
                     if not path.is_file():
+                        continue
+                    # A bad volume a few bytes off the good one is carried as
+                    # those bytes, whatever its size: Fifa_Street_2-MOONCUBE's
+                    # 50 MB .r15 is 7 bytes (one flipped bit and the CRCs
+                    # taken over it) away from the RARFIX's.
+                    good = next((p for p in (pair_seed[2] if pair_seed else ())
+                                 if p.name == path.name
+                                 and p.parent != path.parent), None)
+                    patch = (self._volume_patch(path, good)
+                             if good is not None else None)
+                    if patch:
+                        kept.append({
+                            "name": path.name, "folder": fld,
+                            "size": path.stat().st_size,
+                            "crc32": rec["actual"],
+                            "sfv_crc32": rec["expected"],
+                            "sha256": _sha256(path.read_bytes()),
+                            "stored": None, "patch": patch,
+                            "patch_of": ("" if good.parent == home
+                                         else good.parent.name)})
+                        self._log(f"  carried the original {path.name} as "
+                                  f"{sum(len(h) // 2 for _, h in patch):,} "
+                                  f"byte(s) of difference from the good "
+                                  f"copy — a rebuild restores both.", "dim")
                         continue
                     if cap and path.stat().st_size > cap:
                         self._log(f"  ⚠ {path.name} is damaged and too big to "
@@ -7803,7 +7993,23 @@ class RsrToolAPI:
                     sweep_rr = 0
             except OSError:
                 pass
-        if sweep_rr >= 0:
+        # ...and where the record moves a SOLID RESTART. With -sv each volume's
+        # first new file starts a fresh solid stream, so which file that is
+        # depends on exactly where the volume ends -- and a record takes its
+        # sectors out of every volume. WinCE_Dreamcast_DevKit-KZM (rar 2.71
+        # -s -sv, 14 volumes, 223 KB of record in each): without the record
+        # the twelfth volume began a file early, vclang.chm continued the
+        # stream instead of starting one, and the right build stood at "949
+        # of 950 streams" on every run.
+        sv_rr = False
+        if sweep_rr < 0 and rr_bytes and len(vols) > 1 and solid_vols:
+            sweep_rr = 0
+            sv_rr = True
+            self._log("    independent solid volumes with a recovery record: "
+                      "the record decides where each volume ends and so which "
+                      "file restarts the stream — the sweep asks for it too.",
+                      "dim")
+        if sweep_rr >= 0 and not sv_rr:
             self._log(f"    the last volume ({vols[-1].stat().st_size:,} B) is "
                       f"smaller than the recovery record ({rr_bytes:,} B), so "
                       "leaving the record out of the probe would lose a whole "
@@ -13911,6 +14117,27 @@ class RsrToolAPI:
         gets it; the good copy lives in the fix folder, so there is no clash."""
         n = 0
         for f in manifest.get("damaged", []):
+            if f.get("patch") and not f.get("stored"):
+                src = out / f.get("patch_of", "") / f["name"]
+                dst = out / f.get("folder", "") / f["name"]
+                try:
+                    data = bytearray(src.read_bytes())
+                    for off, hx in f["patch"]:
+                        b = bytes.fromhex(hx)
+                        data[off:off + len(b)] = b
+                except (OSError, ValueError) as e:
+                    self._log(f"    ✗ {f['name']}: the good copy it is "
+                              f"patched from could not be read ({e}).", "err")
+                    continue
+                if (len(data) != f.get("size")
+                        or _sha256(bytes(data)) != f.get("sha256")):
+                    self._log(f"    ✗ {f['name']}: the patched volume does "
+                              "not match the captured hash.", "err")
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(data)
+                n += 1
+                continue
             if not f.get("stored"):
                 self._log(f"    ! {f['name']} was damaged and not carried "
                           f"(too big) — the rebuilt folder has the GOOD copy "
