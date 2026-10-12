@@ -8862,7 +8862,7 @@ class RsrToolAPI:
         a set no build is near costs nothing here; one full pack."""
         bp = self._best_partial
         if (not bp or len(bp) < 7 or not dirs or len(groups) != 1
-                or bp[0] * 2 < len(targets) or len(targets) < 2):
+                or bp[0] * 2 < len(targets) or len(targets) < 10):
             return None
         exe, mt_, sw_, dkb = bp[5], bp[2], [str(x) for x in (bp[3] or ())], bp[6]
         if sw_ and sw_[0] == self.DOS_MARK:
