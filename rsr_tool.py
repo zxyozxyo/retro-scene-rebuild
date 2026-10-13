@@ -693,8 +693,18 @@ def _wants_ms(meta: list[dict]) -> str:
               and int(f.get("size") or 0) > 0]
     if not any(int(f.get("method", 0)) > 0 for f in meta):
         return ""
-    exts = sorted({Path(str(f.get("name", ""))).suffix.lower().lstrip(".")
-                   for f in stored} & MS_DEFAULT_EXTS)
+    exts = {Path(str(f.get("name", ""))).suffix.lower().lstrip(".")
+            for f in stored} & MS_DEFAULT_EXTS
+    # Only a type the original stored EVERY time. rar also stores a single
+    # file by itself when compressing it gains nothing, and that is not the
+    # switch: Sega_Germany_Dreamcast_Pre-Launch_Press_Disc-s1xty has 2,226
+    # compressed .jpg and 44 stored ones, and -msjpg -- stored all 2,270 --
+    # was put on every combo of its sweep, so none could match and the
+    # replay of its near miss came back with 2,288 streams different.
+    packed = {Path(str(f.get("name", ""))).suffix.lower().lstrip(".")
+              for f in meta if int(f.get("method", 0)) > 0
+              and int(f.get("size") or 0) > 0}
+    exts = sorted(exts - packed)
     return f"-ms{';'.join(exts)}" if exts else ""
 
 
@@ -14301,36 +14311,75 @@ class RsrToolAPI:
         if len({v.parent for v in vols}) != 1:
             return None
         try:
-            if rar4_unp_max(vols) < 29:
-                return None
+            rar3 = rar4_unp_max(vols) >= 29
             ob = packed_blocks(vols[0])
             pb = packed_blocks(produced[0])
-        except Exception:
+        except Exception as e:
+            self._log(f"      (decisions: the volumes could not be listed — "
+                      f"{e})", "dim")
             return None
+        # By NAME, in the original's order. The replay's own order need not
+        # match: each volume is put together from the original's map, so a
+        # replay that packed the same streams in another order (a folder
+        # form rar walked its own way) serves just as well.
         names = list(ob)
-        if not names or names != list(pb):
+        if not names or set(names) != set(pb):
+            both = set(ob) & set(pb)
+            self._log(f"      (decisions: the replay holds {len(pb)} "
+                      f"stream(s) against the original's {len(ob)}, "
+                      f"{len(both)} by the same name — not carried that "
+                      "way.)", "dim")
             return None
         t0 = time.monotonic()
-        patches, carried = {}, 0
-        for name in names:
+        # Not a near miss at all? Say so before anything is decoded. The
+        # sweep's count comes from a probe; the full replay can differ far
+        # more -- Sega_Germany_Dreamcast_Pre-Launch_Press_Disc-s1xty's
+        # "2,391 of 2,392" replays with some 1,800 streams different (rar
+        # 3.60 -mt2 over 2,392 files is not the same twice).
+        odd = [n for n in names
+               if sum(sz for _v, _o, sz in ob[n])
+               != sum(sz for _v, _o, sz in pb[n])
+               or stream_digest(ob[n]) != stream_digest(pb[n])]
+        if len(odd) > max(3, len(names) // 100):
+            self._log(f"      (decisions: {len(odd):,} of {len(names):,} "
+                      "stream(s) differ in the full replay — not a near "
+                      "miss.)", "dim")
+            return None
+        patches, carried, raw_bytes = {}, 0, 0
+        for name in odd:
             a = self._stream_of(ob[name])
             b = self._stream_of(pb[name])
             if a == b:
                 continue
-            try:
-                patch = rar3_splice.diff(
-                    a, b, self.SPLICE_MAX_TOKENS - carried)
-            except (ValueError, IndexError, KeyError) as e:
-                self._log(f"      {name.split('/')[-1]}: its stream cannot be "
-                          f"read as decisions ({e}) — not carried that way.",
-                          "dim")
-                return None
+            why = ""
+            patch = None
+            if rar3:
+                try:
+                    patch = rar3_splice.diff(
+                        a, b, self.SPLICE_MAX_TOKENS - carried)
+                    if patch is None:
+                        why = (f"differs in more than "
+                               f"{self.SPLICE_MAX_TOKENS:,} decisions")
+                except (ValueError, IndexError, KeyError) as e:
+                    why = f"cannot be read as decisions ({e})"
+            else:
+                why = "is not a RAR 3 stream"
             if patch is None:
-                self._log(f"      {name.split('/')[-1]}: differs from the "
-                          f"replay in more than "
-                          f"{self.SPLICE_MAX_TOKENS:,} decisions — not a "
-                          "near miss.", "dim")
-                return None
+                # A stream small enough is simply carried whole: the first
+                # file of Sega_Germany_..._Press_Disc-s1xty is 765 KB the
+                # replay STORES (its -msjpg) where the original compressed
+                # it, so there are no decisions on the replay's side to
+                # start from.
+                if raw_bytes + len(a) > NEAR_MISS_CEIL:
+                    self._log(f"      {name.split('/')[-1]}: its stream {why} "
+                              f"and at {len(a):,} B is too big to carry "
+                              "whole — not carried.", "dim")
+                    return None
+                raw_bytes += len(a)
+                patches[name] = b"RAW0" + a
+                self._log(f"      {name.split('/')[-1]}: its stream {why} — "
+                          f"carried whole ({len(a):,} B).", "dim")
+                continue
             out = bytearray()
             try:
                 rar3_splice.apply(b, patch, out)
@@ -14410,10 +14459,12 @@ class RsrToolAPI:
                 self._log(f"      {v.name}: put together from the replay it "
                           "is not the original — not carried.", "warn")
                 return None
-        self._log(f"    ✓ the replay differs from the original in "
-                  f"{carried:,} decision(s) of {len(patches)} stream(s); "
-                  f"carried as decisions, with {literal:,} B of volume "
-                  f"headers, every volume rebuilt and hash-checked "
+        self._log(f"    ✓ {len(patches)} stream(s) differ from the replay: "
+                  f"{carried:,} decision(s)"
+                  + (f" and {raw_bytes:,} B of whole stream" if raw_bytes
+                     else "")
+                  + f" carried, with {literal:,} B of volume headers; every "
+                  f"volume rebuilt and hash-checked "
                   f"({time.monotonic() - t0:,.0f}s).", "ok")
         return volmeta, deltas
 
@@ -14425,16 +14476,20 @@ class RsrToolAPI:
             pb = packed_blocks(produced[0])
         except Exception:
             return None
-        if list(pb) != list(index["names"]):
+        if set(pb) != set(index["names"]):
             return None
         out = []
         for name in index["names"]:
             b = self._stream_of(pb[name])
             key = index["patches"].get(name)
             if key:
-                sink = bytearray()
-                rar3_splice.apply(b, read(key), sink)
-                b = bytes(sink)
+                blob = read(key)
+                if blob.startswith(b"RAW0"):
+                    b = blob[4:]               # carried whole
+                else:
+                    sink = bytearray()
+                    rar3_splice.apply(b, blob, sink)
+                    b = bytes(sink)
             out.append(b)
         return out
 
