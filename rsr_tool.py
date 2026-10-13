@@ -536,14 +536,18 @@ _PATCH_LOCK = threading.Lock()
 #     every processor              1 of 9   (the one under a heavy load)
 #     one processor                7 of 11
 #     one, main thread idle        0 of 1
-#     one, main thread raised      6 of 6
+#     one, main thread raised      6 of 6 by hand, 1 of 2 through _replay
 # So: one logical processor, and the main thread a step above its helpers, so
 # that a helper runs only when the main thread waits for it. It is an axis
 # like any other, written in the recipe -- and a race all the same, so the
 # rebuild tries again rather than believing one run.
 ONE_CORE = "@CPU1"
 _PIN_LOCK = threading.Lock()
-_PIN_NEXT = [0]
+# Starts somewhere of its own: two copies of the app counting from the same
+# place would send their pinned packs to the same processors, and three packs
+# on one processor with their main threads raised barely move (one volume in
+# twenty minutes, measured).
+_PIN_NEXT = [int.from_bytes(os.urandom(2), "little")]
 
 
 def _pin_one_core(p) -> None:
@@ -14387,7 +14391,7 @@ class RsrToolAPI:
             # NBA_Live_2003_REPACK_INTERNAL_USA_NGC-SYNDiCATE verified at
             # capture and then failed every rebuild at .r13. So before the set
             # is called lost: the other way round (one processor, or all of
-            # them), the recorded way again, the other way again. Each is
+            # them), the recorded way again, the other way twice more. Each is
             # hash-checked exactly as the first was.
             pinned = ONE_CORE in mcs
             other = dict(recipe, mc=[x for x in mcs if x != ONE_CORE]
@@ -14396,8 +14400,10 @@ class RsrToolAPI:
             self._log(fail.replace("✗", "·") + " A multithreaded pack can "
                       "come out differently from run to run — trying it "
                       f"{how[not pinned]}.", "warn")
+            # (through the tool, one processor gave the original 1 time in 2,
+            # so it gets three goes, not one)
             for cand, one in ((other, not pinned), (recipe, pinned),
-                              (other, not pinned)):
+                              (other, not pinned), (other, not pinned)):
                 if self._stop.is_set():
                     break
                 alt = self._replay(cand, srcs, setwork, comment, st["format"],
