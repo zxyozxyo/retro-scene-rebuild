@@ -8080,15 +8080,31 @@ class RsrToolAPI:
         # the original's exact sector count.
         passes = [(dkb, sweep_rr) for dkb in cands]
         if sweep_rr == 0 and rr_sectors > 0:
-            passes.append((cands[0], rr_sectors))
+            if rr_pct >= 3:
+                # A record that size was ASKED for -- the defaults run near
+                # 1% -- so the exact count leads instead of following a whole
+                # pass that cannot split the set the same way. DC-X_Import_
+                # Game_Adapter-Kikoken (rar 3.x -rr5%, 1,887 sectors a volume):
+                # every default-record combo came out 33 volumes for 34 and
+                # the budget ran out 3,707 combos into that first pass.
+                passes.insert(0, (cands[0], rr_sectors))
+            else:
+                passes.append((cands[0], rr_sectors))
         for di, (dkb, rr_pass) in enumerate(passes):
             if self._stop.is_set() or self._skip.is_set():
                 return {"ok": False,
                         "error": "skipped" if self._skip.is_set() else "stopped"}
-            if di and rr_pass != sweep_rr:
+            if rr_pass != sweep_rr and not di:
+                self._log(f"    the record is {rr_pct}% of the set — asked "
+                          f"for, not a default — so the sweep leads with the "
+                          f"original's own size, -rr{rr_pass}.", "dim")
+            elif di and rr_pass != sweep_rr:
                 self._log(f"    retrying with the original's own record size, "
                           f"-rr{rr_pass} (the build default did not split "
                           f"the set the same way)", "dim")
+            elif di and passes[di - 1][1] != rr_pass:
+                self._log("    retrying with the build's default record size.",
+                          "dim")
             elif di:
                 self._log(f"    retrying with -md{dkb}KB "
                           f"(header dictionary didn't reproduce)", "dim")
