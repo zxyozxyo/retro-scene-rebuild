@@ -8142,6 +8142,13 @@ class RsrToolAPI:
             if recipe:
                 self._budget_hit = False
         if not recipe and not (self._skip.is_set() or self._stop.is_set()):
+            recipe = self._ppm_mem_recipe(
+                st, targets, blocks, src_files, work, level, solid, mgroups,
+                sweep_vol, head_vol, newnum, dir_send, dirs_first, comment,
+                base=srcdir if keep_paths else None)
+            if recipe:
+                self._budget_hit = False
+        if not recipe and not (self._skip.is_set() or self._stop.is_set()):
             recipe = self._mm_flip_recipe(
                 st, meta, targets, blocks, order, src_files, work, level,
                 solid, mgroups, sweep_vol, head_vol, newnum, dir_send,
@@ -8636,7 +8643,9 @@ class RsrToolAPI:
             return None
         bd = (getattr(self._tl, "depth_box", None) or {}).get("best")
         bp = self._best_partial
-        if bd and self._mmv_ok(bd[1]):
+        # (a megabyte or more: combos ruled out on the first look are noted
+        # too now, and a few KB of agreement is no reason to start here)
+        if bd and bd[0] >= 1 << 20 and self._mmv_ok(bd[1]):
             exe, mt_, sw_, dkb = bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
             why = (f"{_exe_label(exe)} runs {bd[0]:,} B into the stream "
                    "before parting")
@@ -8892,6 +8901,76 @@ class RsrToolAPI:
             return rec
         self._log(f"      {len(got)} of {len(targets)} "
                   f"({time.monotonic() - t0:,.0f}s) — not the order.", "dim")
+        return None
+
+    def _ppm_mem_recipe(self, st, targets, blocks, src_files, work, level,
+                        solid, groups, vol_bytes, head_vol, newnum, dirs,
+                        dirs_first, comment, base=None) -> dict | None:
+        """The deepest-running RAR 3.x combo with the original's own PPM
+        model size (`-mc:<MB>t`) -- or None.
+
+        At -m4/-m5 rar 3.x picks its text coder (PPMd) block by block, and a
+        PPM block opens with a flags byte and, when bit 5 is set, the model's
+        memory in MB minus one. The pack's builds write 24 (25 MB) today; the
+        original of Marvel_Vs_Capcom_2_Remix-DJ_KUNIO has 7 (8 MB) -- the
+        default evidently followed the packer's RAM -- and that one byte,
+        11,847 B into the stream, is ALL that parts rar 3.00-3.20 from it
+        (measured: with -mc:8t the probe agrees to its end).
+
+        Read off the original where the deepest combo parted: the byte before
+        must be a PPM header with the memory flag, equal in both by
+        construction. One full pack."""
+        bd = (getattr(self._tl, "depth_box", None) or {}).get("best")
+        if (not bd or st["format"] != "RAR4" or len(groups) != 1
+                or rar4_unp_max(st["volumes"]) < 29 or bd[0] < 1):
+            return None
+        depth, exe, mt_, sw_, dkb = bd[0], bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
+        if (sw_ and sw_[0] == self.DOS_MARK) or any(
+                x.startswith("-mc") for x in sw_):
+            return None
+        mem = None
+        for name, bl in (blocks or {}).items():
+            if not bl:
+                continue
+            vol, off, size = bl[0]
+            if depth >= size:
+                continue
+            try:
+                with open(vol, "rb") as fh:
+                    fh.seek(off + depth - 1)
+                    two = fh.read(2)
+            except OSError:
+                continue
+            if len(two) == 2 and two[0] & 0xA0 == 0xA0:
+                mem = two[1] + 1
+                break
+        if mem is None:
+            return None
+        rec = {"exe": exe, "version": _exe_label(exe), "mt": mt_,
+               "dict_kb": dkb, "level": level, "solid": bool(solid),
+               "volume_bytes": vol_bytes, "new_numbering": newnum,
+               "dirs": list(dirs), "dirs_first": bool(dirs_first),
+               "mc": sw_ + [f"-mc:{mem}t"], "tried": 0}
+        if head_vol:
+            rec["volume_head_bytes"] = head_vol
+        self._log(f"    ◐ {_exe_label(exe)} parts from the original "
+                  f"{depth:,} B in, on the size of a text (PPM) block's "
+                  f"model — the original used {mem} MB; packing with "
+                  f"-mc:{mem}t.", "info")
+        t0 = time.monotonic()
+        made = self._replay(dict(rec), src_files, work / "ppm", comment,
+                            st["format"], base=base)
+        if not made:
+            self._log("      the pack produced nothing.", "warn")
+            return None
+        got = self._streams_match(made[0], targets)
+        if len(got) == len(targets):
+            self._log(f"      ✓ with that model size every stream reproduces "
+                      f"({time.monotonic() - t0:,.0f}s).", "ok")
+            rec.pop("volume_head_bytes", None)
+            return rec
+        self._log(f"      {len(got)} of {len(targets)} "
+                  f"({time.monotonic() - t0:,.0f}s) — not that alone.", "dim")
         return None
 
     def _mmv_ok(self, exe: str) -> bool:
@@ -10097,8 +10176,14 @@ class RsrToolAPI:
                         return False
                 except OSError:
                     return False
-                if self._early_verdict(h, prefix, marks[look["next"]]) is False:
+                early = []
+                if self._early_verdict(h, prefix, marks[look["next"]],
+                                       early) is False:
                     look["bad"] = True
+                    if early:
+                        # a combo ruled out inside the first megabytes still
+                        # says how far it ran (see _ppm_mem_recipe)
+                        self._note_depth(max(early), ex, n, extra, dict_kb)
                     return True
                 look["next"] += 1
                 return False
@@ -11383,7 +11468,8 @@ class RsrToolAPI:
         return None
 
     @staticmethod
-    def _early_verdict(probe_head: Path, prefix: dict, min_bytes: int):
+    def _early_verdict(probe_head: Path, prefix: dict, min_bytes: int,
+                       depth=None):
         """False only if NO reading of this half-written archive agrees with
         the original; None if it might still be right, or if there is not yet
         enough to say.
@@ -11440,6 +11526,11 @@ class RsrToolAPI:
                             break
                         if x != y:
                             same = False
+                            if depth is not None:
+                                # how far this reading agreed -- see
+                                # _prefix_verdict; the deepest one is kept
+                                depth.append((n - left) + next(
+                                    i for i in range(step) if x[i] != y[i]))
                             break
                         left -= step
                 if same:
