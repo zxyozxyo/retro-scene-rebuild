@@ -14233,6 +14233,30 @@ class RsrToolAPI:
                               "dim")
                     fail = None
                     break
+        if fail and "payload differs" in fail:
+            # The capture verified this very command, so a payload that differs
+            # is the RUN, not the recipe. 2026-10-13: of 14 DOS rebuilds in one
+            # batch (eight at once, two scans beside them) Soul_Calibur_2_JAP_
+            # GC-RARE went wrong in volume 21 of 26 and Rayman_3_Hoodlum_Havok_
+            # Pal_Multi_GC-GCP in volume 2 of 24 -- and six packs of Rayman run
+            # afterwards, same command, same file, all gave that volume exactly.
+            # Run it once more before calling the set lost; the hash check is
+            # the same, so it can only succeed on the true bytes, and whether
+            # the second run goes wrong the same way is said either way.
+            self._log(fail.replace("✗", "·") + " The capture verified this "
+                      "command — running it once more.", "warn")
+            alt = self._replay(recipe, srcs, setwork, comment, st["format"],
+                               base=srcdir if keep_paths else None)
+            second = (self._write_replayed(alt, vols, z, out) if alt
+                      else "    ✗ the second run produced nothing.")
+            if not second:
+                self._log("    · the second run is exact: the first went "
+                          "wrong on its own, not the recipe.", "dim")
+                fail = None
+            elif second == fail:
+                fail += " The second run gave the same wrong bytes."
+            else:
+                fail = second + " (second run; the first went wrong differently)"
         if fail:
             self._log(fail, "err")
             return False
@@ -14294,6 +14318,9 @@ class RsrToolAPI:
                     more = self._header_evidence(
                         data, out / v.get("folder", "") / v["name"],
                         getattr(self, "_staged", []), getattr(self, "_staged_files", []))
+                if "payload differs" in why:
+                    # which wrong bytes: a second run says chance or not
+                    more = f"got {_sha256(data)[:12]}"
                 return (f"    ✗ {v['name']}: hash mismatch after replay "
                         f"({why})." + (f" [{more}]" if more else ""))
             if v.get("sfx_stub"):
