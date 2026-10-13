@@ -525,6 +525,106 @@ _FREE_SPACE_NEW = bytes.fromhex("83c408b8ffffff7f90909090")
 _PATCH_LOCK = threading.Lock()
 
 
+# @CPU1: run this pack as a ONE-PROCESSOR PC would. rar 3.x's first
+# multithreaded compressor is not a pure function of its input: it starts a
+# short-lived helper thread per block (some 400 over 700 MB), and somewhere in
+# a long stream the result depends on whether a helper got ahead of the thread
+# that started it. On many cores it always does; on the one-core PCs of the
+# day it did not. NBA_Live_2003_REPACK_INTERNAL_USA_NGC-SYNDiCATE (rar 3.80 b1
+# -mt2, one 1.4 GB file, 2007) parts from the replay at 709 MB of 1,229.
+# Measured 2026-10-13, original's bytes out of runs:
+#     every processor              1 of 9   (the one under a heavy load)
+#     one processor                7 of 11
+#     one, main thread idle        0 of 1
+#     one, main thread raised      6 of 6
+# So: one logical processor, and the main thread a step above its helpers, so
+# that a helper runs only when the main thread waits for it. It is an axis
+# like any other, written in the recipe -- and a race all the same, so the
+# rebuild tries again rather than believing one run.
+ONE_CORE = "@CPU1"
+_PIN_LOCK = threading.Lock()
+_PIN_NEXT = [0]
+
+
+def _pin_one_core(p) -> None:
+    """Hold a just-started process to one logical processor (a different one
+    each time, so several pinned packs do not queue for the same core) and
+    raise its main thread above the threads it will start."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.windll.kernel32
+        k.OpenProcess.restype = ctypes.c_void_p
+        k.OpenThread.restype = ctypes.c_void_p
+        k.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+        k.GetProcessAffinityMask.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t),
+            ctypes.POINTER(ctypes.c_size_t)]
+        k.SetProcessAffinityMask.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+        k.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        k.CloseHandle.argtypes = [ctypes.c_void_p]
+
+        class _TE(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD),
+                        ("cntUsage", wintypes.DWORD),
+                        ("th32ThreadID", wintypes.DWORD),
+                        ("th32OwnerProcessID", wintypes.DWORD),
+                        ("tpBasePri", wintypes.LONG),
+                        ("tpDeltaPri", wintypes.LONG),
+                        ("dwFlags", wintypes.DWORD)]
+
+        k.Thread32First.argtypes = [ctypes.c_void_p, ctypes.POINTER(_TE)]
+        k.Thread32Next.argtypes = [ctypes.c_void_p, ctypes.POINTER(_TE)]
+        h = k.OpenProcess(0x0200 | 0x0400, False, p.pid)
+        if not h:
+            return
+        try:
+            mine, system = ctypes.c_size_t(), ctypes.c_size_t()
+            if not k.GetProcessAffinityMask(h, ctypes.byref(mine),
+                                            ctypes.byref(system)):
+                return
+            cores = [i for i in range(64) if mine.value >> i & 1]
+            if not cores:
+                return
+            with _PIN_LOCK:
+                _PIN_NEXT[0] += 1
+                # an odd step: on a hyperthreaded machine neighbours 2n and
+                # 2n+1 are one core, and two pinned packs should not share it
+                pick = cores[(_PIN_NEXT[0] * 7) % len(cores)]
+            k.SetProcessAffinityMask(h, 1 << pick)
+        finally:
+            k.CloseHandle(h)
+        # The main thread is the only one a process has this early; the
+        # snapshot lists a process's threads oldest first in any case.
+        for _ in range(100):
+            snap = k.CreateToolhelp32Snapshot(4, 0)
+            tid = None
+            try:
+                te = _TE()
+                te.dwSize = ctypes.sizeof(_TE)
+                ok = k.Thread32First(snap, ctypes.byref(te))
+                while ok:
+                    if te.th32OwnerProcessID == p.pid:
+                        tid = te.th32ThreadID
+                        break
+                    ok = k.Thread32Next(snap, ctypes.byref(te))
+            finally:
+                k.CloseHandle(snap)
+            if tid is not None:
+                th = k.OpenThread(0x0020 | 0x0040, False, tid)
+                if th:
+                    k.SetThreadPriority(th, 2)      # THREAD_PRIORITY_HIGHEST
+                    k.CloseHandle(th)
+                return
+            if p.poll() is not None:
+                return
+            time.sleep(0.01)
+    except Exception:
+        pass
+
+
 def _runnable(cmd: list) -> list:
     """The command, with a free-space-bug build swapped for its patched twin.
 
@@ -532,6 +632,7 @@ def _runnable(cmd: list) -> list:
     The twin is derived from the pack's own file on first use and refused
     unless the pattern occurs exactly once, so a different binary under the
     same name is run as it is rather than patched blind."""
+    cmd = [a for a in cmd if a != ONE_CORE]      # ours, never rar's
     try:
         ex = Path(cmd[0])
         if ex.name not in _FREE_SPACE_BUG:
@@ -4263,6 +4364,8 @@ class RsrToolAPI:
                                  **_no_window())
         except Exception:
             return False
+        if ONE_CORE in cmd:
+            _pin_one_core(p)
         _die_with_us(p)
         with self._proc_lock:
             self._procs.add(p)
@@ -4326,6 +4429,8 @@ class RsrToolAPI:
                                  **_no_window())
         except Exception:
             return False
+        if ONE_CORE in cmd:
+            _pin_one_core(p)
         _die_with_us(p)
         with self._proc_lock:
             self._procs.add(p)
@@ -9847,7 +9952,24 @@ class RsrToolAPI:
                 # -v, which is what the note above records.
                 if self._is_dos32_exe(ex) and _dos32_number(ex.name) >= 300:
                     args.append("-vn")
-            bat = ("@echo off\r\n"
+            # Hardware interrupts off for the 16-bit line. Its output is not
+            # a pure function of the input while they run: the multimedia
+            # analyser reads stack it never wrote (see dosrar_fill), and what
+            # is lying there can be the frame of a timer interrupt. Measured
+            # 2026-10-13 on Rayman_3_Hoodlum_Havok_Pal_Multi_GC-GCP with a
+            # dozen DOSBoxes running: four of seven stock packs parted from
+            # the original (three at byte 45,190,372 of volume two, one early
+            # in volume three), all five packs behind this mask were exact as
+            # far as they ran -- and the scene's own volumes are the outcome
+            # WITHOUT the stray frame. Five bytes that mask every line of the
+            # first interrupt controller and return; nothing rar does waits
+            # on a tick. RAR/DOS32 runs under a DPMI extender and is left
+            # alone.
+            irq_off = ""
+            if not self._is_dos32_exe(ex):
+                (wdir / "IRQOFF.COM").write_bytes(bytes.fromhex("b0ffe621c3"))
+                irq_off = "IRQOFF.COM\r\n"
+            bat = ("@echo off\r\n" + irq_off
                    + loadfix + "RAR.EXE a " + " ".join(args) + " PROBE.RAR "
                    + " ".join(names) + " > RARLOG.TXT\r\n"
                    "echo RSRDONE >> RARLOG.TXT\r\n")
@@ -12378,6 +12500,29 @@ class RsrToolAPI:
                                       st, base, _compare, si)
             if got:
                 produced, verdict, volmeta, deltas, rr_maps = got
+        mcs = [str(x) for x in (recipe.get("mc") or [])]
+        if (verdict == "none" and int(recipe.get("mt") or 0) >= 2
+                and ONE_CORE not in mcs and self.DOS_MARK not in mcs
+                and not st["byte_split"]):
+            # The streams matched in the sweep and the volumes do not: for a
+            # multithreaded rar 3.x that is what a pack made on a one-core PC
+            # looks like from a many-core one (see ONE_CORE). Twice, because
+            # one processor makes the original's outcome likely, not certain.
+            cand = dict(recipe, mc=mcs + [ONE_CORE])
+            for ti in range(2):
+                alt = self._replay(cand, src_files, work / f"onecore{ti}",
+                                   comment, st["format"], base=base)
+                if not alt or len(alt) != len(vols):
+                    continue
+                v2, m2, d2, r2 = _compare(alt)
+                if v2 == "none":
+                    continue
+                self._log(f"    packed on ONE processor the replay is {v2} — "
+                          "this set was made by a multithreaded rar on a "
+                          "one-core PC, and the recipe now says so.", "ok")
+                recipe["mc"] = cand["mc"]
+                produced, verdict, volmeta, deltas, rr_maps =                     alt, v2, m2, d2, r2
+                break
         if verdict == "none":
             got = self._splice_attempt(produced, vols, st, si)
             if got:
@@ -14133,7 +14278,9 @@ class RsrToolAPI:
             _set_win_attrs(dst, attrs)
             srcs.append(dst)
         # kept only so a header mismatch can report what was actually staged
-        self._staged, self._staged_files = srcs, st["files"]
+        # (per thread: rebuilds run several at once, and NBA_Live_2003_REPACK
+        # was told about s3-mgs2.iso, a file of the release beside it)
+        self._tl.staged, self._tl.staged_files = srcs, st["files"]
         srr_filled = False
         if keep_paths and recipe.get("dirs"):
             srr_filled = self._restore_dir_times(recipe, srcdir)
@@ -14233,16 +14380,42 @@ class RsrToolAPI:
                               "dim")
                     fail = None
                     break
-        if fail and "payload differs" in fail:
+        mcs = [str(x) for x in (recipe.get("mc") or [])]
+        if fail and int(recipe.get("mt") or 0) >= 2 and self.DOS_MARK not in mcs:
+            # A multithreaded rar 3.x pack is a race (see ONE_CORE): the
+            # capture can have verified a run this machine seldom repeats.
+            # NBA_Live_2003_REPACK_INTERNAL_USA_NGC-SYNDiCATE verified at
+            # capture and then failed every rebuild at .r13. So before the set
+            # is called lost: the other way round (one processor, or all of
+            # them), the recorded way again, the other way again. Each is
+            # hash-checked exactly as the first was.
+            pinned = ONE_CORE in mcs
+            other = dict(recipe, mc=[x for x in mcs if x != ONE_CORE]
+                         + ([] if pinned else [ONE_CORE]))
+            how = {True: "on one processor", False: "on every processor"}
+            self._log(fail.replace("✗", "·") + " A multithreaded pack can "
+                      "come out differently from run to run — trying it "
+                      f"{how[not pinned]}.", "warn")
+            for cand, one in ((other, not pinned), (recipe, pinned),
+                              (other, not pinned)):
+                if self._stop.is_set():
+                    break
+                alt = self._replay(cand, srcs, setwork, comment, st["format"],
+                                   base=srcdir if keep_paths else None)
+                if alt and not self._write_replayed(alt, vols, z, out):
+                    self._log(f"    · exact when packed {how[one]}.", "dim")
+                    fail = None
+                    break
+        elif fail and "payload differs" in fail:
             # The capture verified this very command, so a payload that differs
             # is the RUN, not the recipe. 2026-10-13: of 14 DOS rebuilds in one
             # batch (eight at once, two scans beside them) Soul_Calibur_2_JAP_
             # GC-RARE went wrong in volume 21 of 26 and Rayman_3_Hoodlum_Havok_
-            # Pal_Multi_GC-GCP in volume 2 of 24 -- and six packs of Rayman run
-            # afterwards, same command, same file, all gave that volume exactly.
-            # Run it once more before calling the set lost; the hash check is
-            # the same, so it can only succeed on the true bytes, and whether
-            # the second run goes wrong the same way is said either way.
+            # Pal_Multi_GC-GCP in volume 2 of 24 (see the interrupt mask in
+            # _run_dos_pack for why). Run it once more before calling the set
+            # lost; the hash check is the same, so it can only succeed on the
+            # true bytes, and whether the second run goes wrong the same way
+            # is said either way.
             self._log(fail.replace("✗", "·") + " The capture verified this "
                       "command — running it once more.", "warn")
             alt = self._replay(recipe, srcs, setwork, comment, st["format"],
@@ -14317,7 +14490,8 @@ class RsrToolAPI:
                 if "header block differs" in why:
                     more = self._header_evidence(
                         data, out / v.get("folder", "") / v["name"],
-                        getattr(self, "_staged", []), getattr(self, "_staged_files", []))
+                        getattr(self._tl, "staged", []),
+                        getattr(self._tl, "staged_files", []))
                 if "payload differs" in why:
                     # which wrong bytes: a second run says chance or not
                     more = f"got {_sha256(data)[:12]}"
