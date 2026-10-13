@@ -1476,6 +1476,10 @@ def new_numbering(head: Path) -> bool:
 
 CMDLINE_MAX = 30000
 
+# A file this small that differs in the volume-one probe does not by itself
+# rule a combo out (see _prefix_verdict).
+PROBE_SMALL = 512 << 10
+
 # The most packed data a combo may miss and still be handed to the verifying
 # replay as a near miss (see _near_miss_recipe).
 NEAR_MISS_BYTES = 64 << 10
@@ -1485,12 +1489,21 @@ NEAR_MISS_BYTES = 64 << 10
 # 765 KB matches nothing -- every build diverges at the same byte 2,305 of it,
 # so it is the input, not the packer. 64 KB turned a 577 MB release into a
 # wall over 0.13% of it.
-NEAR_MISS_SHARE = 200
+NEAR_MISS_SHARE = 50
 NEAR_MISS_CEIL = 1_500_000
 
 
 def _near_miss_allowance(total_packed: int) -> int:
     return max(NEAR_MISS_BYTES, min(NEAR_MISS_CEIL, total_packed // NEAR_MISS_SHARE))
+
+
+def _near_miss_streams(count: int) -> int:
+    """How many streams a combo may miss and still be a near miss: 1% of
+    them, and two in any case. Fast_Food_Panic_EUR_MULTi5_NDS-DDumpers is
+    four files -- rar 3.90 -mt2 writes its 10.9 MB image and its .nfo
+    exactly and misses a 171 KB .jpg and a 578 B .png, which are carried
+    (see _splice_attempt); at "one stream" it was a wall."""
+    return max(2, count // 100)
 
 
 def _inline_dirs(names: list, dirs) -> list:
@@ -8515,7 +8528,7 @@ class RsrToolAPI:
         n_ok, label, mt_, sw_, names, exe, dkb = bp[:7]
         got = set(names)
         miss = [f for f in meta if f["name"] in targets and f["name"] not in got]
-        if not miss or len(miss) > max(1, len(targets) // 100):
+        if not miss or len(miss) > _near_miss_streams(len(targets)):
             return None
         miss_bytes = sum(int(f.get("packed_size") or 0) for f in miss)
         total = sum(int(f.get("packed_size") or 0) for f in meta
@@ -8954,6 +8967,15 @@ class RsrToolAPI:
             return None
         depth, exe, mt_, sw_, dkb = bd[0], bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
         if sw_ and sw_[0] == self.DOS_MARK:
+            return None
+        # A combo that already reproduced all but a stream or two is the
+        # better start, and the near-miss step below takes it: the deepest
+        # one here need not be it (Fast_Food_Panic-DDumpers: a -mcA- variant
+        # ran deepest into the image, while plain 3.90 -mt2 writes the image
+        # whole and misses only two small pictures).
+        bp = self._best_partial
+        if bp and bp[0] and len(targets) - bp[0] <= _near_miss_streams(
+                len(targets)):
             return None
         self._log(f"    ◐ {_exe_label(exe)}{'' if mt_ <= 0 else f' -mt{mt_}'} "
                   f"wrote {depth:,} B of the stream exactly before parting "
@@ -11618,6 +11640,13 @@ class RsrToolAPI:
         if not got:
             return None
         seen = 0
+        # A SMALL file that differs is set aside rather than ending the
+        # verdict, as long as a big one then agrees: Fast_Food_Panic-DDumpers
+        # opens with a 171 KB .jpg no build reproduces, in front of a 10.9 MB
+        # image rar 3.90 -mt2 writes exactly -- and every one of 8,246 combos
+        # died here on the .jpg. Such a combo goes on to the stream
+        # comparison, where the near-miss rules decide.
+        small_bad = 0
         for name, (src_vol, src_off, src_len) in prefix.items():
             if name not in got:
                 continue                       # not in volume one; no verdict
@@ -11625,6 +11654,16 @@ class RsrToolAPI:
             n = min(size, src_len)
             if n <= 0:
                 continue
+            if size <= PROBE_SMALL and src_len <= PROBE_SMALL:
+                try:
+                    with open(probe_head, "rb") as a, open(src_vol, "rb") as b:
+                        a.seek(off)
+                        b.seek(src_off)
+                        if size != src_len or a.read(size) != b.read(src_len):
+                            small_bad += 1
+                            continue
+                except OSError:
+                    return None
             try:
                 with open(probe_head, "rb") as a, open(src_vol, "rb") as b:
                     a.seek(off)
@@ -11644,6 +11683,8 @@ class RsrToolAPI:
             except OSError:
                 return None
             seen = max(seen, n)
+        if small_bad and seen < PROBE_MIN_BYTES:
+            return False                   # nothing big vouched for it
         return True if seen >= PROBE_MIN_BYTES else None
 
     @staticmethod
@@ -11674,7 +11715,7 @@ class RsrToolAPI:
         # the near miss _near_miss_recipe exists to catch. So keep going past
         # small misses, while they stay within that allowance; a big one
         # still ends it at once, before anything large is hashed.
-        allow_n = max(1, len(targets) // 100)
+        allow_n = _near_miss_streams(len(targets))
         allow_b = _near_miss_allowance(sum(
             t[0] for t in targets.values() if isinstance(t, tuple) and t))
         matched, missed_n, missed_b = [], 0, 0
