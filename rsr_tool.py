@@ -8151,6 +8151,12 @@ class RsrToolAPI:
         # every wall this fixes parks on the budget, because no build can
         # ever finish it.
         if not recipe and not (self._skip.is_set() or self._stop.is_set()):
+            recipe = self._decisions_recipe(
+                st, targets, level, solid, mgroups, sweep_vol, head_vol,
+                newnum, dir_send, dirs_first, rr_bytes)
+            if recipe:
+                self._budget_hit = False
+        if not recipe and not (self._skip.is_set() or self._stop.is_set()):
             recipe = self._solo_recipe(
                 st, targets, src_files, work, level, solid, mgroups,
                 sweep_vol, head_vol, newnum, dir_send, dirs_first, comment,
@@ -8918,6 +8924,35 @@ class RsrToolAPI:
         self._log(f"      {len(got)} of {len(targets)} "
                   f"({time.monotonic() - t0:,.0f}s) — not the order.", "dim")
         return None
+
+    def _decisions_recipe(self, st, targets, level, solid, groups,
+                          vol_bytes, head_vol, newnum, dirs, dirs_first,
+                          rr_bytes) -> dict | None:
+        """The combo that ran deepest into a RAR 3 stream, handed to the
+        verifying replay to be carried as DECISIONS (_splice_attempt) -- or
+        None.
+
+        Only where that can work: RAR 3.x, not solid, no recovery record,
+        and a build that wrote megabytes of the stream exactly before it
+        parted -- one that parts in the first megabyte is the wrong packer,
+        not a near miss. Nothing is packed here; the replay is the cost, and
+        it declines by itself when the decisions are not few."""
+        bd = (getattr(self._tl, "depth_box", None) or {}).get("best")
+        if (not bd or st["format"] != "RAR4" or solid or rr_bytes
+                or len(groups) != 1 or st.get("sfx") or head_vol
+                or rar4_unp_max(st["volumes"]) < 29 or bd[0] < 4 << 20):
+            return None
+        depth, exe, mt_, sw_, dkb = bd[0], bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
+        if sw_ and sw_[0] == self.DOS_MARK:
+            return None
+        self._log(f"    ◐ {_exe_label(exe)}{'' if mt_ <= 0 else f' -mt{mt_}'} "
+                  f"wrote {depth:,} B of the stream exactly before parting "
+                  "— replaying it to see whether the rest differs in only a "
+                  "few decisions.", "info")
+        return {"exe": exe, "version": _exe_label(exe), "mt": mt_,
+                "dict_kb": dkb, "mc": sw_, "dirs": list(dirs),
+                "dirs_first": bool(dirs_first), "tried": 0,
+                "near_miss": len(targets)}
 
     def _ppm_mem_recipe(self, st, targets, blocks, src_files, work, level,
                         solid, groups, vol_bytes, head_vol, newnum, dirs,
@@ -12293,6 +12328,9 @@ class RsrToolAPI:
             if got:
                 produced, verdict, volmeta, deltas, rr_maps = got
         if verdict == "none":
+            got = self._splice_attempt(produced, vols, st, si)
+            if got:
+                return "delta", got[0], got[1]
             return "none", volmeta, {}
         if verdict == "delta" and recipe.get("rr_pct"):
             # Cover the record's clock window from the BLOCK LAYOUT first. It
@@ -14179,6 +14217,8 @@ class RsrToolAPI:
     def _write_replayed(self, produced, vols, z, out: Path) -> str | None:
         """Patch, hash-check and write each replayed volume. None when every
         one is exact, else the first failure's log line."""
+        if any(v.get("splice") for v in vols):
+            return self._write_spliced(produced, vols, z, out)
         if len(produced) != len(vols):
             return (f"    ✗ replay made {len(produced)} volume(s), expected "
                     f"{len(vols)}.")
@@ -14217,6 +14257,236 @@ class RsrToolAPI:
                 cp = out / c.get("folder", "") / c["name"]
                 cp.parent.mkdir(parents=True, exist_ok=True)
                 cp.write_bytes(data)
+        return None
+
+    # ── RAR 3 streams carried as decisions (rar3_splice) ─────────────────────
+
+    SPLICE_MAX_TOKENS = 200_000        # decisions carried, whole set
+    SPLICE_MAX_LITERAL = 4 << 20       # header bytes carried, whole set
+
+    @staticmethod
+    def _stream_of(parts) -> bytes:
+        data = bytearray()
+        for vol, off, size in parts or ():
+            with open(vol, "rb") as fh:
+                fh.seek(off)
+                data += fh.read(size)
+        return bytes(data)
+
+    def _splice_attempt(self, produced, vols, st, si):
+        """(volume records, {path-in-rsr: bytes}) for a set whose replay is
+        right in all but a few DECISIONS of some stream -- or None.
+
+        A RAR 3 stream that differs from the replay in one match decision
+        differs in every byte after it (see rar3_splice), so no byte patch
+        carries it and the volumes after it no longer even split at the same
+        place. Carried as decisions it is tiny: Guitar_Rock_Tour_EUR_MULTi6_
+        NDS-BAHAMUT is one token of 94 million; the first file of
+        Sega_Germany_Dreamcast_Pre-Launch_Press_Disc, which no build
+        reproduces, is 527.
+
+        Each original volume is then recorded as its own header bytes plus
+        (file, offset, length) runs of the streams, and every volume is put
+        together from that and hash-checked before anything is claimed.
+        RAR 3.x, non-solid, no recovery record (its sectors would all have to
+        be carried); text (PPM) blocks cannot be read and decline."""
+        try:
+            import rar3_splice
+        except ImportError:
+            return None
+        if (st.get("format") != "RAR4" or st.get("byte_split")
+                or st.get("sfx") or not produced or not vols):
+            return None
+        vols = [Path(v) for v in vols]
+        if len({v.parent for v in vols}) != 1:
+            return None
+        try:
+            if rar4_unp_max(vols) < 29:
+                return None
+            ob = packed_blocks(vols[0])
+            pb = packed_blocks(produced[0])
+        except Exception:
+            return None
+        names = list(ob)
+        if not names or names != list(pb):
+            return None
+        t0 = time.monotonic()
+        patches, carried = {}, 0
+        for name in names:
+            a = self._stream_of(ob[name])
+            b = self._stream_of(pb[name])
+            if a == b:
+                continue
+            try:
+                patch = rar3_splice.diff(
+                    a, b, self.SPLICE_MAX_TOKENS - carried)
+            except (ValueError, IndexError, KeyError) as e:
+                self._log(f"      {name.split('/')[-1]}: its stream cannot be "
+                          f"read as decisions ({e}) — not carried that way.",
+                          "dim")
+                return None
+            if patch is None:
+                self._log(f"      {name.split('/')[-1]}: differs from the "
+                          f"replay in more than "
+                          f"{self.SPLICE_MAX_TOKENS:,} decisions — not a "
+                          "near miss.", "dim")
+                return None
+            out = bytearray()
+            try:
+                rar3_splice.apply(b, patch, out)
+            except Exception as e:
+                self._log(f"      {name.split('/')[-1]}: the decisions do not "
+                          f"write back ({e}).", "dim")
+                return None
+            if bytes(out) != a:
+                self._log(f"      {name.split('/')[-1]}: the stream written "
+                          "back from its decisions is not the original — "
+                          "a rule of the writer does not hold here.", "warn")
+                return None
+            patches[name] = patch
+            carried += rar3_splice.info(patch)["carried"]
+            del a, b, out
+        if not patches:
+            return None
+        # every original volume as literal header bytes + stream runs
+        per_vol: dict[str, list] = {}
+        for fi, name in enumerate(names):
+            at = 0
+            for vol, off, size in ob[name]:
+                per_vol.setdefault(str(Path(vol)), []).append(
+                    (off, size, fi, at))
+                at += size
+        deltas, volmeta, literal = {}, [], 0
+        for idx, v in enumerate(vols):
+            runs = sorted(per_vol.get(str(v), []))
+            blob = bytearray(b"RSRV1\x00")
+            pos = 0
+            with open(v, "rb") as fh:
+                for off, size, fi, at in runs:
+                    if off > pos:
+                        fh.seek(pos)
+                        lit = fh.read(off - pos)
+                        literal += len(lit)
+                        blob += b"L" + len(lit).to_bytes(4, "little") + lit
+                    blob += (b"S" + fi.to_bytes(4, "little")
+                             + at.to_bytes(8, "little")
+                             + size.to_bytes(8, "little"))
+                    pos = off + size
+                end = v.stat().st_size
+                if end > pos:
+                    fh.seek(pos)
+                    lit = fh.read(end - pos)
+                    literal += len(lit)
+                    blob += b"L" + len(lit).to_bytes(4, "little") + lit
+            if literal > self.SPLICE_MAX_LITERAL:
+                self._log("      the volumes carry more than "
+                          f"{self.SPLICE_MAX_LITERAL:,} B outside the "
+                          "streams (a recovery record?) — not carried.",
+                          "dim")
+                return None
+            key = f"splice/{si}_{idx:04d}.bin"
+            deltas[key] = bytes(blob)
+            volmeta.append({"name": v.name, "size": v.stat().st_size,
+                            "sha256": _file_sha256(v),
+                            "head_sha": _sha256(v.read_bytes()[:4096]),
+                            "delta": None, "splice": key})
+        index = {"names": names, "patches": {}}
+        for i, (name, patch) in enumerate(patches.items()):
+            key = f"splice/{si}_stream{i:03d}.bin"
+            deltas[key] = patch
+            index["patches"][name] = key
+        ikey = f"splice/{si}_index.json"
+        deltas[ikey] = json.dumps(index).encode("utf-8")
+        for vm in volmeta:
+            vm["splice_index"] = ikey
+        # prove it: put every volume together from the replay and compare
+        streams = self._splice_streams(produced, index,
+                                       lambda k: deltas[k])
+        if streams is None:
+            return None
+        for vm, v in zip(volmeta, vols):
+            data = self._splice_volume(deltas[vm["splice"]], streams)
+            if data is None or _sha256(data) != vm["sha256"]:
+                self._log(f"      {v.name}: put together from the replay it "
+                          "is not the original — not carried.", "warn")
+                return None
+        self._log(f"    ✓ the replay differs from the original in "
+                  f"{carried:,} decision(s) of {len(patches)} stream(s); "
+                  f"carried as decisions, with {literal:,} B of volume "
+                  f"headers, every volume rebuilt and hash-checked "
+                  f"({time.monotonic() - t0:,.0f}s).", "ok")
+        return volmeta, deltas
+
+    def _splice_streams(self, produced, index, read):
+        """The ORIGINAL's stream of every file, in order: the replay's own
+        where nothing differs, written back from decisions where it does."""
+        import rar3_splice
+        try:
+            pb = packed_blocks(produced[0])
+        except Exception:
+            return None
+        if list(pb) != list(index["names"]):
+            return None
+        out = []
+        for name in index["names"]:
+            b = self._stream_of(pb[name])
+            key = index["patches"].get(name)
+            if key:
+                sink = bytearray()
+                rar3_splice.apply(b, read(key), sink)
+                b = bytes(sink)
+            out.append(b)
+        return out
+
+    @staticmethod
+    def _splice_volume(blob: bytes, streams) -> bytes | None:
+        if not blob.startswith(b"RSRV1\x00"):
+            return None
+        i = 6
+        out = bytearray()
+        while i < len(blob):
+            kind = blob[i:i + 1]
+            i += 1
+            if kind == b"L":
+                n = int.from_bytes(blob[i:i + 4], "little")
+                i += 4
+                out += blob[i:i + n]
+                i += n
+            elif kind == b"S":
+                fi = int.from_bytes(blob[i:i + 4], "little")
+                at = int.from_bytes(blob[i + 4:i + 12], "little")
+                n = int.from_bytes(blob[i + 12:i + 20], "little")
+                i += 20
+                if fi >= len(streams) or at + n > len(streams[fi]):
+                    return None
+                out += streams[fi][at:at + n]
+            else:
+                return None
+        return bytes(out)
+
+    def _write_spliced(self, produced, vols, z, out: Path) -> str | None:
+        """The rebuild side of _splice_attempt."""
+        t0 = time.monotonic()
+        try:
+            index = json.loads(z.read(vols[0]["splice_index"]))
+            self._log("    writing the streams back from their decisions "
+                      "(slow: a few minutes per 100 MB)…", "dim")
+            streams = self._splice_streams(produced, index, z.read)
+        except Exception as e:
+            return f"    ✗ the carried decisions could not be applied ({e})."
+        if streams is None:
+            return ("    ✗ the replay does not hold the files the carried "
+                    "decisions were made against.")
+        for v in vols:
+            data = self._splice_volume(z.read(v["splice"]), streams)
+            if data is None or _sha256(data) != v["sha256"]:
+                return (f"    ✗ {v['name']}: hash mismatch after writing the "
+                        "streams back from their decisions.")
+            dst = out / v.get("folder", "") / v["name"]
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(data)
+        self._log(f"    · streams written back from decisions in "
+                  f"{time.monotonic() - t0:,.0f}s.", "dim")
         return None
 
     def _legacy_rr_recipes(self, recipe: dict) -> list[tuple[dict, str]]:
