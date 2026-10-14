@@ -6243,6 +6243,14 @@ class RsrToolAPI:
                 for f in manifest["sidecars"]:
                     if this != base:
                         f["folder"] = this.name
+                # _capture_sidecars writes the partner's bytes under the same
+                # key BEFORE they are moved to their own prefix below, so this
+                # folder's own copies are kept aside and put back after it:
+                # Sands_Of_Destruction_USA_NDS-XPA rebuilt its base nfo and
+                # sfv as the RARFIX folder's ("stored bytes do not match").
+                ours = {x["stored"]: embedded[x["stored"]]
+                        for x in manifest["sidecars"]
+                        if x.get("stored") and x["stored"] in embedded}
                 extra = self._capture_sidecars(sib, s, embedded, manifest)
                 for f in extra:
                     if sib != base:
@@ -6258,6 +6266,7 @@ class RsrToolAPI:
                         if embedded.get(key) is not None:
                             embedded[newkey] = embedded[key]
                         f["stored"] = newkey
+                embedded.update(ours)
                 manifest["sidecars"] += extra
                 self._log(f"  paired with {sib.name}: {len(extra)} sidecar(s) "
                           "from there as well.", "dim")
