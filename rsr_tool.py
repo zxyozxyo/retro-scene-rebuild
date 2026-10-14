@@ -14602,7 +14602,7 @@ class RsrToolAPI:
         (file, offset, length) runs of the streams, and every volume is put
         together from that and hash-checked before anything is claimed.
         RAR 3.x, non-solid, no recovery record (its sectors would all have to
-        be carried); text (PPM) blocks cannot be read and decline."""
+        be carried); text (PPM) blocks are carried as their own bytes."""
         try:
             import rar3_splice
         except ImportError:
