@@ -4,6 +4,7 @@ Exposes methods to the JS frontend via PyWebView's js_api bridge.
 """
 
 import os
+import re
 import shutil
 import threading
 import hashlib
@@ -26,7 +27,11 @@ def fast_move(src: Path, dst: Path):
     Same drive: os.rename (instant, just a directory entry update).
     Cross drive: shutil.copy2 + unlink (must physically copy bytes).
     Falls back to shutil.move if anything unexpected happens.
+    Never overwrites: raises FileExistsError if dst already exists (the copy
+    fallback would otherwise replace it silently).
     """
+    if dst.exists():
+        raise FileExistsError(f"destination already exists: {dst}")
     try:
         os.rename(str(src), str(dst))
         return
@@ -115,104 +120,128 @@ def _find_tool(names: list) -> str:
     return None
 
 
-def extract_iso(src: Path, dest_dir: Path) -> list:
+class ExtractSkip(Exception):
+    """Archive cannot be handled here (tool missing, unsupported type).
+    The extractor logs it and leaves the file in place - it is NOT bad."""
+
+
+def extract_iso(src: Path, dest_dir: Path, overwrite: bool = False) -> list:
     """
-    Extract/copy an ISO image.
-    ISOs are disc images — we just move/copy them rather than extracting contents.
-    Returns the destination path in a list for consistency.
+    ISOs are disc images, not archives: "extracting" one just places it in its
+    own <stem>/ folder. An ISO already there is left alone (no _1 copies).
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = safe_dest(dest_dir / src.name)
+    dest = dest_dir / src.name
+    if dest.exists() and (not overwrite or dest.resolve() == src.resolve()):
+        return [str(dest)]
     shutil.copy2(str(src), str(dest))
     return [str(dest)]
 
 
-def extract_chd(src: Path, dest_dir: Path) -> list:
+# CHD metadata tag -> (kind, chdman command, output extension)
+_CHD_KINDS = {
+    "CHGD": ("GD-ROM", "extractcd", ".gdi"),
+    "CHT2": ("CD-ROM", "extractcd", ".cue"),
+    "CHTR": ("CD-ROM", "extractcd", ".cue"),
+    "CHCD": ("CD-ROM", "extractcd", ".cue"),
+    "DVD ": ("DVD", "extractdvd", ".iso"),
+    "GDDD": ("hard disk", "extracthd", ".img"),
+}
+
+
+def extract_chd(src: Path, dest_dir: Path, overwrite: bool = False) -> list:
     """
-    Convert CHD back to its source format using chdman.
-    chdman.exe must be in the app folder or on PATH.
-    Falls back to copy if chdman not found.
+    Convert a CHD back to its source format with chdman: CD -> .cue/.bin,
+    GD-ROM -> .gdi + tracks, DVD -> .iso, hard disk -> .img.
+    The type comes from the CHD's metadata tag. If the output already exists
+    it is left alone unless overwrite is set.
     """
     import subprocess
-    dest_dir.mkdir(parents=True, exist_ok=True)
     chdman = _find_tool(['chdman.exe', 'chdman'])
     if not chdman:
-        # No chdman — just copy the CHD as-is
-        dest = safe_dest(dest_dir / src.name)
-        shutil.copy2(str(src), str(dest))
-        return [str(dest)]
-    # Try to detect CHD type and extract to appropriate format
-    # First run info to determine type
+        raise ExtractSkip("chdman.exe not found (put it in apps/)")
     info = subprocess.run([chdman, 'info', '-i', str(src)],
-                          capture_output=True, encoding="utf-8", errors="replace")
-    chd_type = 'cdrom'  # default
-    for line in info.stdout.splitlines():
-        if 'CD-ROM' in line or 'cdrom' in line.lower():
-            chd_type = 'cdrom'
-        elif 'Hard Disk' in line or 'hd' in line.lower():
-            chd_type = 'hd'
-        elif 'DVD' in line:
-            chd_type = 'dvd'
-    ext_map = {'cdrom': '.cue', 'hd': '.img', 'dvd': '.iso'}
-    out_ext  = ext_map.get(chd_type, '.bin')
-    out_stem = src.stem
-    out_path = safe_dest(dest_dir / (out_stem + out_ext))
-    cmd_map  = {'cdrom': 'extractcd', 'hd': 'extracthd', 'dvd': 'extractdvd'}
-    cmd = [chdman, cmd_map.get(chd_type, 'extractcd'),
-           '-i', str(src), '-o', str(out_path)]
-    result = subprocess.run(cmd, capture_output=True, encoding="utf-8", errors="replace")
-    if result.returncode != 0:
-        raise RuntimeError(f'chdman failed: {result.stderr[:200]}')
-    extracted = [str(out_path)]
-    # chdman extractcd also creates a .bin alongside the .cue
-    bin_path = out_path.with_suffix('.bin')
-    if bin_path.exists():
-        extracted.append(str(bin_path))
-    return extracted
+                          capture_output=True, encoding="utf-8", errors="replace",
+                          stdin=subprocess.DEVNULL, timeout=120)
+    if info.returncode != 0:
+        msg = (info.stderr or info.stdout).strip().splitlines()
+        raise RuntimeError(f"chdman info failed: {msg[-1][:150] if msg else info.returncode}")
+    tags = re.findall(r"Tag='(.{4})'", info.stdout)
+    kind = next((_CHD_KINDS[t] for t in tags if t in _CHD_KINDS), None)
+    if not kind:
+        raise ExtractSkip(f"CHD type not supported for extraction "
+                          f"(metadata tags: {', '.join(tags) or 'none'})")
+    _label, cmd, out_ext = kind
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out_path = dest_dir / (src.stem + out_ext)
+    if out_path.exists() and not overwrite:
+        return [str(f) for f in dest_dir.iterdir() if f.is_file()]
+    before = {f.name for f in dest_dir.iterdir()}
+    started = time.time() - 2
+    result = subprocess.run([chdman, cmd, '-i', str(src), '-o', str(out_path), '-f'],
+                            capture_output=True, encoding="utf-8", errors="replace",
+                            stdin=subprocess.DEVNULL)
+    if result.returncode != 0 or not out_path.is_file():
+        for f in dest_dir.iterdir():           # remove partial output
+            if f.name not in before and f.is_file():
+                f.unlink(missing_ok=True)
+        lines = (result.stderr or result.stdout).strip().splitlines()
+        raise RuntimeError(f"chdman {cmd} failed: {lines[-1][:150] if lines else result.returncode}")
+    return [str(f) for f in dest_dir.iterdir()
+            if f.is_file() and (f.name not in before or f.stat().st_mtime >= started)]
 
 
-def extract_dms(src: Path, dest_dir: Path) -> list:
+def extract_dms(src: Path, dest_dir: Path, overwrite: bool = False) -> list:
     """
-    Extract DMS (Amiga Disk Masher) files using xdms or dmstools.
-    xdms.exe / dmstools must be in the app folder or on PATH.
-    Falls back to copy if tool not found.
+    Unpack a DMS (Amiga Disk Masher) archive to <stem>.adf with xdms-rs.
+    xdms-rs.exe ships in apps/ (the old xdms.exe failed to start with a
+    side-by-side runtime error and was removed; rom_tools.py uses xdms-rs too).
+    Syntax: xdms-rs u <in.dms> <out.adf>.
+    If the .adf already exists it is left alone unless overwrite is set, so a
+    kept .dms (no-delete rule) is not unpacked again on every run.
     """
     import subprocess
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    tool = _find_tool(['xdms.exe', 'xdms', 'dmstools.exe', 'dmstools'])
+    tool = _find_tool(['xdms-rs.exe', 'xdms-rs'])
     if not tool:
-        # No tool — just copy the DMS as-is
-        dest = safe_dest(dest_dir / src.name)
-        shutil.copy2(str(src), str(dest))
-        return [str(dest)]
-    # xdms syntax: xdms u <src> <dest_dir>  (extracts to directory)
-    # Some versions: xdms u <src> +<dest_dir>
+        raise ExtractSkip("xdms-rs.exe not found (put it in apps/)")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    out_path = safe_dest(dest_dir / src.with_suffix('.adf').name)
-    # Try standard syntax first
+    out_path = dest_dir / (src.stem + '.adf')
+    if out_path.exists() and not overwrite:
+        return [str(out_path)]
+    tmp_path = out_path.with_name(out_path.name + '.part')
     result = subprocess.run(
-        [tool, 'u', str(src), str(dest_dir) + os.sep],
+        [tool, 'u', str(src), str(tmp_path)],
         capture_output=True, encoding="utf-8", errors="replace",
-        stdin=subprocess.DEVNULL
+        stdin=subprocess.DEVNULL, timeout=300
     )
-    if result.returncode != 0:
-        # Try alternate syntax with output file
-        result = subprocess.run(
-            [tool, 'u', str(src), str(out_path)],
-            capture_output=True, encoding="utf-8", errors="replace",
-            stdin=subprocess.DEVNULL
-        )
-    if result.returncode != 0:
-        raise RuntimeError(f'xdms failed (code {result.returncode}): {result.stderr[:200]} {result.stdout[:200]}')
-    # Find extracted files
-    extracted = [str(f) for f in dest_dir.iterdir() if f.is_file()]
-    return extracted if extracted else [str(out_path)]
+    if result.returncode != 0 or not tmp_path.is_file():
+        tmp_path.unlink(missing_ok=True)
+        msg = (result.stderr or result.stdout).strip()[:200]
+        raise RuntimeError(f'xdms-rs failed (code {result.returncode}): {msg}')
+    os.replace(tmp_path, out_path)
+    return [str(out_path)]
 
 
 
 # ---------------------------------------------------------------------------
 # Helper: safe rename on collision (appends _1, _2, etc.)
 # ---------------------------------------------------------------------------
+def same_content(a: Path, b: Path) -> bool:
+    """True if two files are byte-identical (size first, then MD5)."""
+    try:
+        if a.stat().st_size != b.stat().st_size:
+            return False
+        def _md5(p):
+            h = hashlib.md5()
+            with open(p, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            return h.digest()
+        return _md5(a) == _md5(b)
+    except OSError:
+        return False
+
+
 def safe_dest(dest_path: Path) -> Path:
     if not dest_path.exists():
         return dest_path
@@ -448,13 +477,13 @@ def extract_archive(src: Path, dest_dir: Path, overwrite: bool = False) -> list:
                 extracted = [str(out_path)]
 
     elif suf == ".iso":
-        extracted = extract_iso(src, dest_dir)
+        extracted = extract_iso(src, dest_dir, overwrite=overwrite)
 
     elif suf == ".chd":
-        extracted = extract_chd(src, dest_dir)
+        extracted = extract_chd(src, dest_dir, overwrite=overwrite)
 
     elif suf == ".dms":
-        extracted = extract_dms(src, dest_dir)
+        extracted = extract_dms(src, dest_dir, overwrite=overwrite)
 
     else:
         raise RuntimeError(f"Unsupported format: {suf}")
@@ -598,7 +627,9 @@ class ToSortAPI:
             (self._run_extractor, config.get("mod0", {})),
             (self._run_sorter,    config.get("mod1", {})),
             (self._run_empty,     config.get("mod2", {})),
-            (self._run_dupes,     config.get("mod3", {})),
+            (self._run_dupes,     dict(config.get("mod3", {}), prefer_dir=(
+                config.get("mod1", {}).get("rom_out", "")
+                if config.get("mod1", {}).get("rom_enable") else ""))),
         ]
 
         for i, (fn, cfg) in enumerate(runners):
@@ -688,6 +719,10 @@ class ToSortAPI:
                 m = _re_ext.search(r"\.part0*(\d+)\.rar$", _fname_l)
                 if m and int(m.group(1)) >= 2:
                     continue  # .part2.rar, .part10.rar etc
+                # A disc image already in its own <stem>/ folder is earlier
+                # output (ISO placed, CHD -> ISO); re-processing it copies it
+                if _suf == ".iso" and _fp.parent.name.lower() == _fp.stem.lower():
+                    continue
                 archives.append(_fp)
 
         self._log(f"  Found {len(archives)} archive(s) to process", "dim")
@@ -843,6 +878,9 @@ class ToSortAPI:
                 if "WinError 32" in err_str or "being used by another process" in err_str:
                     self._log(f"  SKIP  {arc.name}: file locked (in use) — left in place", "warn")
                     continue
+                if isinstance(e, ExtractSkip):
+                    self._log(f"  SKIP  {arc.name}: {err_str} — left in place", "warn")
+                    continue
                 if is_password_error(e):
                     move_bad(arc, "password protected")
                 elif is_compression_error(e) and arc.suffix.lower() == ".zip":
@@ -993,172 +1031,45 @@ class ToSortAPI:
         rename_dupe = cfg.get("rename_dupe", True)
         companions  = cfg.get("companions",  True)
         dry_run     = cfg.get("dry_run",     False)
+        # Known-only: every known ext goes to the ROM output, everything
+        # else is DELETED and nothing goes to the general output.
+        known_only  = cfg.get("known_only",  False)
+        keep_chip   = cfg.get("keep_chip",   True)
+        # Watch-mode runs only delete when that was explicitly allowed
+        delete_unknown = known_only and (not cfg.get("from_watch")
+                                         or cfg.get("known_only_watch", False))
 
         self._log("=== MODULE 2: File Sorter ===", "info")
-        if rom_enable:
+        if known_only and not delete_unknown:
+            self._log("KNOWN-ONLY mode (Watch run) — unknown files are left in "
+                      "place; tick 'Allow in Watch mode' to delete them.", "warn")
+        elif known_only:
+            self._log("KNOWN-ONLY mode — files with unknown extensions will be "
+                      + ("counted (dry run)." if dry_run else "DELETED."), "warn")
+        elif rom_enable:
             self._log("ROM sorting ENABLED — two-destination mode.", "info")
 
         if not src_dir.is_dir():
             self._log(f"Source folder not found: {src_dir}", "err")
             self._progress(mod_idx, 100, "Error"); return
-        if not gen_dir:
+        if known_only and not rom_enable:
+            self._log("Known-only mode needs ROM sorting enabled (known files "
+                      "go to the ROM output).", "err")
+            self._progress(mod_idx, 100, "Error"); return
+        if not known_only and not cfg.get("out", "").strip():
             self._log("No general output folder set.", "err")
             self._progress(mod_idx, 100, "Error"); return
-        if rom_enable and not rom_dir:
+        if rom_enable and not cfg.get("rom_out", "").strip():
             self._log("ROM sorting enabled but no ROM output folder set.", "err")
             self._progress(mod_idx, 100, "Error"); return
 
-        gen_dir.mkdir(parents=True, exist_ok=True)
+        if not known_only:
+            gen_dir.mkdir(parents=True, exist_ok=True)
         if rom_enable:
             rom_dir.mkdir(parents=True, exist_ok=True)
 
-        # ── ROM extension database ─────────────────────────────────────
-        ROM_EXTS = {
-            # ── Atari (2600, 5200, 7800, 8-bit, Lynx, Jaguar, ST) ─────
-            "a26","a52","a78","atr","xex","xfd","cas","car","lnx","lyx","jag",
-            "atx","abs","cof","bjl","st","stx","stt",
-            # ── Nintendo (NES, SNES, GB/GBC/GBA, N64, GC, Wii, Switch, DS, 3DS) ──
-            "nes","unf","unif","fds","sfc","smc","fig","gb","gbc","sgb","gba","agb",
-            "nds","dsi","3ds","3dsx","cci","cxi","n64","z64","v64","ndd","gcm","gcz",
-            "nsp","xci","wad","wbfs","rvz","rpx","wux","dol","gbx",
-            # ── Sega (SMS, GG, MD, 32X, CD, Saturn, DC) ────────────────
-            "sms","gg","md","gen","32x","scd","sat","ss","dc","gdi",
-            # ── Sony (PS1, PSP, PS3/PS4) ───────────────────────────────
-            "pbp","cso","dax","pkg",
-            # ── NEC / SNK ──────────────────────────────────────────────
-            "pce","sgx","ngp","ngc",
-            # ── Microsoft Xbox ─────────────────────────────────────────
-            "xbe","xiso",
-            # ── Commodore 64 / 128 / Amiga ─────────────────────────────
-            "d64","t64","g64","d71","d81","prg","p00","nib","crt","c64",
-            "adf","dms","ipf","hdf","uae","d40","d80","reu","tap",
-            # ── Sinclair ZX Spectrum ────────────────────────────────────
-            "tzx","z80","sna","szx","csw","dsk","mdr","mgt","opd","sp","udi",
-            # ── Amstrad CPC ────────────────────────────────────────────
-            "cdt","cpr",
-            # ── BBC Micro / Acorn / Archimedes ─────────────────────────
-            "ssd","dsd","uef","bbc","adl","adm","arc","ark","scp",
-            # ── MSX ────────────────────────────────────────────────────
-            "mx1","mx2","rom","dsk",
-            # ── Apple II / IIGS ────────────────────────────────────────
-            "2mg","po","hdv","woz","a2r","d13",
-            # ── Atari ST / Falcon ──────────────────────────────────────
-            "tos","ddp",
-            # ── Sharp / Japanese home computers ────────────────────────
-            "d77","d88","88d","d2m","d4m","nfd","t88","p6","mzf",
-            # ── Thomson / Alice ─────────────────────────────────────────
-            "k7","fd","m7","sap","qd",
-            # ── Dragon / Tandy CoCo ────────────────────────────────────
-            "dgn","vdk","pak","cgd","cas",
-            # ── CP/M systems ───────────────────────────────────────────
-            "cpm","com",
-            # ── Coleco / Intellivision / Vectrex / Odyssey ─────────────
-            "col","cv","int","o2","vec",
-            # ── WonderSwan / Virtual Boy ───────────────────────────────
-            "ws","wsc","vb",
-            # ── Arduboy ────────────────────────────────────────────────
-            "arduboy","hex",
-            # ── Sord M5 / MTX ──────────────────────────────────────────
-            "mtx","run",
-            # ── Enterprise 128 ─────────────────────────────────────────
-            "ep128s","dtf",
-            # ── SAM Coupe ──────────────────────────────────────────────
-            "sad","sdf",
-            # ── Nascom ─────────────────────────────────────────────────
-            "nas",
-            # ── Camputers Lynx ─────────────────────────────────────────
-            "ace",
-            # ── Galaksija ──────────────────────────────────────────────
-            "gal","gtp",
-            # ── Robotron / KC85 ────────────────────────────────────────
-            "bkp","cram",
-            # ── Soviet/Russian micros ──────────────────────────────────
-            "rk5","rx1","ptp","rim",
-            # ── DAI Personal Computer ──────────────────────────────────
-            "dai",
-            # ── VTech / Laser ──────────────────────────────────────────
-            "vtp","fbt",
-            # ── TRS-80 / Oric / Misc 8-bit ─────────────────────────────
-            "dmk","bas","cmd","lbr","wr3","dfi","dmp","mac","caq","cjr","bac",
-            "jrc","ihx","asm","a22","tu6","v0","app","asy",
-            # ── Elan / Memotech / misc ─────────────────────────────────
-            "fpk","pss","imz","cp2","formzt","sol","svt","smu","srn",
-            # ── Sharp MZ ───────────────────────────────────────────────
-            "mzf","qdf",
-            # ── SpectraVideo ───────────────────────────────────────────
-            "sda","sfx",
-            # ── Sinclair QL / Microdrives ──────────────────────────────
-            "mdv",
-            # ── Jupiter Ace ────────────────────────────────────────────
-            "ace",
-            # ── Aamber Pegasus / misc ──────────────────────────────────
-            "bee","pop","bs5","ecb","ent","sd","sis","dck",
-            # ── Paper tape / teletype ──────────────────────────────────
-            "ptp",
-            # ── Floppy disk image formats (multi-system) ───────────────
-            "hfe","fdi","fsd","td0","imd","dim","xdf","hdm","2d","2hd",
-            "dcp","nfd","hxcstream","mfm","pdi","pfdc","pri","psi","tc",
-            "1dd","scp","ima","edd","jfd","fdd","baz","wdr",
-            # ── Disc images ────────────────────────────────────────────
-            "iso","mdf","mds","ccd","sub","ecm","img","bin","chd",
-            # ── ZX Microdrive / misc Sinclair ──────────────────────────
-            "$c","$b","$u","$z","$t","$w","$x",
-            # ── MAME / Arcade ──────────────────────────────────────────
-            "chd",
-            # ── Emulator saves / states / BIOS ─────────────────────────
-            "sav","srm","fla","sta","ss1","ss2","mcr","vmp","vms","bios",
-            # ── Misc transport / tape ──────────────────────────────────
-            "tape","t77","cmt","wav","aif","raw",
-            # ── No-Intro / TOSEC / Redump specific ─────────────────────
-            "min","trim","cia","elf","dol","vpk","velf",
-            # ── Misc / uncategorised TOSEC ─────────────────────────────
-            "lib","orig","pl","prn","out","wmf","gcz",
-            # ═══════════════════════════════════════════════════════════
-            # ── VGM / Chiptune / ROM Music formats ─────────────────────
-            # ═══════════════════════════════════════════════════════════
-            # VGM family
-            "vgm","vgz","gym","s98",
-            # SID (Commodore 64 music)
-            "sid","psid","rsid",
-            # ZX Spectrum / AY chip music
-            "ay","stc","stp","sqt","pt1","pt2","pt3","psc",
-            # Amiga tracker music
-            "mod","xm","s3m","it","med","oct","dbm","ahx","hvl",
-            # Nintendo music rips
-            "nsf","nsfe","gbs","hes",
-            # SNES music
-            "spc","rsn",
-            # Sega music
-            "kss",
-            # PlayStation music rips
-            "psf","psf2","minipsf","minipsf2",
-            # Saturn music rips
-            "ssf","minissf",
-            # Dreamcast music rips
-            "dsf","minidsf",
-            # GBA music rips
-            "gsf","minigsf",
-            # N64 music rips
-            "usf","miniusf",
-            # NDS music rips
-            "2sf","mini2sf",
-            # Atari ST music
-            "sndh","sc68","ym",
-            # AdLib / OPL chip music
-            "hsc","ksm","lds","rad",
-            # General tracker / chip
-            "stm","669","far","mtm","ult","dmf","tfm","tfe",
-            "fc13","fc14",
-            # CPC music
-            "cpc",
-            # Various additional
-            "s","l3","l3b","l3c",
-        }
-
-        COMPANION_EXTS = {
-            "cue","m3u","xml","dat","nfo","txt","md5","sfv",
-            "jpg","png","bmp","ccd","sub",
-        }
+        # ── ROM extension database (rom_extensions.py) ─────────────────
+        from rom_extensions import ROM_EXTS, COMPANION_EXTS, is_chip_like
 
         # ── Shared helpers ─────────────────────────────────────────────
         def letter_bucket(key: str) -> str:
@@ -1240,10 +1151,13 @@ class ToSortAPI:
             rom_counts = {}
         else:
             self._log("Recounting destination folders...", "info")
-            self._progress(mod_idx, 2, "Recounting general destination...")
-            self._log(f"  Counting: {gen_dir}", "dim")
-            gen_counts = recount(gen_dir)
-            self._log(f"  General: {len(gen_counts)} ext bucket(s)", "dim")
+            if known_only:
+                gen_counts = {}
+            else:
+                self._progress(mod_idx, 2, "Recounting general destination...")
+                self._log(f"  Counting: {gen_dir}", "dim")
+                gen_counts = recount(gen_dir)
+                self._log(f"  General: {len(gen_counts)} ext bucket(s)", "dim")
             if rom_enable:
                 self._progress(mod_idx, 3, "Recounting ROM destination...")
                 self._log(f"  Counting: {rom_dir}", "dim")
@@ -1259,8 +1173,9 @@ class ToSortAPI:
         _n_scanned = 0
         for root, dirs, files in os.walk(src_dir):
             rp = Path(root).resolve()
-            if rp == gen_dir.resolve() or str(rp).startswith(str(gen_dir.resolve())):
-                dirs.clear(); continue
+            if not known_only:
+                if rp == gen_dir.resolve() or str(rp).startswith(str(gen_dir.resolve())):
+                    dirs.clear(); continue
             if rom_enable and rom_dir:
                 if rp == rom_dir.resolve() or str(rp).startswith(str(rom_dir.resolve())):
                     dirs.clear(); continue
@@ -1276,7 +1191,17 @@ class ToSortAPI:
 
         self._log(f"Found {len(all_files)} file(s) — scanning once for all destinations.", "info")
 
+        SORTER_SKIP_EXTS = {
+            ".zip", ".rar", ".7z", ".zst", ".gz", ".tar",
+            ".tgz", ".tar.gz",
+        }
+        _RAR_PART_RE     = _re.compile(r"\.[rstu]\d{2,3}$")
+        _RAR_NEWPART_RE  = _re.compile(r"\.part0*[2-9]\d*\.rar$")
+
         total_moved = total_rom = total_comp = total_gen = total_err = 0
+        total_del = total_left = total_dupe_src = total_skip = 0
+        deleted_by_ext: dict = {}
+        deleted_paths: list = []
 
         _last_dir = None
         _last_dir = None
@@ -1299,20 +1224,15 @@ class ToSortAPI:
             ext_key = raw_ext[1:] if raw_ext else "no_ext"
 
             # ── SKIP archives — leave them for Module 1 extractor ──
-            SORTER_SKIP_EXTS = {
-                ".zip", ".rar", ".7z", ".zst", ".gz", ".tar",
-                ".tgz", ".tar.gz",
-            }
             # Also skip multi-part RAR continuations — BUT only if a matching .rar exists
             # (avoids treating MAME .s** .t** .u** files as RAR parts)
-            import re as _re2
             _fname_l = src_path.name.lower()
-            _is_rar_ext = bool(_re2.search(r"\.[rstu]\d{2,3}$", _fname_l)) or \
-                          bool(_re2.search(r"\.part0*[2-9]\d*\.rar$", _fname_l))
+            _is_rar_ext = bool(_RAR_PART_RE.search(_fname_l)) or \
+                          bool(_RAR_NEWPART_RE.search(_fname_l))
             if _is_rar_ext:
                 # Only treat as RAR continuation if a .rar with same stem exists
                 _rar_sibling = src_path.with_suffix(".rar")
-                _stem = _re2.sub(r"\.[rstu]\d{2,3}$", "", src_path.name)
+                _stem = _RAR_PART_RE.sub("", src_path.name)
                 _rar_sibling2 = src_path.parent / (_stem + ".rar")
                 _is_rar_cont = _rar_sibling.exists() or _rar_sibling2.exists()
             else:
@@ -1324,7 +1244,30 @@ class ToSortAPI:
 
             # Classify
             is_rom  = rom_enable and ext_key in ROM_EXTS
-            is_comp = rom_enable and companions and ext_key in COMPANION_EXTS
+            is_comp = rom_enable and (companions or known_only)                       and ext_key in COMPANION_EXTS
+            if known_only and not (is_rom or is_comp) and keep_chip                     and (ext_key == "no_ext" or is_chip_like(ext_key)):
+                is_rom = True          # MAME chip dump / split-archive part
+
+            if known_only and not (is_rom or is_comp):
+                if not delete_unknown:
+                    total_left += 1
+                    continue
+                # Unknown extension — delete it
+                deleted_by_ext[ext_key] = deleted_by_ext.get(ext_key, 0) + 1
+                if dry_run:
+                    total_del += 1
+                    deleted_paths.append(str(src_path))
+                    continue
+                try:
+                    src_path.unlink()
+                    total_del += 1
+                    deleted_paths.append(str(src_path))
+                    if verbose:
+                        self._log(f"  DEL (unknown .{ext_key}): {src_path.name}", "dim")
+                except Exception as e:
+                    total_err += 1
+                    self._log(f"  ERR deleting {src_path.name}: {e}", "err")
+                continue
 
             if is_rom or is_comp:
                 dest_root   = rom_dir
@@ -1350,13 +1293,28 @@ class ToSortAPI:
                     f"({total_moved} moved so far...)", "dim"
                 )
 
-            if dry_run:
-                dest_counts[ext_key] = dest_counts.get(ext_key, 0) + 1
-                total_moved += 1
+            if not rename_dupe and dest_path.exists():
+                # Same name already at the destination: drop ours if it is
+                # byte-identical, otherwise leave it where it is.
+                if same_content(src_path, dest_path):
+                    total_dupe_src += 1
+                    if not dry_run:
+                        try:
+                            src_path.unlink()
+                        except OSError as e:
+                            total_err += 1
+                            self._log(f"  ERR deleting duplicate {src_path.name}: {e}", "err")
+                    elif verbose:
+                        self._log(f"  DUPE (identical, would delete): {src_path}", "dim")
+                else:
+                    total_skip += 1
+                    self._log(f"  SKIP  {src_path.name}: a different file with this "
+                              f"name is already in {dest_folder} — left in place", "warn")
                 continue
 
             try:
-                fast_move(src_path, dest_path)
+                if not dry_run:
+                    fast_move(src_path, dest_path)
                 dest_counts[ext_key] = dest_counts.get(ext_key, 0) + 1
                 total_moved += 1
                 if is_rom:   total_rom  += 1
@@ -1374,13 +1332,66 @@ class ToSortAPI:
             f"{total_err} error(s).  Total: {total_moved}",
             "ok" if total_err == 0 else "warn"
         )
+        if total_dupe_src:
+            self._log(f"{'Would remove' if dry_run else 'Removed'} {total_dupe_src} "
+                      f"file(s) identical to one already at the destination.", "ok")
+        if total_skip:
+            self._log(f"Left {total_skip} file(s) in place: same name, different "
+                      f"content already at the destination (tick 'Append on name "
+                      f"collision' to keep both).", "warn")
+        if total_left:
+            self._log(f"Left {total_left} unknown-extension file(s) in place "
+                      f"(Watch run, deletion not allowed).", "warn")
+        if delete_unknown:
+            verb = "Would delete" if dry_run else "Deleted"
+            self._log(f"{verb} {total_del} file(s) with unknown extensions.",
+                      "warn" if total_del else "ok")
+            top = sorted(deleted_by_ext.items(), key=lambda kv: -kv[1])
+            if top:
+                self._log("  By extension: " + ", ".join(
+                    f".{e} {n}" for e, n in top[:40])
+                    + (f" (+{len(top) - 40} more)" if len(top) > 40 else ""), "dim")
+            if deleted_paths:
+                self._write_deleted_manifest(deleted_paths, deleted_by_ext, dry_run)
         if not hasattr(self, '_run_stats'): self._run_stats = {}
         self._run_stats[mod_idx] = self._run_stats.get(mod_idx, {})
         self._run_stats[mod_idx].update({
             "general": total_gen, "rom": total_rom,
             "companion": total_comp, "errors": total_err,
+            "deleted_unknown": total_del, "known_only": known_only,
+            "identical_removed": total_dupe_src, "name_clash_left": total_skip,
             "dry_run": dry_run
         })
+
+    def _write_report_list(self, prefix: str, header: list, lines: list):
+        """Save a timestamped list (deleted files etc.) to reports/ so a
+        mistake can be spotted and the files re-fetched."""
+        import datetime
+        out_dir = Path(__file__).parent / "reports"
+        ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        path = out_dir / f"{prefix}_{ts}.txt"
+        n = 1
+        while path.exists():
+            path = out_dir / f"{prefix}_{ts}_{n}.txt"
+            n += 1
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(f"# {h}\n" for h in header)
+                f.write("\n")
+                f.writelines(l + "\n" for l in lines)
+            self._log(f"  List saved: {path}", "dim")
+        except Exception as e:
+            self._log(f"  Could not write {prefix} list: {e}", "err")
+
+    def _write_deleted_manifest(self, paths: list, by_ext: dict, dry_run: bool):
+        """Known-only mode: every file deleted (or that would be)."""
+        kind = "would_delete" if dry_run else "deleted"
+        header = [f"File Sorter known-only mode — {kind.replace('_', ' ')} "
+                  f"{len(paths)} file(s)", "By extension:"]
+        header += [f"  .{e:<12} {n}" for e, n in
+                   sorted(by_ext.items(), key=lambda kv: -kv[1])]
+        self._write_report_list(f"unknown_ext_{kind}", header, paths)
 
     # ------------------------------------------------------------------ #
     #  MODULE 3 — Empty Folder Deleter                                    #
@@ -1492,22 +1503,30 @@ class ToSortAPI:
           2. Partial MD5 of first 1 MB to filter obvious non-matches
           3. Full MD5 of remaining candidates to confirm duplicates
 
-        Uses ThreadPoolExecutor to parallelise hashing.
-        Progress file is written after each size group so a crashed run
-        can resume without re-hashing already-processed groups.
+        Which copy survives is decided by a fixed rule, never by which hash
+        finished first: a copy under cfg['prefer_dir'] (the ROM output) wins,
+        then a name without a _1/_2 collision suffix, then the shallowest and
+        shortest path.
+
+        Uses ThreadPoolExecutor to parallelise hashing. A progress file lets a
+        stopped run resume, but only for the same folders, within a week, and
+        only for size groups whose file count has not changed since.
         """
         import json
+        import datetime
         from collections import defaultdict
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         PARTIAL_HASH_SIZE = 1024 * 1024  # 1 MB
         MAX_WORKERS       = 4
+        RESUME_MAX_AGE    = 7 * 24 * 3600
 
         raw_srcs = cfg.get("srcs") or ([cfg.get("src")] if cfg.get("src") else [])
         src_dirs = [Path(s).expanduser() for s in raw_srcs if s and s.strip()]
         dry_run  = cfg.get("dry_run", False)
         size_pre = cfg.get("size_pre", True)
-        use_md5  = cfg.get("hash_md5", True)
+        prefer   = cfg.get("prefer_dir", "").strip()
+        prefer   = os.path.normcase(os.path.abspath(prefer)) if prefer else ""
 
         # Progress/resume file lives next to main.py
         progress_file = Path(__file__).parent / "dedupe_progress.json"
@@ -1531,25 +1550,35 @@ class ToSortAPI:
 
         if dry_run:
             self._log("Dry run — duplicates will be listed but NOT deleted.", "warn")
+        if prefer:
+            self._log(f"Keeping copies under the ROM output first: {prefer}", "dim")
 
         self._log(f"Scanning {len(valid_dirs)} folder(s) for duplicates...", "info")
 
-        # ── load resume progress ────────────────────────────────────────
+        # ── load resume progress (same folders, recent only) ────────────
+        scan_key = sorted(os.path.normcase(os.path.abspath(d)) for d in valid_dirs)
+        resume_done: dict = {}
         if progress_file.exists():
             try:
                 with open(progress_file) as f:
                     resume = json.load(f)
-                processed_sizes = set(resume.get("processed_sizes", []))
-                self._log(f"Resuming — {len(processed_sizes)} size group(s) already done.", "info")
+                fresh = time.time() - resume.get("saved", 0) < RESUME_MAX_AGE
+                if resume.get("srcs") == scan_key and fresh:
+                    resume_done = {int(k): v for k, v in resume.get("done", {}).items()}
+                    self._log(f"Resuming — {len(resume_done)} size group(s) already "
+                              f"done (re-checked if their file count changed).", "info")
+                else:
+                    self._log("Ignoring old dedupe progress (different folders "
+                              "or older than 7 days).", "dim")
             except Exception:
-                processed_sizes = set()
-        else:
-            processed_sizes = set()
+                resume_done = {}
+        processed: dict = dict(resume_done)
 
         def _save_progress():
             try:
                 with open(progress_file, "w") as f:
-                    json.dump({"processed_sizes": list(processed_sizes)}, f)
+                    json.dump({"srcs": scan_key, "saved": time.time(),
+                               "done": {str(k): v for k, v in processed.items()}}, f)
             except Exception:
                 pass
 
@@ -1565,38 +1594,32 @@ class ToSortAPI:
             h = hashlib.md5()
             try:
                 with open(path, "rb") as f:
-                    for chunk in iter(lambda: f.read(8192), b""):
+                    for chunk in iter(lambda: f.read(1 << 20), b""):
                         h.update(chunk)
                 return h.hexdigest()
             except Exception:
                 return None
 
-        def hash_group_partial(files):
+        def hash_group(files, fn):
             result = defaultdict(list)
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-                futures = {ex.submit(partial_hash, f): f for f in files}
+                futures = {ex.submit(fn, f): f for f in files}
                 for fut in as_completed(futures):
                     h = fut.result()
                     if h:
                         result[h].append(futures[fut])
             return result
 
-        def hash_group_full(files):
-            """Returns list of (duplicate_path, original_path)."""
-            seen = {}
-            dupes = []
-            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-                futures = {ex.submit(full_hash, f): f for f in files}
-                for fut in as_completed(futures):
-                    path = futures[fut]
-                    h = fut.result()
-                    if not h:
-                        continue
-                    if h in seen:
-                        dupes.append((path, seen[h]))
-                    else:
-                        seen[h] = path
-            return dupes
+        _suffix_re = re.compile(r"_\d+$")
+
+        def keep_rank(path: str):
+            """Lowest rank is kept."""
+            norm = os.path.normcase(os.path.abspath(path))
+            in_pref = bool(prefer) and (norm == prefer or norm.startswith(prefer + os.sep))
+            p = Path(path)
+            return (0 if in_pref else 1,
+                    1 if _suffix_re.search(p.stem) else 0,
+                    len(p.parts), len(path), norm)
 
         # ── STEP 1: scan all file sizes across all src dirs ───────────
         self._log("Scanning file sizes...", "info")
@@ -1613,7 +1636,6 @@ class ToSortAPI:
                     fpath = os.path.join(root, fname)
                     file_count += 1
                     if file_count % 5000 == 0:
-                        self._log(f"  Scanned {file_count:,} files...", "dim")
                         self._progress(mod_idx, 3, f"Scanning: {file_count:,} files found...")
                     try:
                         size_map[os.path.getsize(fpath)].append(fpath)
@@ -1631,13 +1653,18 @@ class ToSortAPI:
         if not candidate_sizes:
             self._log("No duplicates found.", "ok")
             self._progress(mod_idx, 100, "No duplicates")
+            if progress_file.exists():
+                progress_file.unlink(missing_ok=True)
             return
 
         # ── STEP 2 & 3: hash and compare ───────────────────────────────
         total_dupes   = 0
         total_deleted = 0
         total_errors  = 0
+        freed_bytes   = 0
+        record: list  = []          # (duplicate, kept, size)
         sizes_list    = list(candidate_sizes.items())
+        last_note     = time.time()
 
         for idx, (size, files) in enumerate(sizes_list):
             if self._stop_flag.is_set() or self._skip_flag.is_set():
@@ -1646,44 +1673,47 @@ class ToSortAPI:
             pct = 5 + int((idx / len(sizes_list)) * 93)
             self._progress(mod_idx, pct, f"Hashing group {idx+1}/{len(sizes_list)} ({len(files)} files)")
 
-            if size in processed_sizes:
-                if verbose:
-                    self._log(f"  SKIP (already processed)  size={size}", "dim")
+            if resume_done.get(size) == len(files):
                 continue
 
-            # Partial hash pass
-            partial_map = hash_group_partial(files)
-
-            # Full hash only on partial-hash collisions
-            for p_hash, p_files in partial_map.items():
+            # Partial hash pass, then full hash only on partial collisions
+            for p_files in hash_group(files, partial_hash).values():
                 if len(p_files) < 2:
                     continue
-                if self._stop_flag.is_set(): return
+                if self._stop_flag.is_set(): break
 
-                dupes = hash_group_full(p_files)
-
-                for dup_path, orig_path in dupes:
-                    total_dupes += 1
-                    if verbose:
-                        self._log(f"  DUPE  {Path(dup_path).name}", "warn")
-                        self._log(f"    ← orig: {Path(orig_path).name}", "dim")
-                    else:
-                        self._log(f"  DUPE  {Path(dup_path).name}  (keeping {Path(orig_path).name})", "warn")
-
-                    if not dry_run:
+                for same in hash_group(p_files, full_hash).values():
+                    if len(same) < 2:
+                        continue
+                    same.sort(key=keep_rank)
+                    keep = same[0]
+                    for dup_path in same[1:]:
+                        total_dupes += 1
+                        if verbose:
+                            self._log(f"  DUPE  {dup_path}", "warn")
+                            self._log(f"    ← keeping: {keep}", "dim")
+                        if dry_run:
+                            record.append((dup_path, keep, size))
+                            continue
                         try:
                             os.remove(dup_path)
                             total_deleted += 1
-                            if verbose:
-                                self._log(f"    DELETED", "ok")
+                            freed_bytes += size
+                            record.append((dup_path, keep, size))
                         except Exception as e:
                             total_errors += 1
-                            self._log(f"    ERR deleting: {e}", "err")
-                    else:
-                        self._log(f"    [DRY RUN — not deleted]", "dim")
+                            self._log(f"  ERR deleting {dup_path}: {e}", "err")
 
-            processed_sizes.add(size)
+            if self._stop_flag.is_set():
+                break
+            processed[size] = len(files)
             _save_progress()
+
+            # Running total instead of one log line per duplicate
+            if not verbose and total_dupes and time.time() - last_note > 15:
+                last_note = time.time()
+                self._log(f"  ... {total_dupes:,} duplicate(s) so far "
+                          f"({idx+1:,}/{len(sizes_list):,} size groups)", "dim")
 
         # Clean up progress file if run completed cleanly
         if not self._stop_flag.is_set() and not self._skip_flag.is_set():
@@ -1694,11 +1724,26 @@ class ToSortAPI:
                 pass
 
         self._progress(mod_idx, 100, "Complete")
+        if freed_bytes >= 1 << 30:
+            freed = f", {freed_bytes / (1 << 30):.2f} GB freed"
+        elif freed_bytes:
+            freed = f", {freed_bytes / (1 << 20):.1f} MB freed"
+        else:
+            freed = ""
         self._log(
             f"Dedupe done — {total_dupes} duplicate(s) found, "
-            f"{total_deleted} deleted, {total_errors} error(s).",
+            f"{total_deleted} deleted{freed}, {total_errors} error(s).",
             "ok" if total_errors == 0 else "warn"
         )
+        if record:
+            kind = "would_delete" if dry_run else "deleted"
+            lines = [f"{'WOULD DELETE' if dry_run else 'DELETED'}  {d}\n"
+                     f"    kept     {k}   ({sz:,} bytes)"
+                     for d, k, sz in record]
+            self._write_report_list(
+                f"duplicates_{kind}",
+                [f"Duplicate Finder — {kind.replace('_', ' ')} {len(record)} file(s)"],
+                lines)
         if not hasattr(self, '_run_stats'): self._run_stats = {}
         self._run_stats[mod_idx] = self._run_stats.get(mod_idx, {})
         self._run_stats[mod_idx].update({
@@ -1760,6 +1805,8 @@ class ToSortAPI:
                 lines.append(f"    Moved (general) : {stats.get('general', '?')}")
                 lines.append(f"    Moved (ROM)     : {stats.get('rom', '?')}")
                 lines.append(f"    Moved (companion): {stats.get('companion', '?')}")
+                if stats.get("known_only"):
+                    lines.append(f"    Deleted unknown : {stats.get('deleted_unknown', '?')}")
                 lines.append(f"    Errors          : {stats.get('errors', '?')}")
                 cfg1 = config.get("mod1", {})
                 lines.append(f"    Source          : {cfg1.get('src','')}")
@@ -1941,6 +1988,8 @@ class ToSortAPI:
             f"First run starting now...",
             "info"
         )
+        config = dict(config)
+        config["mod1"] = dict(config.get("mod1", {}), from_watch=True)
         while not self._watch_stop.is_set():
             # Run pipeline first
             self._emit("watchFired", {})

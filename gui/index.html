@@ -335,12 +335,17 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
                 <button class="browse-btn" onclick="browse('m1-rom-out')">Browse&hellip;</button>
               </div>
               <div class="opt-row">
-                <label class="opt"><input type="checkbox" id="m1-companions" checked> Move companion files (.cue .m3u .xml .dat .nfo&hellip;) into named subfolders</label>
+                <label class="opt"><input type="checkbox" id="m1-companions" checked> Move companion &amp; media files (.cue .nfo .jpg .png .pdf .mp4&hellip;) to ROM Output</label>
                 <label class="opt"><input type="checkbox" id="m1-dry"> Dry run &mdash; count only, no moves</label>
               </div>
+              <div class="opt-row">
+                <label class="opt" style="color:var(--danger)"><input type="checkbox" id="m1-known-only" onchange="toggleKnownOnly()"> Known extensions only &mdash; DELETE files with unknown extensions (no General Output)</label>
+                <label class="opt"><input type="checkbox" id="m1-keep-chip" checked> &hellip;but keep MAME chip dumps / split parts (.6e .u12 .001 .r00, no ext)</label>
+                <label class="opt"><input type="checkbox" id="m1-known-watch"> Allow known-only deletes in Watch mode (otherwise Watch runs leave unknown files in place)</label>
+              </div>
               <div style="padding:2px 0 6px;font-size:11px;color:var(--text3)">
-                200+ extensions: TOSEC &bull; No-Intro &bull; Redump &bull; MAME/CHD &bull; all major consoles &amp; home computers.
-                ROM files &rarr; ROM Output. Everything else &rarr; General Output. Single scan, two destinations.
+                800+ extensions (rom_extensions.py): TOSEC &bull; No-Intro &bull; Redump &bull; MAME/CHD &bull; VGM &bull; artwork, video &amp; manuals.
+                ROM files &rarr; ROM Output. Everything else &rarr; General Output, or deleted in known-only mode (list saved to reports/).
               </div>
             </div>
             <div class="progress-wrap">
@@ -610,6 +615,13 @@ window.pyEvent = function(event, data) {
 function startPipeline() {
   if (pipelineRunning) return;
   if (watchArmed) { addLog('Disarm Watch mode before starting manually.', 'warn'); return; }
+  if (modEnabled[1] && document.getElementById('m1-known-only').checked
+      && !document.getElementById('m1-dry').checked
+      && !confirm('File Sorter is in KNOWN-ONLY mode.
+
+Files with unknown extensions in the source folder will be PERMANENTLY DELETED (a list is saved to reports/).
+
+Continue?')) return;
   pipelineRunning = true;
   document.getElementById('btn-start').disabled = true;
   document.getElementById('btn-stop').disabled = false;
@@ -653,7 +665,7 @@ const SETTINGS_IDS = [
   'm1-src','m1-out','m1-misc','m1-rename',
   'm2-recurse','m2-dry',
   'm3-md5','m3-size','m3-dry',
-  'm1-rom-enable','m1-rom-out','m1-companions','m1-dry',
+  'm1-rom-enable','m1-rom-out','m1-companions','m1-dry','m1-known-only','m1-keep-chip','m1-known-watch',
   'verbose','watch-preset','watch-custom','watch-m0','watch-m1','watch-m2','watch-m3'
 ];
 // Multi-folder list IDs saved separately as arrays
@@ -696,6 +708,9 @@ function applySettings(s) {
     const c = document.getElementById('watch-custom');
     if (c) c.style.display = '';
   }
+  const ko = !!s['m1-known-only'];
+  document.getElementById('m1-out').disabled = ko;
+  document.getElementById('m1-misc').disabled = ko;
 }
 
 function saveSettings() {
@@ -741,6 +756,14 @@ function toggleWatch() {
   const btn  = document.getElementById('watch-arm-btn');
   const pill = document.getElementById('pill-watch');
   const cd   = document.getElementById('watch-countdown');
+  if (watchArmed && document.getElementById('watch-m1').checked
+      && document.getElementById('m1-known-only').checked
+      && document.getElementById('m1-known-watch').checked
+      && !document.getElementById('m1-dry').checked
+      && !confirm('Watch mode will run the File Sorter in KNOWN-ONLY mode.\n\nEvery run will PERMANENTLY DELETE files with unknown extensions in the source folder (lists saved to reports/).\n\nArm Watch mode?')) {
+    watchArmed = false;
+    return;
+  }
   if (watchArmed) {
     const mins = getWatchMinutes();
     const cfg  = buildConfig();
@@ -812,6 +835,13 @@ function toggleRomSection() {
   const sec = document.getElementById('rom-section');
   sec.style.opacity  = enabled ? '1' : '0.35';
   sec.style.pointerEvents = enabled ? '' : 'none';
+  saveSettings();
+}
+
+function toggleKnownOnly() {
+  const on = document.getElementById('m1-known-only').checked;
+  document.getElementById('m1-out').disabled = on;
+  document.getElementById('m1-misc').disabled = on;
   saveSettings();
 }
 
@@ -903,6 +933,9 @@ function buildConfig() {
       rom_out:     document.getElementById('m1-rom-out').value.trim(),
       companions:  document.getElementById('m1-companions').checked,
       dry_run:     document.getElementById('m1-dry').checked,
+      known_only:  document.getElementById('m1-known-only').checked,
+      keep_chip:   document.getElementById('m1-keep-chip').checked,
+      known_only_watch: document.getElementById('m1-known-watch').checked,
     },
     mod2: {
       srcs:    getFolderList('m2-folder-list'),

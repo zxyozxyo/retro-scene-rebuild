@@ -174,7 +174,14 @@ Recursively extracts archives from a source folder.
 **Module 2 — File Sorter**
 Sorts extracted files into destination buckets by extension.
 - Single or two-destination mode (General + ROM)
-- ROM extension awareness
+- ROM extension awareness — 800+ known ROM / music / artwork / video / manual
+  extensions in `rom_extensions.py` (edit there, then `python rom_extensions.py`
+  regenerates `ROM_Extensions_Reference.txt`)
+- Companion & media files (.cue .nfo .png .pdf .mp4 …) follow the ROMs
+- **Known extensions only** mode: known files go to the ROM output and every
+  unknown-extension file is deleted (no General output). MAME chip dumps
+  (.6e .u12, no extension) and split-archive parts (.001 .r00) are kept unless
+  that safety box is unticked. Each run saves the deleted-file list to `reports/`.
 - MAME file detection
 - Per-folder progress logging
 - Skip recount option for faster starts
