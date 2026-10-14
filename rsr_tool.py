@@ -1820,6 +1820,51 @@ def _explain_error(reason: str) -> str:
             "the log lines above it.")
 
 
+def _rarfile_follow_disk_names(rarfile):
+    """Make rarfile find the next volume by the name it HAS on disk.
+
+    rarfile picks the next volume's name from the main header's
+    new-numbering flag alone. A set packed with new numbering and then named
+    the old way (.rar, .r00, ...) keeps the flag, so from me-kk2k3u.rar rarfile
+    looks for me-kk2k4u.rar (the last digit of the name, plus one), finds
+    nothing and stops without a word. Knockout_Kings_2003_USA_NGC-METHS came
+    out as ONE volume of thirteen: 50 MB of a 632 MB stream, so the sweep's
+    target was a stream no pack can ever equal, and 8.8 hours of sweep later
+    the decision step was handed the wrong length too. Where the flag's name
+    is not there and the other scheme's is, the other one is followed. (A
+    name with no digit in it at all, wrg-mhpj.rar, made rarfile raise
+    BadRarName instead, which is the same fault louder.)"""
+    cp = rarfile.CommonParser
+    if getattr(cp, "_rsr_disk_names", False):
+        return
+    stock = cp._next_volname
+
+    def _next_volname(self, volfile):
+        try:
+            want = stock(self, volfile)
+        except rarfile.BadRarName:
+            if not isinstance(volfile, str):
+                raise
+            want = None
+        if isinstance(volfile, str) and (want is None
+                                         or not os.path.exists(want)):
+            try:
+                other = (rarfile._next_oldvol(volfile)
+                         if self._main.flags & rarfile.RAR_MAIN_NEWNUMBERING
+                         else rarfile._next_newvol(volfile))
+            except Exception:
+                other = None
+            if other and os.path.exists(other):
+                return other
+        if want is None:
+            raise rarfile.BadRarName("Cannot construct volume name: "
+                                     + volfile)
+        return want
+
+    cp._next_volname = _next_volname
+    cp._rsr_disk_names = True
+
+
 def _open_rar(head, info_callback=None):
     """rarfile.RarFile, except that a FILE comment can never stop the parse.
 
@@ -1844,6 +1889,7 @@ def _open_rar(head, info_callback=None):
     with the comment decompressor stubbed and carry on with the block offsets
     and sizes that were the only thing wanted."""
     import rarfile
+    _rarfile_follow_disk_names(rarfile)
     try:
         return rarfile.RarFile(str(head), info_callback=info_callback)
     except rarfile.RarCannotExec:
