@@ -12244,8 +12244,15 @@ class RsrToolAPI:
         # identical volumes). What the replay adds over the sweep is comparing
         # whole VOLUMES rather than streams, and that check runs the same
         # either way.
+        #
+        # Except a multithreaded pack, which is a race (see ONE_CORE): the
+        # sweep can win a run this machine seldom repeats, and reusing it
+        # verifies that run, not the recipe. Burnout_USA_NGC_WORKING_iNTERNAL_
+        # For_Wii-OneUp (3.70 b5 -mt4) verified so, then three fresh packs and
+        # every rebuild came out the other way from .r07 on.
         if (packed and not recipe.get("rr_pct") and not comment
-                and not recipe.get("locked")):
+                and not recipe.get("locked")
+                and int(recipe.get("mt") or 0) < 2):
             try:
                 made = [q for q in sorted(Path(packed).iterdir())
                         if q.is_file() and _classify_volume(q.name)]
