@@ -36,6 +36,8 @@ of the previous file would be needed).
 from __future__ import annotations
 
 import base64
+import collections
+import itertools
 import bisect
 import json
 import zlib
@@ -811,10 +813,10 @@ class _Peek:
     """An iterator that can be looked ahead into."""
 
     def __init__(self, it):
-        self.it, self.buf = it, []
+        self.it, self.buf = it, collections.deque()
 
     def __next__(self):
-        return self.buf.pop(0) if self.buf else next(self.it)
+        return self.buf.popleft() if self.buf else next(self.it)
 
     def __iter__(self):
         return self
@@ -825,10 +827,10 @@ class _Peek:
             if t is None:
                 break
             self.buf.append(t)
-        return self.buf[:n]
+        return list(itertools.islice(self.buf, n))
 
 
-def _text_len(here, mine, other, at_other, other_tok):
+def _text_len(here, mine, other, at_other, other_tok, signed=False):
     """How many output bytes a text (PPM) block just read on one side stands
     for -- it is never decoded, so its length has to be found.
 
@@ -836,22 +838,31 @@ def _text_len(here, mine, other, at_other, other_tok):
     `other` the other side's, the first (`other_tok`) at `at_other`. Both
     decode to the same bytes, so a long match of the same length AND
     distance at the same output position on both sides fixes L: every
-    such pair votes for one, and only the true one gets many."""
+    such pair votes for one, and only the true one gets many.
+
+    Text blocks back to back are one run: the first takes the run's whole
+    length and the rest none. With `signed`, the other side has just read a
+    text block of its own, counted as nothing, and what is found is how much
+    longer this one is (it may be shorter)."""
     pos, theirs = at_other, {}
     for t in [other_tok] + other.ahead(1 << 17):
-        if t is None:
-            break
+        if t is None or t[0] == "P":
+            break                      # past the other side's next text block
         if t[0] == "M" and t[1] >= 8:
             theirs.setdefault((t[1], t[2]), []).append(pos)
         pos += _tok_len(t)
     votes, r, used = {}, 0, 0
+    lead = True
     for t in mine.ahead(1 << 15):
         if t[0] == "P":
+            if lead:
+                continue               # the same run of text blocks
             break
+        lead = False
         if t[0] == "M" and t[1] >= 8:
             for q in theirs.get((t[1], t[2]), ()):
                 L = q - here - r
-                if L >= 0:
+                if L >= 0 or signed:
                     votes[L] = votes.get(L, 0) + 1
             used += 1
             if used >= 512:
@@ -903,6 +914,22 @@ def diff(original: bytes, replayed: bytes, max_tokens: int = 200_000):
             continue
         if cur is None:
             cur = [ib, 0, []]
+        if (ta is not None and tb is not None and ta[0] == "P" and tb[0] == "P"
+                and pa == pb):
+            # a text block on both sides, not the same bytes: take the
+            # original's, drop the replay's, and find how much longer it is
+            cur[2].append(ta)
+            carried += 1
+            cur[1] += 1
+            ib += 1
+            tb = next(B, None)
+            if tb is not None:
+                pa += _text_len(pa, A, B, pb, tb, signed=True)
+            ta = next(A, None)
+            if pa == pb and ta == tb:
+                spans.append(cur)
+                cur = None
+            continue
         # inside a differing span: bring the side that is behind forward
         if tb is None or (ta is not None and pa <= pb):
             cur[2].append(ta)
