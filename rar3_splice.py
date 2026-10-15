@@ -807,6 +807,64 @@ def _unpack_tokens(raw) -> list:
     return out
 
 
+class _Peek:
+    """An iterator that can be looked ahead into."""
+
+    def __init__(self, it):
+        self.it, self.buf = it, []
+
+    def __next__(self):
+        return self.buf.pop(0) if self.buf else next(self.it)
+
+    def __iter__(self):
+        return self
+
+    def ahead(self, n):
+        while len(self.buf) < n:
+            t = next(self.it, None)
+            if t is None:
+                break
+            self.buf.append(t)
+        return self.buf[:n]
+
+
+def _text_len(here, mine, other, at_other, other_tok):
+    """How many output bytes a text (PPM) block just read on one side stands
+    for -- it is never decoded, so its length has to be found.
+
+    `mine` holds the tokens after the block, which begin at here + L;
+    `other` the other side's, the first (`other_tok`) at `at_other`. Both
+    decode to the same bytes, so a long match of the same length AND
+    distance at the same output position on both sides fixes L: every
+    such pair votes for one, and only the true one gets many."""
+    pos, theirs = at_other, {}
+    for t in [other_tok] + other.ahead(1 << 17):
+        if t is None:
+            break
+        if t[0] == "M" and t[1] >= 8:
+            theirs.setdefault((t[1], t[2]), []).append(pos)
+        pos += _tok_len(t)
+    votes, r, used = {}, 0, 0
+    for t in mine.ahead(1 << 15):
+        if t[0] == "P":
+            break
+        if t[0] == "M" and t[1] >= 8:
+            for q in theirs.get((t[1], t[2]), ()):
+                L = q - here - r
+                if L >= 0:
+                    votes[L] = votes.get(L, 0) + 1
+            used += 1
+            if used >= 512:
+                break
+        r += _tok_len(t)
+    if not votes:
+        raise ValueError("a text block's length could not be found")
+    L, n = max(votes.items(), key=lambda kv: kv[1])
+    if n < min(8, max(2, used // 2)):
+        raise ValueError("a text block's length could not be found")
+    return L
+
+
 def diff(original: bytes, replayed: bytes, max_tokens: int = 200_000):
     """The patch (bytes) that turns `replayed`'s decisions into `original`'s,
     or None when more than `max_tokens` decisions would have to be carried.
@@ -829,7 +887,7 @@ def diff(original: bytes, replayed: bytes, max_tokens: int = 200_000):
             last_end[0] = e
             yield from toks
 
-    A, B = orig_iter(), _flat(replayed)
+    A, B = _Peek(orig_iter()), _Peek(_flat(replayed))
     spans = []
     carried = 0
     pa = pb = 0                        # output positions
@@ -851,11 +909,17 @@ def diff(original: bytes, replayed: bytes, max_tokens: int = 200_000):
             carried += 1
             if carried > max_tokens:
                 return None
-            pa += _tok_len(ta)
+            if ta[0] == "P":
+                pa += _text_len(pa, A, B, pb, tb)
+            else:
+                pa += _tok_len(ta)
             ta = next(A, None)
         else:
             cur[1] += 1
-            pb += _tok_len(tb)
+            if tb[0] == "P":
+                pb += _text_len(pb, B, A, pa, ta)
+            else:
+                pb += _tok_len(tb)
             ib += 1
             tb = next(B, None)
         if pa == pb and ta == tb:
