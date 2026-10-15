@@ -4492,6 +4492,9 @@ class RsrToolAPI:
             while True:
                 try:
                     p.wait(timeout=0.25)
+                    # ran to completion; whether rar was happy is a separate
+                    # question, which _replay asks (see there)
+                    self._tl.last_rc = p.returncode
                     return True
                 except subprocess.TimeoutExpired:
                     pass
@@ -12122,13 +12125,39 @@ class RsrToolAPI:
         # Finale-GENESIA (773 MB at -m4, some 35 min alone and over an hour
         # beside another scan), and the build that writes every one of its
         # volumes byte for byte read as "0 of 1 streams".
-        for c in cmds:
-            if not self._run(c, timeout=max(3600, min(4 * 3600, int(mb * 12))),
-                             heartbeat=f"replaying {recipe['version']} "
-                                       f"{_mt_label(recipe.get('exe', ''), recipe['mt'])}"
-                                       f" over {mb:,.0f} MB",
-                             cwd=base):
-                return None
+        #
+        # rar that cannot open a source skips it with a warning and packs the
+        # rest, so a nonzero exit is a pack short of a file. Under a busy
+        # batch a just-staged extra can still be held (an antivirus scanning
+        # it): Moto.GP.JPN.RiP.PSP-PiKMiN came out short by its ciso.rar and
+        # Monster_Hunter_Portable_WORKING_JAP_PSP-USELESS by most of its 25
+        # extras, and both rebuilt exact alone. So pack again, after a pause,
+        # before handing back what may be short; the hash check decides.
+        for attempt in range(3):
+            if attempt:
+                for q in list(out.iterdir()):
+                    try:
+                        q.unlink()
+                    except OSError:
+                        pass
+                time.sleep(5 * attempt)
+            rc = 0
+            for c in cmds:
+                self._tl.last_rc = 0
+                if not self._run(c, timeout=max(3600, min(4 * 3600, int(mb * 12))),
+                                 heartbeat=f"replaying {recipe['version']} "
+                                           f"{_mt_label(recipe.get('exe', ''), recipe['mt'])}"
+                                           f" over {mb:,.0f} MB",
+                                 cwd=base):
+                    return None
+                rc = rc or getattr(self._tl, "last_rc", 0) or 0
+            if not rc:
+                break
+            self._log(f"    · {recipe['version']} exited {rc} — rar warns so "
+                      "when it could not open a source and packed without it"
+                      + ("; packing again." if attempt < 2 else
+                         "; keeping this pack, the hash check decides."),
+                      "warn")
         if recipe.get("sfx_head"):
             # Packed as an SFX only to split where the original did: cut the
             # stand-in stub off volume one, which is what the capture compared
