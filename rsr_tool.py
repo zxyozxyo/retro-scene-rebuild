@@ -4051,7 +4051,7 @@ class RsrToolAPI:
         self._tl.best_partial = v
 
     def _note_depth(self, depth: int, ex, n, extra, dict_kb) -> None:
-        """Remember the Windows combo whose big stream agreed with the
+        """Remember the combo (Windows or DOS) whose big stream agreed with the
         original for LONGEST before parting: (bytes, exe, mt, switches, dict).
 
         The count of matched streams cannot rank these. Virtua_Cop_2-ULFC is a
@@ -8854,7 +8854,8 @@ class RsrToolAPI:
         bp = self._best_partial
         # (a megabyte or more: combos ruled out on the first look are noted
         # too now, and a few KB of agreement is no reason to start here)
-        if bd and bd[0] >= 1 << 20 and self._mmv_ok(bd[1]):
+        if (bd and bd[0] >= 1 << 20 and self._mmv_ok(bd[1])
+                and not (bd[3] and bd[3][0] == self.DOS_MARK)):
             exe, mt_, sw_, dkb = bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
             why = (f"{_exe_label(exe)} runs {bd[0]:,} B into the stream "
                    "before parting")
@@ -9130,8 +9131,10 @@ class RsrToolAPI:
                 or rar4_unp_max(st["volumes"]) < 29 or bd[0] < 4 << 20):
             return None
         depth, exe, mt_, sw_, dkb = bd[0], bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
-        if sw_ and sw_[0] == self.DOS_MARK:
-            return None
+        # A DOS build is replayed through DOSBox like any DOS recipe: the
+        # RAR/DOS32 line packs the same bytes run after run (three packs of
+        # Viewtiful_Joe_JAP_GC-RARE parted at the same byte), and the splice
+        # checks every volume anyway.
         # A combo that already reproduced all but a stream or two is the
         # better start, and the near-miss step below takes it: the deepest
         # one here need not be it (Fast_Food_Panic-DDumpers: a -mcA- variant
@@ -10337,6 +10340,11 @@ class RsrToolAPI:
                 if rolling["bad"]:
                     self._tally_reject(
                         "a later volume's compressed data diverged")
+                    # ranked with the Windows combos: a DOS32 build can be the
+                    # packer and still part late (Viewtiful_Joe_JAP_GC-RARE:
+                    # rar/DOS32 3.10 b1 exact for 774 MB, 2 decisions out)
+                    self._note_depth(int(rolling["pos"] or 0), ex, n, extra,
+                                     dict_kb)
                     bad = orig_stream.name_at(rolling["pos"])
                     return [nm for nm in targets if nm != bad]
                 self._tally_reject("the pack command itself failed to run")
@@ -11357,7 +11365,8 @@ class RsrToolAPI:
             # Grand_Prix-UTOPIA each spent over an hour here on 750 MB DOSBox
             # packs before the forced-decision solver got its turn.
             bd_ = (getattr(self._tl, "depth_box", None) or {}).get("best")
-            if (bd_ and bd_[0] >= 4 << 20 and idx and len(cur) > 2 and cur[2]
+            if (bd_ and bd_[0] >= 4 << 20 and not (bd_[3] and bd_[3][0] == self.DOS_MARK)
+                    and idx and len(cur) > 2 and cur[2]
                     and cur[2][0] == self.DOS_MARK
                     and not (len(combos[0]) > 2 and combos[0][2]
                              and combos[0][2][0] == self.DOS_MARK)):
@@ -14626,6 +14635,7 @@ class RsrToolAPI:
         # replay that packed the same streams in another order (a folder
         # form rar walked its own way) serves just as well.
         names = list(ob)
+        pb = self._splice_names(pb, names)
         if not names or set(names) != set(pb):
             both = set(ob) & set(pb)
             self._log(f"      (decisions: the replay holds {len(pb)} "
@@ -14771,6 +14781,20 @@ class RsrToolAPI:
                   f"({time.monotonic() - t0:,.0f}s).", "ok")
         return volmeta, deltas
 
+    @staticmethod
+    def _splice_names(pb, names):
+        """The replay's streams under the ORIGINAL's names when they differ
+        only in case: a DOS replay writes VJ.GCM where the scene's archive
+        says vj.gcm (Viewtiful_Joe_JAP_GC-RARE), and only the headers --
+        which come from the original anyway -- carry the name."""
+        if set(pb) == set(names):
+            return pb
+        fold = {n.casefold(): n for n in names}
+        if len(fold) != len(names) or len(pb) != len(names) or any(
+                k.casefold() not in fold for k in pb):
+            return pb
+        return {fold[k.casefold()]: v for k, v in pb.items()}
+
     def _splice_streams(self, produced, index, read):
         """The ORIGINAL's stream of every file, in order: the replay's own
         where nothing differs, written back from decisions where it does."""
@@ -14779,6 +14803,7 @@ class RsrToolAPI:
             pb = packed_blocks(produced[0])
         except Exception:
             return None
+        pb = self._splice_names(pb, index["names"])
         if set(pb) != set(index["names"]):
             return None
         out = []
