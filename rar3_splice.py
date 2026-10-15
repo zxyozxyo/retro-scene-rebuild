@@ -868,6 +868,11 @@ def _text_len(here, mine, other, at_other, other_tok, signed=False):
             if used >= 512:
                 break
         r += _tok_len(t)
+    if lead:
+        # nothing after it on this side: the stream ends in text (Knockout_
+        # Kings_2003_USA_NGC-METHS codes its closing zero padding so), and
+        # the walk only has to drop what is left of the other side
+        return 0
     if not votes:
         raise ValueError("a text block's length could not be found")
     L, n = max(votes.items(), key=lambda kv: kv[1])
