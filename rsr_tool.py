@@ -3256,6 +3256,11 @@ def rar4_rr_volatile(vol: Path) -> list[tuple[int, int]]:
         d = Path(vol).read_bytes()
     except OSError:
         return []
+    return _rr_volatile_in(d)
+
+
+def _rr_volatile_in(d: bytes) -> list[tuple[int, int]]:
+    """rar4_rr_volatile on bytes already in memory."""
     i = d.find(RAR4_SIG)
     if i < 0:
         return []
@@ -3277,6 +3282,30 @@ def rar4_rr_volatile(vol: Path) -> list[tuple[int, int]]:
             return [(i, 2), (i + 20, 4)]
         i += hsize + add
     return []
+
+
+def _delta_survives_clock(produced: bytes, original: bytes,
+                          patch: bytes | None) -> bool:
+    """Does `patch` still rebuild `original` when the replay's recovery-record
+    clock bytes come out different next time?
+
+    The window is located in the REPLAY, not the original: when the record's
+    size differs the two sit at different offsets. Every byte of it is
+    inverted, so no value it could take next run is left untested by
+    coincidence. False when there is no patch or no window to test."""
+    if not patch:
+        return False
+    win = _rr_volatile_in(produced)
+    if not win:
+        return False
+    moved = bytearray(produced)
+    for start, ln in win:
+        for i in range(max(0, start), min(len(moved), start + ln)):
+            moved[i] ^= 0xFF
+    try:
+        return apply_delta(bytes(moved), patch) == original
+    except Exception:
+        return False
 
 
 def _forced_patch(produced: bytes, original: bytes,
@@ -10627,6 +10656,10 @@ class RsrToolAPI:
         game, and _order_combos does that ordering."""
         self._tl.dos_only_skipped = 0
         self._tl.dos_only_builds = 0
+        # Set up front as well as at the end: a sweep parked on the time
+        # budget returns before the end, and its wall line then read "it went
+        # up to -mt?" (Evangelion_Jo_JPN_PSP-Caravan, 2026-10-16).
+        self._tl.sweep_max_mt = max_mt
         mts = [n for n in (*MT_ORDER, *range(9, max_mt + 1)) if n <= max_mt]
         # RAR4 archives are most likely from RAR4-era builds — try those first,
         # but never DROP the RAR5 binaries (they reach -mt>16 via -ma4).
@@ -12665,12 +12698,23 @@ class RsrToolAPI:
         windows = {i: w for i, w in windows.items() if w}
         if not windows:
             return False
-        grew = made = 0
+        grew = made = held = 0
         for idx, forced in windows.items():
             orig = Path(vols[idx]).read_bytes()
             got = produced[idx].read_bytes()
             wide = _forced_patch(got, orig, forced)
             if wide is None or apply_delta(got, wide) != orig:
+                # A plain patch needs equal lengths and fits under
+                # DELTA_MAX_BYTES. A record no build reproduces the SIZE of
+                # (Caravan's -rr237 sets) fails both, and its copy/insert
+                # patch usually carries the record header whole anyway --
+                # Nou_ni_Kaikan_Minna_de warned here and rebuilt hash-exact.
+                # So test it: change the replay's own clock bytes and see
+                # whether the patch still lands on the original.
+                if _delta_survives_clock(got, orig, deltas.get(
+                        volmeta[idx].get("delta") or "")):
+                    held += 1
+                    continue
                 self._log(f"    ⚠ {Path(vols[idx]).name}: could not widen the "
                           "header patch over the recovery record's clock "
                           "bytes — leaving it as measured.", "warn")
@@ -12691,6 +12735,10 @@ class RsrToolAPI:
                       + (f", {made} on volume(s) whose replay happened to "
                          "match" if made else "")
                       + " — a -rr pack is not byte-identical twice.", "dim")
+        if held:
+            self._log(f"    {held} header patch(es) already carry the recovery "
+                      "record's clock bytes — checked against a replay with "
+                      "them changed.", "dim")
         return True
 
     def _widen_across_volumes(self, produced, vols, volmeta, deltas, rr_maps,
