@@ -136,26 +136,39 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
         <button class="btn btn-danger" style="padding:1px 8px;font-size:9px" onclick="resetFingerprintDb()">Reset DB</button>
       </div>
       <label class="opt"><input type="checkbox" id="auto_retry" checked> Auto-retry unresolved files by excluding suspect references (catches a poisoned DAT-verified reference)</label>
+      <label class="opt"><input type="checkbox" id="deep_search" checked> Deep search: after the likely encoders, try every zlib level &times; memLevel &times; strategy and every real zipper (Info-ZIP, 7-Zip, WinRAR)</label>
+      <label class="opt"><input type="checkbox" id="use_rsr_store" checked> Check the RSR store first (rebuilds byte-exact any zip RSR has captured, whatever zipper made it)</label>
+      <div class="row" style="gap:8px">
+        <span style="font-size:10px;color:var(--text2)">Time budget per zip:</span>
+        <input class="txt" id="zip_budget_s" value="120" style="width:60px;flex:none;text-align:right"/>
+        <span style="font-size:10px;color:var(--text2)">seconds (0 = no limit)</span>
+      </div>
       <div class="row" style="gap:16px;margin-top:2px">
         <span style="font-size:10px;color:var(--text2)">Confirmed files:</span>
         <label class="opt"><input type="radio" name="move_mode" id="mode_copy" value="copy" checked> Copy (keep originals)</label>
         <label class="opt"><input type="radio" name="move_mode" id="mode_move" value="move"> Move (remove from source)</label>
       </div>
       <div class="hint">
-        Techniques tried in order per file: EOCD comment strip → grow-append truncation →
+        If the RSR store has captured the release, it is rebuilt from there first. Then the
+        techniques, in order per file: EOCD comment strip → grow-append truncation →
         line-ending fix (.nfo/.diz) → junk-file removal → compression variants (STORE +
         DEFLATE levels 0-9) → faithful rebuild (original headers preserved, searches entry
         order + ALL compression levels 0-9 + zlib strategy) → heuristic junk removal (strips
         likely FTP-script adverts/courier tags by name pattern, including folder names) →
         strip to essentials (last resort: keeps only the largest file + .nfo/.diz, discards
         everything else regardless of name) → foreign-packer diagnosis. Every structural
-        technique re-runs the full order/compression/strategy search (plus any learned group
-        fingerprints) rather than trying one default rebuild, since the right fix is often a
+        technique re-runs the full order/encoder search &mdash; entries whose content did not
+        change keep their existing compressed bytes first, then the group's learned encoder,
+        RSR's history for the group, the encoders most scene zips used, and (deep search)
+        every zlib setting and zipper; any rebuild that cannot add up to the DAT's size is
+        skipped unassembled &mdash; rather than trying one default rebuild, since the right fix is often a
         structural change AND a specific compression setting together. Matching stops at the
         first technique that hits the DAT's target CRC32, then MD5/SHA1 are verified before
         accepting the fix. If nothing matches but every entry's internal CRC checks out, it's
-        flagged as "likely foreign packer" — content is probably correct but was packed by a
-        tool whose exact compressed bytes can't be reproduced.
+        flagged as "likely foreign packer" &mdash; content is probably correct but was packed by a
+        tool whose exact compressed bytes can't be reproduced. RSR's measurements say that is
+        most scene zips (PKZIP-era deflate): a re-packed copy of one of those can only be fixed
+        when its original compressed bytes survived.
       </div>
       <div class="hint">
         Output is organised by DAT release name: <code>output/&lt;game name&gt;/&lt;filename&gt;</code>.
@@ -230,6 +243,9 @@ window.addEventListener('pywebviewready', async () => {
   if (cfg.dry_run)  document.getElementById('dry_run').checked = cfg.dry_run;
   if (cfg.use_fingerprint_db === false) document.getElementById('use_fp_db').checked = false;
   if (cfg.auto_retry_excluding_suspect_refs === false) document.getElementById('auto_retry').checked = false;
+  if (cfg.deep_search === false) document.getElementById('deep_search').checked = false;
+  if (cfg.use_rsr_store === false) document.getElementById('use_rsr_store').checked = false;
+  if (cfg.zip_budget_s !== undefined) document.getElementById('zip_budget_s').value = cfg.zip_budget_s;
   if (cfg.move_mode) document.getElementById('mode_move').checked = true;
   else document.getElementById('mode_copy').checked = true;
 
@@ -481,17 +497,22 @@ async function startRun() {
   const move_mode = document.getElementById('mode_move').checked;
   const use_fingerprint_db = document.getElementById('use_fp_db').checked;
   const auto_retry_excluding_suspect_refs = document.getElementById('auto_retry').checked;
+  const deep_search = document.getElementById('deep_search').checked;
+  const use_rsr_store = document.getElementById('use_rsr_store').checked;
+  const zip_budget_s = Math.max(0, parseFloat(document.getElementById('zip_budget_s').value) || 0);
 
   if (!src)     { addLog('Select the Scene ZIPs folder.', 'warn'); return; }
   if (!dat_dir) { addLog('Select the DAT folder.', 'warn'); return; }
   if (!dry_run && !dst) { addLog('Select an Output folder (or enable Dry Run).', 'warn'); return; }
 
-  await window.pywebview.api.save_config({ src, dat_dir, ref_dirs, dst, dry_run, move_mode, use_fingerprint_db, auto_retry_excluding_suspect_refs });
+  const run_cfg = { src, dat_dir, ref_dirs, dst, dry_run, move_mode, use_fingerprint_db,
+                    auto_retry_excluding_suspect_refs, deep_search, use_rsr_store, zip_budget_s };
+  await window.pywebview.api.save_config(run_cfg);
 
   document.getElementById('prog-bar').style.width = '0%';
   document.getElementById('prog-label').textContent = '—';
 
-  await window.pywebview.api.start_run({ src, dat_dir, ref_dirs, dst, dry_run, move_mode, use_fingerprint_db, auto_retry_excluding_suspect_refs });
+  await window.pywebview.api.start_run(run_cfg);
 }
 
 async function stopRun() {

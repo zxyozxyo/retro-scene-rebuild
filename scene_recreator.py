@@ -72,6 +72,7 @@ import struct
 import shutil
 import hashlib
 import threading
+import time
 import zipfile
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -118,6 +119,15 @@ class ZipCDRecord:
         # version_made_by high byte: 0 = FAT/DOS, 3 = Unix
         self.is_unix = (self.version_made_by >> 8) == 3
 
+    @property
+    def name_bytes(self) -> bytes:
+        """The name exactly as the archive stores it (re-encoding the
+        decoded name would turn a DOS code-page name into UTF-8)."""
+        if len(self.raw) >= 46:
+            nl = struct.unpack('<H', self.raw[28:30])[0]
+            return self.raw[46:46 + nl]
+        return self.name.encode('utf-8')
+
 
 def find_eocd(data: bytes):
     """Locate EOCD record, scanning backward (handles trailing comment)."""
@@ -161,7 +171,11 @@ def parse_central_directory(data: bytes) -> list:
 
         rec_len = 46 + name_len + extra_len + comment_len
         raw = data[pos:pos + rec_len]
-        name = data[pos + 46:pos + 46 + name_len].decode('utf-8', 'replace')
+        # Decode the way zipfile does (UTF-8 only when bit 11 says so, else
+        # the DOS code page), or zf.read(rec.name) cannot find an entry
+        # whose name has an accented letter in it.
+        name = data[pos + 46:pos + 46 + name_len].decode(
+            'utf-8' if flag_bits & 0x800 else 'cp437', 'replace')
         extra = data[pos + 46 + name_len:pos + 46 + name_len + extra_len]
 
         records.append(ZipCDRecord(
@@ -202,6 +216,353 @@ def md5_of(data: bytes) -> str:
 
 def sha1_of(data: bytes) -> str:
     return hashlib.sha1(data).hexdigest()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ENCODERS — what can re-create a zip entry's compressed bytes
+#
+# Lessons from the RSR scanner, measured over ~13,800 captured scene-zip
+# entries (rsr_index.db, zip_recipes):
+#   * Python zlib reproduces only ~2% of them, Info-ZIP ~8%, 7-Zip <1%.
+#     The other ~89% were written by PKZIP-era tools whose output no
+#     encoder on this machine reproduces; RSR rebuilds those only because
+#     it captured them from the original zip (preflate).
+#   * zlib's memLevel matters: fixing it at 8 called 55% of the corpus
+#     unreproducible when the real figure was 14%.
+#   * A deflate stream is emitted block by block, so compressing a prefix
+#     of the input gives a prefix of the output: a 256 KB probe rules out
+#     a wrong setting without compressing the whole file.
+#   * A scene group zips the way it zips: what worked for its other
+#     releases is the first thing to try.
+# ═══════════════════════════════════════════════════════════════════════
+
+try:
+    import rsr_tool as _rsr
+except Exception:
+    _rsr = None
+
+_APP_DIR = Path(__file__).parent
+_RSR_DB = _APP_DIR / 'rsr_index.db'
+
+
+@dataclass(frozen=True)
+class Encoder:
+    impl: str              # 'store' | 'zlib' | 'tool'
+    label: str
+    level: int = 0
+    mem: int = 8
+    strategy: int = 0
+
+    def to_dict(self) -> dict:
+        return {'impl': self.impl, 'label': self.label, 'level': self.level,
+                'mem': self.mem, 'strategy': self.strategy}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Encoder':
+        return cls(d['impl'], d['label'], int(d.get('level') or 0),
+                   int(d.get('mem') or 8), int(d.get('strategy') or 0))
+
+
+STORE = Encoder('store', 'STORE')
+_STRAT_NAMES = {0: '', 1: ' filtered', 3: ' rle', 2: ' huffman', 4: ' fixed'}
+
+
+def zlib_encoder(level: int, mem: int = 8, strategy: int = 0) -> Encoder:
+    strategy = strategy or 0
+    return Encoder('zlib', f'zlib -{level} mem{mem}{_STRAT_NAMES.get(strategy, "")}',
+                   level, mem, strategy)
+
+
+# Most likely first, the same order the RSR sweep uses
+ZLIB_GRID = [zlib_encoder(l, m, s)
+             for s in (0, 1, 3, 2, 4)
+             for l in (9, 6, 5, 7, 8, 4, 3, 2, 1)
+             for m in (8, 9, 7, 6, 5, 4, 3, 2, 1)]
+
+_TOOL_PLANS = None
+
+
+def tool_plans() -> dict:
+    """label -> RSR zipper plan (Info-ZIP / 7-Zip / WinRAR), cached."""
+    global _TOOL_PLANS
+    if _TOOL_PLANS is None:
+        try:
+            _TOOL_PLANS = {p[0]: p for p in _rsr.zip_tool_plans(_APP_DIR)} if _rsr else {}
+        except Exception:
+            _TOOL_PLANS = {}
+    return _TOOL_PLANS
+
+
+def tool_encoders() -> list:
+    return [Encoder('tool', label) for label in tool_plans()]
+
+
+def encode_raw(data: bytes, enc: Encoder, name: str = 'entry.bin',
+               work: Path = None):
+    """(method, packed bytes) for one entry, or None if this encoder is
+    unavailable. A real zipper may STORE what does not shrink — that
+    choice is part of its output, so the method comes back with it."""
+    if enc.impl == 'store':
+        return 0, data
+    if enc.impl == 'zlib':
+        co = zlib.compressobj(enc.level, zlib.DEFLATED, -15, enc.mem, enc.strategy)
+        return 8, co.compress(data) + co.flush()
+    plan = tool_plans().get(enc.label)
+    if plan is None or _rsr is None:
+        return None
+    if work is None:
+        import tempfile
+        work = Path(tempfile.gettempdir()) / 'scene_recreator_zip'
+    return _rsr.tool_zip_entry(plan, data, name, work)
+
+
+def _rsr_db_query(sql: str, args=()) -> list:
+    """Read-only query on RSR's index; [] when it is absent or busy."""
+    if not _RSR_DB.is_file():
+        return []
+    try:
+        import sqlite3
+        con = sqlite3.connect(f'file:{_RSR_DB.as_posix()}?mode=ro', uri=True, timeout=5)
+        try:
+            return con.execute(sql, args).fetchall()
+        finally:
+            con.close()
+    except Exception:
+        return []
+
+
+_RSR_PRIORS = None
+
+
+def rsr_zip_priors() -> dict:
+    """What RSR learned about scene zippers, from rsr_index.db:
+    {'global': [Encoder...] by hits, 'groups': {grp: {'encoders': [...],
+    'preflate': n, 'other': n}}}. Labels RSR records match ours."""
+    global _RSR_PRIORS
+    if _RSR_PRIORS is not None:
+        return _RSR_PRIORS
+    known = {e.label: e for e in ZLIB_GRID + tool_encoders()}
+    rows = _rsr_db_query('SELECT grp, label, impl, level, mem, strategy, hits '
+                         'FROM zip_recipes')
+    totals, groups = {}, {}
+    for grp, label, impl, level, mem, strategy, hits in rows:
+        g = groups.setdefault((grp or '').lower(), {'encoders': [], 'preflate': 0, 'other': 0})
+        hits = hits or 0
+        if impl == 'preflate':
+            g['preflate'] += hits
+            continue
+        enc = known.get(label)
+        if enc is None and impl == 'zlib' and level:
+            enc = zlib_encoder(int(level), int(mem or 8), int(strategy or 0))
+        if enc is None:
+            continue
+        g['other'] += hits
+        g['encoders'].append((hits, enc))
+        totals[enc] = totals.get(enc, 0) + hits
+    for g in groups.values():
+        g['encoders'] = [e for _, e in sorted(g['encoders'], key=lambda t: -t[0])]
+    glob = [e for e, _ in sorted(totals.items(), key=lambda t: -t[1])]
+    if not glob:
+        # No RSR index here: the measured order, hard-coded
+        glob = [e for e in (known.get('Info-ZIP -9'), known.get('Info-ZIP -6'),
+                            zlib_encoder(6), known.get('7z -mx5'), zlib_encoder(5),
+                            known.get('Info-ZIP -7'), known.get('Info-ZIP -5'),
+                            zlib_encoder(9), zlib_encoder(1)) if e]
+    _RSR_PRIORS = {'global': glob, 'groups': groups}
+    return _RSR_PRIORS
+
+
+def encoder_plan(group: str = '', first: list = None, deep: bool = True) -> list:
+    """Every encoder to try for a zip, most likely first: whatever the
+    caller already knows, then the group's RSR history, then the encoders
+    most scene zips used, then (deep) the rest of zlib's settings and
+    every zipper. No duplicates."""
+    pri = rsr_zip_priors()
+    order = list(first or [])
+    order += pri['groups'].get((group or '').lower(), {}).get('encoders', [])
+    order += pri['global']
+    if deep:
+        order += ZLIB_GRID + tool_encoders()
+    seen, out = set(), []
+    for e in order:
+        if e and e.label not in seen and e.impl != 'store':
+            seen.add(e.label)
+            out.append(e)
+    return out
+
+
+def group_packer_verdict(group: str) -> str:
+    """Non-empty when RSR has seen this group's zips and none of them came
+    from an encoder we can run — the original zipper is not reproducible,
+    so a zip that was re-packed cannot be byte-matched by guessing."""
+    g = rsr_zip_priors()['groups'].get((group or '').lower())
+    if g and g['preflate'] >= 3 and not g['other']:
+        return (f"RSR has captured {g['preflate']} zip entr(y/ies) from {group} and "
+                f"every one was written by a zipper nothing here can reproduce "
+                f"(PKZIP-era deflate)")
+    return ''
+
+
+class ZipSearchJob:
+    """State one broken zip's repair shares across every technique: the
+    stream cache (each entry is compressed once per encoder, however many
+    orderings and techniques use it), the DAT's target size (a rebuild of
+    the wrong size is never assembled), the time budget and the encoder
+    plan."""
+
+    STREAM_CACHE_MAX = 384 << 20
+
+    def __init__(self, target_size: int = None, deadline: float = None,
+                 should_stop=None, encoders: list = None, verdict: str = ''):
+        import tempfile
+        self.target_size = target_size or None
+        self.deadline = deadline
+        self.should_stop = should_stop or (lambda: False)
+        self.encoders = encoders if encoders is not None else encoder_plan()
+        self.verdict = verdict
+        self.budget_hit = False
+        self.found_in_file = None      # encoder that made this zip's own streams
+        self._ids = {}
+        self._lens = {}
+        self._streams = {}
+        self._held = 0
+        self._work = Path(tempfile.mkdtemp(prefix='scene_recreator_zip_'))
+
+    def out_of_time(self) -> bool:
+        if self.should_stop():
+            return True
+        if self.deadline and time.monotonic() > self.deadline:
+            self.budget_hit = True
+            return True
+        return False
+
+    def _key(self, data: bytes, enc: Encoder):
+        k = self._ids.get(id(data))
+        if k is None or k[0] is not data:
+            k = (data, zlib.crc32(data), len(data))   # holding data keeps id() unique
+            self._ids[id(data)] = k
+        return k[1], k[2], enc.label
+
+    def encode(self, data: bytes, enc: Encoder, name: str = 'entry.bin'):
+        key = self._key(data, enc)
+        got = self._streams.get(key)
+        if got is not None:
+            return got
+        got = encode_raw(data, enc, name, self._work)
+        if got is None:
+            return None
+        self._lens[key] = len(got[1])
+        if self._held + len(got[1]) <= self.STREAM_CACHE_MAX:
+            self._streams[key] = got
+            self._held += len(got[1])
+        return got
+
+    def known_length(self, data: bytes, enc: Encoder):
+        """Packed length if this entry was already compressed this way."""
+        return self._lens.get(self._key(data, enc))
+
+    def close(self):
+        self._ids.clear()
+        self._streams.clear()
+        shutil.rmtree(self._work, ignore_errors=True)
+
+
+_JOB = threading.local()
+
+
+def current_job() -> ZipSearchJob:
+    """The active zip's search state; a throwaway one outside a run."""
+    job = getattr(_JOB, 'job', None)
+    if job is None:
+        job = ZipSearchJob(encoders=encoder_plan(deep=False))
+        _JOB.job = job
+    return job
+
+
+def set_job(job):
+    old = getattr(_JOB, 'job', None)
+    if old is not None and old is not job:
+        old.close()
+    _JOB.job = job
+
+
+def identify_encoders(plain: bytes, packed: bytes, name: str = 'entry.bin',
+                      candidates: list = None, deadline: float = None,
+                      limit: int = 4) -> list:
+    """Which encoders turn `plain` into exactly `packed` (a deflate entry
+    whose original bytes we hold). Big entries are screened with a 256 KB
+    prefix first, so a wrong setting costs milliseconds, not a full pass.
+    Returns up to `limit` matches, in candidate order."""
+    cands = candidates if candidates is not None else encoder_plan()
+    probe = plain[:256 << 10] if len(plain) > (512 << 10) else None
+    import tempfile
+    work = Path(tempfile.mkdtemp(prefix='scene_recreator_id_'))
+    out = []
+    try:
+        for enc in cands:
+            if deadline and time.monotonic() > deadline:
+                break
+            if enc.impl == 'store':
+                continue
+            if probe is not None:
+                if enc.impl == 'zlib':
+                    co = zlib.compressobj(enc.level, zlib.DEFLATED, -15, enc.mem, enc.strategy)
+                    head = co.compress(probe)
+                    if head and not packed.startswith(head):
+                        continue
+                else:
+                    # A zipper's output for a prefix is only MOSTLY a prefix
+                    # of the full stream (7-Zip optimises over a lookahead),
+                    # so compare a slice from the start, never more than half
+                    got = encode_raw(probe, enc, name, work)
+                    if got is None or got[0] != 8:
+                        continue
+                    n = min(65536, len(got[1]) // 2)
+                    if n and not packed.startswith(got[1][:n]):
+                        continue
+            got = encode_raw(plain, enc, name, work)
+            if got and got[0] == 8 and got[1] == packed:
+                out.append(enc)
+                if len(out) >= limit:
+                    break
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return out
+
+
+def identify_zip_encoder(data: bytes, records: list, contents: dict = None,
+                         candidates: list = None, deadline: float = None,
+                         limit: int = 4) -> list:
+    """Encoders consistent with EVERY intact deflate entry of a zip,
+    smallest entry first so the cheap ones narrow the field before the big
+    one is touched. [] when the entries agree on no encoder we can run."""
+    deflated = [r for r in records if r.compress_method == 8]
+    if not deflated:
+        return []
+    deflated.sort(key=lambda r: r.uncomp_size)
+    survivors = candidates if candidates is not None else encoder_plan()
+    import io
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except Exception:
+        return []
+    with zf:
+        checked = 0
+        for i, rec in enumerate(deflated):
+            try:
+                plain = contents[rec.name] if contents and rec.name in contents else zf.read(rec.name)
+            except Exception:
+                continue
+            if (zlib.crc32(plain) & 0xFFFFFFFF) != rec.crc32:
+                continue
+            packed = _read_local_comp_data(data, rec)
+            last = i == len(deflated) - 1
+            survivors = identify_encoders(plain, packed, rec.name, survivors, deadline,
+                                          limit=limit if last else len(survivors))
+            checked += 1
+            if not survivors:
+                return []
+    return survivors[:limit] if checked else []
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -340,7 +701,7 @@ def technique_line_ending_fix(data: bytes, target_crc: str, fingerprints: list =
 
         result = _search_rebuild_combinations(
             records, contents, target_crc, fingerprints=fingerprints,
-            technique_name="line_ending_fix",
+            source_data=data, technique_name="line_ending_fix",
             extra_detail=f"normalised {mode.upper()} on {', '.join(text_names)}, "
         )
         if result.success:
@@ -387,7 +748,7 @@ def technique_junk_removal(data: bytes, target_crc: str, fingerprints: list = No
     removed_names = [r.name for r in unix_records]
     result = _search_rebuild_combinations(
         fat_records, contents, target_crc, fingerprints=fingerprints,
-        technique_name="junk_removal",
+        source_data=data, technique_name="junk_removal",
         extra_detail=f"removed junk entries ({', '.join(removed_names)}), "
     )
     if result.success:
@@ -427,6 +788,8 @@ def technique_compression_variants(data: bytes, target_crc: str) -> RepairAttemp
             # DEFLATE at every zlib level — Python's zipfile only exposes
             # compresslevel via the ZipFile constructor (3.7+)
             for level in range(0, 10):
+                if current_job().out_of_time():
+                    break
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED,
                                       compresslevel=level) as out_zf:
@@ -466,10 +829,20 @@ def _likely_text_content(data: bytes) -> bool:
     return (text_chars / len(sample)) > 0.95
 
 
+def _version_needed_for(rec, method: int) -> int:
+    """A zipper that changes an entry's method changes its "version needed"
+    with it: 1.0 for a stored entry, 2.0 for deflate. Kept as the archive
+    has it while the method is the same."""
+    if method == rec.compress_method:
+        return rec.version_needed
+    return 10 if method == 0 else 20
+
+
 def _rebuild_zip_faithful(records: list, contents: dict, order: list,
                             compress_method: int, zlib_level: int = None,
                             zlib_strategy: int = None,
-                            header_overrides: dict = None) -> bytes:
+                            header_overrides: dict = None,
+                            streams: dict = None) -> bytes:
     """
     Manually rebuild a ZIP container using each entry's ORIGINAL metadata
     (version needed/made-by, flag bits, DOS time/date, internal/external
@@ -491,37 +864,40 @@ def _rebuild_zip_faithful(records: list, contents: dict, order: list,
     verified reference's fingerprint can supply the correct values
     instead. Fields not present in the dict still fall back to each
     record's own value as before.
+
+    `streams`, if given, maps each entry name to its (method, packed bytes)
+    — already compressed by whichever encoder the caller is trying — and
+    takes precedence over compress_method/zlib_level/zlib_strategy.
     """
-    by_name = {r.name: r for r in records}
     local_parts = []
     cd_parts = []
     offset = 0
     local_offsets = {}
+    packed = {}
     ov = header_overrides or {}
 
     for idx in order:
         rec = records[idx]
         raw_content = contents[rec.name]
 
-        if compress_method == 0:
-            comp_data = raw_content
+        if streams is not None:
+            method, comp_data = streams[rec.name]
+        elif compress_method == 0:
+            method, comp_data = 0, raw_content
         else:
-            if zlib_strategy is not None:
-                co = zlib.compressobj(
-                    zlib_level if zlib_level is not None else 6,
-                    zlib.DEFLATED, -15, 8, zlib_strategy
-                )
-            else:
-                co = zlib.compressobj(
-                    zlib_level if zlib_level is not None else 6,
-                    zlib.DEFLATED, -15
-                )
+            method = 8
+            co = zlib.compressobj(
+                zlib_level if zlib_level is not None else 6,
+                zlib.DEFLATED, -15, 8,
+                zlib_strategy if zlib_strategy is not None else 0
+            )
             comp_data = co.compress(raw_content) + co.flush()
 
-        name_bytes = rec.name.encode('utf-8')
+        name_bytes = rec.name_bytes
         crc = zlib.crc32(raw_content) & 0xFFFFFFFF
+        packed[rec.name] = (method, len(comp_data), crc)
 
-        version_needed = ov.get('version_needed', rec.version_needed)
+        version_needed = ov.get('version_needed', _version_needed_for(rec, method))
         flag_bits = ov.get('flag_bits', rec.flag_bits)
 
         # Local file header — reuse original version_needed/flag_bits/
@@ -530,7 +906,7 @@ def _rebuild_zip_faithful(records: list, contents: dict, order: list,
         local_header = (
             LOCAL_SIG +
             struct.pack('<HHHHHIIIHH',
-                        version_needed, flag_bits, compress_method,
+                        version_needed, flag_bits, method,
                         rec.dos_time, rec.dos_date,
                         crc, len(comp_data), len(raw_content),
                         len(name_bytes), 0)  # extra_len = 0 in local header
@@ -544,27 +920,11 @@ def _rebuild_zip_faithful(records: list, contents: dict, order: list,
     for idx in order:
         rec = records[idx]
         raw_content = contents[rec.name]
-        crc = zlib.crc32(raw_content) & 0xFFFFFFFF
-        name_bytes = rec.name.encode('utf-8')
-
-        if compress_method == 0:
-            comp_size = len(raw_content)
-        else:
-            # Recompute using same settings as above for accurate size
-            if zlib_strategy is not None:
-                co = zlib.compressobj(
-                    zlib_level if zlib_level is not None else 6,
-                    zlib.DEFLATED, -15, 8, zlib_strategy
-                )
-            else:
-                co = zlib.compressobj(
-                    zlib_level if zlib_level is not None else 6,
-                    zlib.DEFLATED, -15
-                )
-            comp_size = len(co.compress(raw_content) + co.flush())
+        name_bytes = rec.name_bytes
+        method, comp_size, crc = packed[rec.name]
+        version_needed = ov.get('version_needed', _version_needed_for(rec, method))
 
         version_made_by = ov.get('version_made_by', rec.version_made_by)
-        version_needed = ov.get('version_needed', rec.version_needed)
         flag_bits = ov.get('flag_bits', rec.flag_bits)
         external_attr = ov.get('external_attr', rec.external_attr)
         if header_overrides is not None:
@@ -580,7 +940,7 @@ def _rebuild_zip_faithful(records: list, contents: dict, order: list,
             CD_SIG +
             struct.pack('<HHHHHHIIIHHHHHII',
                         version_made_by, version_needed,
-                        flag_bits, compress_method,
+                        flag_bits, method,
                         rec.dos_time, rec.dos_date,
                         crc, comp_size, len(raw_content),
                         len(name_bytes), 0, 0,  # extra_len, comment_len = 0
@@ -596,143 +956,182 @@ def _rebuild_zip_faithful(records: list, contents: dict, order: list,
     return local_blob + cd_blob + eocd
 
 
+def _entry_orderings(records: list) -> list:
+    n = len(records)
+    orig_order = list(range(n))
+    alpha_order = sorted(orig_order, key=lambda i: records[i].name.lower())
+    return [
+        ("original order", orig_order),
+        ("alphabetical order", alpha_order),
+        ("reverse alphabetical order", list(reversed(alpha_order))),
+        ("size-ascending order", sorted(orig_order, key=lambda i: records[i].uncomp_size)),
+    ]
+
+
+def _surviving_streams(records: list, contents: dict, source_data: bytes) -> dict:
+    """name -> (method, packed bytes) for every entry whose content is the
+    same as in the zip being repaired. Those bytes may be the ORIGINAL
+    packer's — the one thing no encoder here can re-create — so they are
+    kept as they are before anything is recompressed."""
+    kept = {}
+    if not source_data:
+        return kept
+    for r in records:
+        if r.compress_method not in (0, 8) or r.flag_bits & 0x1:
+            continue
+        if (zlib.crc32(contents[r.name]) & 0xFFFFFFFF) != r.crc32:
+            continue
+        try:
+            kept[r.name] = (r.compress_method, _read_local_comp_data(source_data, r))
+        except Exception:
+            continue
+    return kept
+
+
 def _search_rebuild_combinations(records: list, contents: dict, target_crc: str,
                                     fingerprints: list = None,
                                     technique_name: str = "rebuild",
-                                    extra_detail: str = "") -> 'RepairAttempt':
+                                    extra_detail: str = "",
+                                    source_data: bytes = None,
+                                    blind: bool = True) -> 'RepairAttempt':
     """
-    Shared exhaustive search used by every structural technique (line-
-    ending fix, junk removal, heuristic junk removal, last-resort strip)
-    so that whenever a structural change is made, it's tried against the
-    FULL compression search space — not just one default rebuild. This
-    is what makes "fix X" and "find the right compression" actually
-    cross-multiply, instead of each technique guessing one fixed
-    compression setting and giving up.
+    Shared search used by every structural technique (line-ending fix,
+    junk removal, heuristic junk removal, last-resort strip, faithful
+    rebuild) so that whenever a structural change is made, it is tried
+    against the full packaging space — not one default rebuild.
 
-    Search order, fastest/most-likely first:
-      1. Any known group fingerprints (order + compression learned from
-         verified references) — usually 1-4 attempts, tried first since
-         they're most likely correct for this group
-      2. STORE, in every entry ordering
-      3. DEFLATE at levels 1/6/9 x 5 zlib strategies, in every entry
-         ordering (original/alphabetical/reverse/size-ascending)
+    `records`/`contents` describe the structure AFTER the structural change
+    (junk removed, line endings normalised); this only varies packaging.
 
-    `records`/`contents` describe the STRUCTURE AFTER the structural
-    change has already been applied (e.g. junk entries already removed,
-    or .nfo/.diz content already line-ending-normalised) — this function
-    only varies packaging (order + compression), not content.
+    Search order, most likely first:
+      1. Group fingerprints learned from verified references (their
+         encoder, order and header metadata).
+      2. Entries whose content did not change keep the packed bytes they
+         already have (`source_data` = the zip being repaired), and only
+         the changed entries are recompressed — each encoder in turn.
+      3. Every entry recompressed: STORE, then the encoder plan of the
+         current ZipSearchJob — this group's RSR history, the encoders
+         most scene zips used, then every zlib level x memLevel x strategy
+         and every zipper on the machine (Info-ZIP, 7-Zip, WinRAR).
+    Each candidate is tried in four entry orderings. When the DAT gives
+    the zip's size, an encoder whose output cannot add up to it is dropped
+    before anything is assembled, and each entry is compressed once per
+    encoder for the whole repair (the job's cache), so the orderings and
+    the other techniques reuse it.
     """
     n = len(records)
     if n == 0:
         return RepairAttempt(technique_name, False, detail="no entries remain after structural change")
 
-    orig_order = list(range(n))
-    alpha_order = sorted(orig_order, key=lambda i: records[i].name.lower())
-    alpha_rev_order = list(reversed(alpha_order))
-    size_order = sorted(orig_order, key=lambda i: records[i].uncomp_size)
-    orderings = [
-        ("original order", orig_order),
-        ("alphabetical order", alpha_order),
-        ("reverse alphabetical order", alpha_rev_order),
-        ("size-ascending order", size_order),
-    ]
-    order_by_name = {
-        'original': orig_order,
-        'alphabetical': alpha_order,
-        'reverse_alphabetical': alpha_rev_order,
-        'size_ascending': size_order,
-    }
-
+    job = current_job()
+    orderings = _entry_orderings(records)
+    kept = _surviving_streams(records, contents, source_data)
+    changed = [r for r in records if r.name not in kept]
+    overhead = sum(76 + 2 * len(r.name_bytes) for r in records) + 22
+    need = job.target_size - overhead if job.target_size else None
+    by_size = sorted(records, key=lambda r: len(contents[r.name]))
     tried = 0
+    sized_out = 0
 
-    # 1. Known group fingerprints first — fastest path if available.
-    # Try WITH the fingerprint's header overrides (version_made_by,
-    # flag_bits, internal/external_attr from the verified reference)
-    # first, since the broken file's own headers may themselves have
-    # been altered by whatever process broke it — then fall back to
-    # using the broken file's own headers in case those happen to
-    # already be correct and overriding would be wrong.
-    if fingerprints:
-        for fp in fingerprints:
-            fp_order = _order_indices_for_kind(records, fp.order_kind)
-            for use_overrides in (True, False):
+    def streams_for(enc, keep: bool):
+        """name -> (method, packed), or None when the sizes rule it out."""
+        out, total = {}, 0
+        todo = by_size
+        if keep:
+            for r in records:
+                if r.name in kept:
+                    out[r.name] = kept[r.name]
+                    total += len(kept[r.name][1])
+            todo = [r for r in by_size if r.name not in kept]
+        for i, r in enumerate(todo):
+            data = contents[r.name]
+            if need is not None:
+                ln = job.known_length(data, enc)
+                if ln is not None and total + ln > need:
+                    return None
+            got = job.encode(data, enc, r.name)
+            if got is None:
+                return None
+            out[r.name] = got
+            total += len(got[1])
+            if need is not None and total > need:
+                return None
+        if need is not None and total != need:
+            return None
+        return out
+
+    def try_streams(streams, orders, overrides_list, label):
+        nonlocal tried
+        for order_name, order in orders:
+            for overrides in overrides_list:
                 try:
-                    candidate = _rebuild_zip_faithful(
-                        records, contents, fp_order,
-                        compress_method=fp.compress_method,
-                        zlib_level=fp.zlib_level if fp.compress_method == 8 else None,
-                        zlib_strategy=fp.zlib_strategy if fp.compress_method == 8 else None,
-                        header_overrides=fp.as_header_overrides() if use_overrides else None,
-                    )
-                    tried += 1
-                    if crc32_of(candidate) == target_crc:
-                        override_note = " (using reference's header metadata)" if use_overrides else ""
-                        return RepairAttempt(
-                            technique_name, True, candidate,
-                            f"{extra_detail}using group '{fp.group}' fingerprint from "
-                            f"{fp.source_file} (order={fp.order_kind}, "
-                            f"method={'STORE' if fp.compress_method == 0 else 'DEFLATE'}"
-                            f"{f', level={fp.zlib_level}' if fp.compress_method == 8 else ''})"
-                            f"{override_note}"
-                        )
+                    candidate = _rebuild_zip_faithful(records, contents, order, 8,
+                                                      header_overrides=overrides,
+                                                      streams=streams)
                 except Exception:
                     continue
+                tried += 1
+                if crc32_of(candidate) == target_crc:
+                    return candidate, f"{extra_detail}rebuilt with {order_name}, {label}" + (
+                        " (using reference's header metadata)" if overrides else "")
+        return None
 
-    # 2 & 3. Blind search across orderings x compression settings
-    strategies = [
-        ("default", None), ("filtered", zlib.Z_FILTERED),
-        ("huffman-only", zlib.Z_HUFFMAN_ONLY), ("rle", zlib.Z_RLE),
-        ("fixed", zlib.Z_FIXED),
-    ]
-    for order_name, order in orderings:
-        try:
-            candidate = _rebuild_zip_faithful(records, contents, order, compress_method=0)
-            tried += 1
-            if crc32_of(candidate) == target_crc:
-                return RepairAttempt(
-                    technique_name, True, candidate,
-                    f"{extra_detail}rebuilt with {order_name}, STORE"
-                )
-        except Exception:
-            pass
+    keep_modes = (True, False) if kept else (False,)
 
-        for level in range(1, 10):
-            for strat_name, strat in strategies:
-                try:
-                    candidate = _rebuild_zip_faithful(
-                        records, contents, order, compress_method=8,
-                        zlib_level=level, zlib_strategy=strat
-                    )
-                    tried += 1
-                    if crc32_of(candidate) == target_crc:
-                        return RepairAttempt(
-                            technique_name, True, candidate,
-                            f"{extra_detail}rebuilt with {order_name}, DEFLATE "
-                            f"level {level} strategy={strat_name}"
-                        )
-                except Exception:
-                    continue
+    # 1. Known group fingerprints first
+    for fp in fingerprints or []:
+        enc = fp_encoder(fp)
+        if enc is None:
+            continue
+        fp_order = [(f"group '{fp.group}' order ({fp.order_kind})",
+                     _order_indices_for_kind(records, fp.order_kind))]
+        for keep in keep_modes:
+            s = streams_for(enc, keep)
+            if s is None:
+                sized_out += 1
+                continue
+            hit = try_streams(s, fp_order, (fp.as_header_overrides(), None),
+                              f"group '{fp.group}' fingerprint from {fp.source_file} "
+                              f"({enc.label}{', kept surviving streams' if keep and changed else ''})")
+            if hit:
+                return RepairAttempt(technique_name, True, hit[0], hit[1])
 
+    # 2 & 3. Surviving streams kept, then everything recompressed
+    for keep in (keep_modes if blind else ()):
+        if keep and not changed:
+            plan = [STORE]                 # nothing to recompress: one layout to try
+        else:
+            plan = [STORE] + list(job.encoders)
+        for enc in plan:
+            if job.out_of_time():
+                break
+            s = streams_for(enc, keep)
+            if s is None:
+                sized_out += 1
+                continue
+            what = ('surviving streams kept' if keep and not changed else
+                    f"{enc.label}{' for changed entries, surviving streams kept' if keep else ''}")
+            hit = try_streams(s, orderings, (None,), what)
+            if hit:
+                return RepairAttempt(technique_name, True, hit[0], hit[1])
+
+    why = f"tried {tried} rebuild(s)"
+    if sized_out:
+        why += f", {sized_out} encoder(s) ruled out by the DAT's size"
+    if job.budget_hit:
+        why += " — time budget reached"
     return RepairAttempt(
         technique_name, False,
-        detail=f"{extra_detail}tried {tried} order/compression/fingerprint "
-               f"combinations after structural change — no match"
+        detail=f"{extra_detail}{why} after structural change — no match"
     )
 
 
 def technique_faithful_rebuild(data: bytes, target_crc: str) -> RepairAttempt:
     """
-    More thorough rebuild than technique_compression_variants: reuses
-    every original header field (version needed/made-by, flag bits, DOS
-    timestamp, internal/external attributes) from the existing file's own
-    central directory — since those are already known-correct — and only
-    varies what differs between packers: entry order, compression method,
-    zlib level, and zlib strategy.
-
-    Tries, in order: original entry order, alphabetical order, reverse
-    alphabetical order, and size-ascending order; for each, STORE then
-    DEFLATE at levels 1/6/9 with default strategy plus FILTERED/RLE/
-    FIXED/HUFFMAN_ONLY strategies at level 6.
+    Rebuild reusing every original header field (version needed/made-by,
+    flag bits, DOS timestamp, internal/external attributes) from the
+    file's own central directory, varying only what differs between
+    packers: entry order and the encoder (see _search_rebuild_combinations).
     """
     try:
         records = parse_central_directory(data)
@@ -751,64 +1150,9 @@ def technique_faithful_rebuild(data: bytes, target_crc: str) -> RepairAttempt:
     except Exception as e:
         return RepairAttempt("faithful_rebuild", False, detail=f"could not read entries: {e}")
 
-    n = len(records)
-    orig_order = list(range(n))
-    alpha_order = sorted(orig_order, key=lambda i: records[i].name.lower())
-    alpha_rev_order = list(reversed(alpha_order))
-    size_order = sorted(orig_order, key=lambda i: records[i].uncomp_size)
-
-    orderings = [
-        ("original order", orig_order),
-        ("alphabetical order", alpha_order),
-        ("reverse alphabetical order", alpha_rev_order),
-        ("size-ascending order", size_order),
-    ]
-
-    strategies = [
-        ("default", None),
-        ("filtered", zlib.Z_FILTERED),
-        ("huffman-only", zlib.Z_HUFFMAN_ONLY),
-        ("rle", zlib.Z_RLE),
-        ("fixed", zlib.Z_FIXED),
-    ]
-
-    tried = 0
-    for order_name, order in orderings:
-        # STORE first — order is the only variable, no compression settings
-        try:
-            candidate = _rebuild_zip_faithful(records, contents, order, compress_method=0)
-            tried += 1
-            if crc32_of(candidate) == target_crc:
-                return RepairAttempt(
-                    "faithful_rebuild", True, candidate,
-                    f"rebuilt with original headers, {order_name}, STORE"
-                )
-        except Exception:
-            pass
-
-        for level in range(1, 10):
-            for strat_name, strat in strategies:
-                try:
-                    candidate = _rebuild_zip_faithful(
-                        records, contents, order, compress_method=8,
-                        zlib_level=level, zlib_strategy=strat
-                    )
-                    tried += 1
-                    if crc32_of(candidate) == target_crc:
-                        return RepairAttempt(
-                            "faithful_rebuild", True, candidate,
-                            f"rebuilt with original headers, {order_name}, "
-                            f"DEFLATE level {level} strategy={strat_name}"
-                        )
-                except Exception:
-                    continue
-
-    return RepairAttempt(
-        "faithful_rebuild", False,
-        detail=f"tried {tried} combinations of entry order, compression "
-               f"level and zlib strategy with original header metadata "
-               f"preserved — no match"
-    )
+    return _search_rebuild_combinations(records, contents, target_crc,
+                                        technique_name="faithful_rebuild",
+                                        extra_detail="original headers, ")
 
 
 # Filenames commonly injected by old FTP/topsite scripts as adverts,
@@ -968,7 +1312,7 @@ def technique_heuristic_junk_removal(data: bytes, target_crc: str, fingerprints:
         removed_str = ', '.join(r.name for r in remove_set)
         result = _search_rebuild_combinations(
             surviving, contents, target_crc, fingerprints=fingerprints,
-            technique_name="heuristic_junk_removal",
+            source_data=data, technique_name="heuristic_junk_removal",
             extra_detail=f"removed suspected junk ({removed_str}), "
         )
         if result.success:
@@ -1506,7 +1850,7 @@ def technique_strip_to_essentials(data: bytes, target_crc: str, fingerprints: li
         mode_label = f", normalised {mode.upper()} on sidecars" if mode else ""
         result = _search_rebuild_combinations(
             survivors, contents, target_crc, fingerprints=fingerprints,
-            technique_name="strip_to_essentials",
+            source_data=data, technique_name="strip_to_essentials",
             extra_detail=f"stripped down to main file + .nfo/.diz only "
                          f"(removed: {stripped_str}){mode_label}, "
         )
@@ -1649,6 +1993,73 @@ def technique_local_header_reconstruct(data: bytes, target_crc: str,
     )
 
 
+def _sidecar_rebuild(data: bytes, records: list, replacements: dict,
+                     ts_overrides: dict) -> bytes:
+    """
+    Rebuild the zip with the substituted entries using the given
+    per-entry (dos_time, dos_date) override (falling back to the
+    WRONG entry's own existing timestamp if not overridden for a
+    given local_offset) — every other entry carried over verbatim,
+    completely unaffected either way.
+    """
+    local_parts = []
+    cd_parts = []
+    offset = 0
+    new_offsets = {}
+
+    for rec in records:
+        if rec.local_offset in replacements:
+            new_comp, new_crc, new_uncomp, _ = replacements[rec.local_offset]
+            dos_time, dos_date = ts_overrides.get(rec.local_offset, (rec.dos_time, rec.dos_date))
+            name_bytes = rec.name_bytes
+            extra_len = len(rec.extra)
+            new_header = (
+                LOCAL_SIG
+                + struct.pack('<H', rec.version_needed)
+                + struct.pack('<H', rec.flag_bits & ~0x08)  # never needs a descriptor — sizes known upfront
+                + struct.pack('<H', rec.compress_method)
+                + struct.pack('<H', dos_time)
+                + struct.pack('<H', dos_date)
+                + struct.pack('<I', new_crc)
+                + struct.pack('<I', len(new_comp))
+                + struct.pack('<I', new_uncomp)
+                + struct.pack('<H', len(name_bytes))
+                + struct.pack('<H', extra_len)
+            )
+            entry_bytes = new_header + name_bytes + rec.extra + new_comp
+        else:
+            entry_bytes = _extract_local_entry_verbatim(data, rec)
+        new_offsets[rec.local_offset] = offset
+        local_parts.append(entry_bytes)
+        offset += len(entry_bytes)
+
+    for rec in records:
+        if rec.local_offset in replacements:
+            new_comp, new_crc, new_uncomp, _ = replacements[rec.local_offset]
+            dos_time, dos_date = ts_overrides.get(rec.local_offset, (rec.dos_time, rec.dos_date))
+            new_flag = rec.flag_bits & ~0x08
+            # CD record layout: sig(0-4) ver_made_by(4-6) ver_needed(6-8)
+            # flag(8-10) method(10-12) dos_time(12-14) dos_date(14-16)
+            # crc(16-20) comp_size(20-24) uncomp_size(24-28) name_len(28-30)
+            # extra_len(30-32) comment_len(32-34) disk(34-36) internal(36-38)
+            # external(38-42) local_offset(42-46)
+            cd_record = (
+                rec.raw[:8] + struct.pack('<H', new_flag)
+                + struct.pack('<H', rec.compress_method)
+                + struct.pack('<H', dos_time) + struct.pack('<H', dos_date)
+                + struct.pack('<III', new_crc, len(new_comp), new_uncomp)
+                + rec.raw[28:42] + struct.pack('<I', new_offsets[rec.local_offset]) + rec.raw[46:]
+            )
+        else:
+            cd_record = rec.raw[:42] + struct.pack('<I', new_offsets[rec.local_offset]) + rec.raw[46:]
+        cd_parts.append(cd_record)
+
+    local_blob = b''.join(local_parts)
+    cd_blob = b''.join(cd_parts)
+    eocd = build_eocd(len(records), len(cd_blob), len(local_blob))
+    return local_blob + cd_blob + eocd
+
+
 def technique_sidecar_content_substitute(data: bytes, target_crc: str,
                                            replacement_lookup: dict) -> RepairAttempt:
     """
@@ -1771,31 +2182,35 @@ def technique_sidecar_content_substitute(data: bytes, target_crc: str,
     # technique exists to fix in the first place.
     deflate_correct = [c for c in correct_entries if c[2] == 8]
     deflate_correct.sort(key=lambda c: len(c[0]))
-    fingerprint = None
-    for plaintext, comp_data, _ in deflate_correct:
-        candidates = _detect_compression_fingerprint(plaintext, comp_data, 8)
-        if candidates:
-            fingerprint = candidates[0]
-            break
+    job = current_job()
+    encoders = []
+    if any(rec.compress_method == 8 for rec in wrong_entries):
+        for plaintext, comp_data, _ in deflate_correct:
+            encoders = identify_encoders(plaintext, comp_data, candidates=job.encoders,
+                                         deadline=job.deadline, limit=4)
+            if encoders:
+                break
 
-    replacements = {}  # local_offset -> (new_comp_data, new_crc, new_uncomp_size, rec)
-    for rec in wrong_entries:
-        new_plain = replacement_lookup[rec.name.lower()]
-        new_crc = zlib.crc32(new_plain) & 0xFFFFFFFF
-        if rec.compress_method == 0:
-            new_comp = new_plain
-        elif rec.compress_method == 8 and fingerprint:
-            level, strat = fingerprint
-            if strat is not None:
-                co = zlib.compressobj(level, zlib.DEFLATED, -15, 8, strat)
+    def _replacements_for(enc):
+        out = {}  # local_offset -> (new_comp_data, new_crc, new_uncomp_size, rec)
+        for rec in wrong_entries:
+            new_plain = replacement_lookup[rec.name.lower()]
+            new_crc = zlib.crc32(new_plain) & 0xFFFFFFFF
+            if rec.compress_method == 0:
+                new_comp = new_plain
+            elif rec.compress_method == 8 and enc is not None:
+                got = job.encode(new_plain, enc, rec.name)
+                if got is None or got[0] != 8:
+                    continue
+                new_comp = got[1]
             else:
-                co = zlib.compressobj(level, zlib.DEFLATED, -15)
-            new_comp = co.compress(new_plain) + co.flush()
-        else:
-            continue  # can't determine how to compress this — skip, don't guess
-        replacements[rec.local_offset] = (new_comp, new_crc, len(new_plain), rec)
+                continue  # can't determine how to compress this — skip, don't guess
+            out[rec.local_offset] = (new_comp, new_crc, len(new_plain), rec)
+        return out
 
-    if not replacements:
+    attempts = [(enc, _replacements_for(enc)) for enc in (encoders or [None])]
+    attempts = [(enc, r) for enc, r in attempts if r]
+    if not attempts:
         return RepairAttempt(
             "sidecar_content_substitute", False,
             detail="could not determine compression settings to rebuild the replacement content"
@@ -1805,175 +2220,124 @@ def technique_sidecar_content_substitute(data: bytes, target_crc: str,
     if eocd_idx is None:
         return RepairAttempt("sidecar_content_substitute", False, detail="no EOCD found")
 
-    def _rebuild_with_timestamps(ts_overrides: dict) -> bytes:
-        """
-        Rebuild the zip with the substituted entries using the given
-        per-entry (dos_time, dos_date) override (falling back to the
-        WRONG entry's own existing timestamp if not overridden for a
-        given local_offset) — every other entry carried over verbatim,
-        completely unaffected either way.
-        """
-        local_parts = []
-        cd_parts = []
-        offset = 0
-        new_offsets = {}
-
-        for rec in records:
-            if rec.local_offset in replacements:
-                new_comp, new_crc, new_uncomp, _ = replacements[rec.local_offset]
-                dos_time, dos_date = ts_overrides.get(rec.local_offset, (rec.dos_time, rec.dos_date))
-                name_bytes = rec.name.encode('utf-8', errors='surrogateescape')
-                extra_len = len(rec.extra)
-                new_header = (
-                    LOCAL_SIG
-                    + struct.pack('<H', rec.version_needed)
-                    + struct.pack('<H', rec.flag_bits & ~0x08)  # never needs a descriptor — sizes known upfront
-                    + struct.pack('<H', rec.compress_method)
-                    + struct.pack('<H', dos_time)
-                    + struct.pack('<H', dos_date)
-                    + struct.pack('<I', new_crc)
-                    + struct.pack('<I', len(new_comp))
-                    + struct.pack('<I', new_uncomp)
-                    + struct.pack('<H', len(name_bytes))
-                    + struct.pack('<H', extra_len)
-                )
-                entry_bytes = new_header + name_bytes + rec.extra + new_comp
-            else:
-                entry_bytes = _extract_local_entry_verbatim(data, rec)
-            new_offsets[rec.local_offset] = offset
-            local_parts.append(entry_bytes)
-            offset += len(entry_bytes)
-
-        for rec in records:
-            if rec.local_offset in replacements:
-                new_comp, new_crc, new_uncomp, _ = replacements[rec.local_offset]
-                dos_time, dos_date = ts_overrides.get(rec.local_offset, (rec.dos_time, rec.dos_date))
-                new_flag = rec.flag_bits & ~0x08
-                # CD record layout: sig(0-4) ver_made_by(4-6) ver_needed(6-8)
-                # flag(8-10) method(10-12) dos_time(12-14) dos_date(14-16)
-                # crc(16-20) comp_size(20-24) uncomp_size(24-28) name_len(28-30)
-                # extra_len(30-32) comment_len(32-34) disk(34-36) internal(36-38)
-                # external(38-42) local_offset(42-46)
-                cd_record = (
-                    rec.raw[:8] + struct.pack('<H', new_flag)
-                    + struct.pack('<H', rec.compress_method)
-                    + struct.pack('<H', dos_time) + struct.pack('<H', dos_date)
-                    + struct.pack('<III', new_crc, len(new_comp), new_uncomp)
-                    + rec.raw[28:42] + struct.pack('<I', new_offsets[rec.local_offset]) + rec.raw[46:]
-                )
-            else:
-                cd_record = rec.raw[:42] + struct.pack('<I', new_offsets[rec.local_offset]) + rec.raw[46:]
-            cd_parts.append(cd_record)
-
-        local_blob = b''.join(local_parts)
-        cd_blob = b''.join(cd_parts)
-        eocd = build_eocd(len(records), len(cd_blob), len(local_blob))
-        return local_blob + cd_blob + eocd
-
-    names = ', '.join(rec.name for rec in wrong_entries if rec.local_offset in replacements)
-    wrong_offsets = list(replacements.keys())
-
-    # TIER 1 (cheapest): keep each wrong entry's OWN existing timestamp
-    # unchanged — covers the case where the substitution doesn't need a
-    # timestamp fix at all (e.g. the wrong content happened to be
-    # packed at the same moment, or the DAT/zip tool doesn't encode a
-    # meaningfully different one)
-    candidate_zip = _rebuild_with_timestamps({})
-    if crc32_of(candidate_zip) == target_crc:
-        return RepairAttempt(
-            "sidecar_content_substitute", True, candidate_zip,
-            f"substituted verified-correct content for ({names}) using its own existing "
-            f"timestamp — this entry's content was simply wrong (a different release's "
-            f"file mixed in), not corrupted; every other entry's compressed bytes carried "
-            f"over byte-for-byte, unchanged"
-        )
-
-    # TIER 2: try every OTHER entry's timestamp from the SAME zip —
-    # scene packers commonly stamp every entry in one release within
-    # the same packing session, so another entry's timestamp is a
-    # strong, cheap-to-try candidate before resorting to a broader search
-    other_timestamps = sorted(set(
-        (r.dos_time, r.dos_date) for r in records if r.local_offset not in wrong_offsets
-    ))
-    for dos_time, dos_date in other_timestamps:
-        ts_overrides = {off: (dos_time, dos_date) for off in wrong_offsets}
-        candidate_zip = _rebuild_with_timestamps(ts_overrides)
-        if crc32_of(candidate_zip) == target_crc:
-            return RepairAttempt(
-                "sidecar_content_substitute", True, candidate_zip,
-                f"substituted verified-correct content for ({names}), reusing another "
-                f"entry's timestamp from the same zip — this entry's content was simply "
-                f"wrong (a different release's file mixed in), not corrupted; every other "
-                f"entry's compressed bytes carried over byte-for-byte, unchanged"
-            )
-
-    # TIER 3: bounded search across a plausible time window — only
-    # reached if neither cheap tier worked. Rather than a blind nested
-    # loop (which can bury the most plausible candidates deep in the
-    # search order behind many implausible ones), candidates are
-    # generated in priority order: same-date entries' times first (an
-    # entry added on the same day as another in this release is far
-    # more likely to share a close time), small time deltas before
-    # large ones, and date_delta=0 before drifting into adjacent days.
-    # This makes the cap meaningful — the search stops at a sensible
-    # point having already tried the most plausible candidates, rather
-    # than exhausting an arbitrary slice of a much larger space that
-    # happens to come first in nested-loop order.
-    wrong_date = wrong_entries[0].dos_date
-    wrong_time = wrong_entries[0].dos_time
-    same_date_times = sorted({dt for dt, dd in other_timestamps if dd == wrong_date})
-    other_date_times = sorted({dt for dt, dd in other_timestamps if dd != wrong_date})
-    base_times_priority = same_date_times + other_date_times + [wrong_time]
-    base_dates_priority = [wrong_date] + sorted({dd for _, dd in other_timestamps if dd != wrong_date})
-
-    TIME_WINDOW = 1200  # ~±1200 DOS time-units (~40 minutes either side)
-    MAX_TIER3_ATTEMPTS = 20000
     tried = 0
-    seen_combos = set()
-
-    def _gen_candidates():
-        # date_delta=0 (this release's actual known dates) exhausted
-        # FIRST across all base times, before drifting to adjacent days
-        for date_delta in (0, 1, -1, 2, -2):
-            for base_date in base_dates_priority:
-                dos_date = base_date + date_delta
-                if not (0 <= dos_date <= 0xFFFF):
-                    continue
-                for base_time in base_times_priority:
-                    # Small deltas first: 0, +1, -1, +2, -2, ...
-                    for time_delta in range(0, TIME_WINDOW + 1):
-                        for sign in ((1,) if time_delta == 0 else (1, -1)):
-                            dos_time = base_time + sign * time_delta
-                            if not (0 <= dos_time <= 0xFFFF):
-                                continue
-                            yield dos_time, dos_date
-
-    for dos_time, dos_date in _gen_candidates():
-        if tried >= MAX_TIER3_ATTEMPTS:
+    for enc, replacements in attempts:
+        if job.out_of_time():
             break
-        combo = (dos_time, dos_date)
-        if combo in seen_combos:
+        how = f" re-deflated with {enc.label}" if enc else ""
+
+        def _rebuild_with_timestamps(ts_overrides: dict, replacements=replacements) -> bytes:
+            return _sidecar_rebuild(data, records, replacements, ts_overrides)
+
+        # Timestamps never change the length, so a rebuild of the wrong
+        # size rules out every timestamp guess for this encoder at once
+        if job.target_size and len(_rebuild_with_timestamps({})) != job.target_size:
             continue
-        seen_combos.add(combo)
-        tried += 1
-        ts_overrides = {off: (dos_time, dos_date) for off in wrong_offsets}
-        candidate_zip = _rebuild_with_timestamps(ts_overrides)
+        names = ', '.join(rec.name for rec in wrong_entries if rec.local_offset in replacements)
+        wrong_offsets = list(replacements.keys())
+
+        tried = 0
+        # TIER 1 (cheapest): keep each wrong entry's OWN existing timestamp
+        # unchanged — covers the case where the substitution doesn't need a
+        # timestamp fix at all (e.g. the wrong content happened to be
+        # packed at the same moment, or the DAT/zip tool doesn't encode a
+        # meaningfully different one)
+        candidate_zip = _rebuild_with_timestamps({})
         if crc32_of(candidate_zip) == target_crc:
             return RepairAttempt(
                 "sidecar_content_substitute", True, candidate_zip,
-                f"substituted verified-correct content for ({names}), found via "
-                f"bounded timestamp search ({tried} attempt(s)) — this entry's "
-                f"content was simply wrong (a different release's file mixed "
-                f"in), not corrupted; every other entry's compressed bytes "
-                f"carried over byte-for-byte, unchanged"
+                f"substituted verified-correct content for ({names}){how} using its own existing "
+                f"timestamp — this entry's content was simply wrong (a different release's "
+                f"file mixed in), not corrupted; every other entry's compressed bytes carried "
+                f"over byte-for-byte, unchanged"
             )
+
+        # TIER 2: try every OTHER entry's timestamp from the SAME zip —
+        # scene packers commonly stamp every entry in one release within
+        # the same packing session, so another entry's timestamp is a
+        # strong, cheap-to-try candidate before resorting to a broader search
+        other_timestamps = sorted(set(
+            (r.dos_time, r.dos_date) for r in records if r.local_offset not in wrong_offsets
+        ))
+        for dos_time, dos_date in other_timestamps:
+            ts_overrides = {off: (dos_time, dos_date) for off in wrong_offsets}
+            candidate_zip = _rebuild_with_timestamps(ts_overrides)
+            if crc32_of(candidate_zip) == target_crc:
+                return RepairAttempt(
+                    "sidecar_content_substitute", True, candidate_zip,
+                    f"substituted verified-correct content for ({names}){how}, reusing another "
+                    f"entry's timestamp from the same zip — this entry's content was simply "
+                    f"wrong (a different release's file mixed in), not corrupted; every other "
+                    f"entry's compressed bytes carried over byte-for-byte, unchanged"
+                )
+
+        # TIER 3: bounded search across a plausible time window — only
+        # reached if neither cheap tier worked. Rather than a blind nested
+        # loop (which can bury the most plausible candidates deep in the
+        # search order behind many implausible ones), candidates are
+        # generated in priority order: same-date entries' times first (an
+        # entry added on the same day as another in this release is far
+        # more likely to share a close time), small time deltas before
+        # large ones, and date_delta=0 before drifting into adjacent days.
+        # This makes the cap meaningful — the search stops at a sensible
+        # point having already tried the most plausible candidates, rather
+        # than exhausting an arbitrary slice of a much larger space that
+        # happens to come first in nested-loop order.
+        wrong_date = wrong_entries[0].dos_date
+        wrong_time = wrong_entries[0].dos_time
+        same_date_times = sorted({dt for dt, dd in other_timestamps if dd == wrong_date})
+        other_date_times = sorted({dt for dt, dd in other_timestamps if dd != wrong_date})
+        base_times_priority = same_date_times + other_date_times + [wrong_time]
+        base_dates_priority = [wrong_date] + sorted({dd for _, dd in other_timestamps if dd != wrong_date})
+
+        TIME_WINDOW = 1200  # ~±1200 DOS time-units (~40 minutes either side)
+        MAX_TIER3_ATTEMPTS = 20000
+        seen_combos = set()
+
+        def _gen_candidates():
+            # date_delta=0 (this release's actual known dates) exhausted
+            # FIRST across all base times, before drifting to adjacent days
+            for date_delta in (0, 1, -1, 2, -2):
+                for base_date in base_dates_priority:
+                    dos_date = base_date + date_delta
+                    if not (0 <= dos_date <= 0xFFFF):
+                        continue
+                    for base_time in base_times_priority:
+                        # Small deltas first: 0, +1, -1, +2, -2, ...
+                        for time_delta in range(0, TIME_WINDOW + 1):
+                            for sign in ((1,) if time_delta == 0 else (1, -1)):
+                                dos_time = base_time + sign * time_delta
+                                if not (0 <= dos_time <= 0xFFFF):
+                                    continue
+                                yield dos_time, dos_date
+
+        for dos_time, dos_date in _gen_candidates():
+            if tried >= MAX_TIER3_ATTEMPTS:
+                break
+            combo = (dos_time, dos_date)
+            if combo in seen_combos:
+                continue
+            seen_combos.add(combo)
+            tried += 1
+            ts_overrides = {off: (dos_time, dos_date) for off in wrong_offsets}
+            candidate_zip = _rebuild_with_timestamps(ts_overrides)
+            if crc32_of(candidate_zip) == target_crc:
+                return RepairAttempt(
+                    "sidecar_content_substitute", True, candidate_zip,
+                    f"substituted verified-correct content for ({names}){how}, found via "
+                    f"bounded timestamp search ({tried} attempt(s)) — this entry's "
+                    f"content was simply wrong (a different release's file mixed "
+                    f"in), not corrupted; every other entry's compressed bytes "
+                    f"carried over byte-for-byte, unchanged"
+                )
+
 
     return RepairAttempt(
         "sidecar_content_substitute", False,
-        detail=f"substituted content for ({names}) using this zip's detected compression "
-               f"fingerprint, tried own/shared/bounded-search timestamps ({tried} extra "
-               f"attempt(s)) — still no match (fingerprint or timestamp assumptions may be "
-               f"wrong, or something else differs too)"
+        detail=f"substituted content for the wrong entr(y/ies) using {len(attempts)} "
+               f"identified compression setting(s), tried own/shared/bounded-search "
+               f"timestamps ({tried} extra attempt(s)) — still no match (fingerprint or "
+               f"timestamp assumptions may be wrong, or something else differs too)"
     )
 
 
@@ -2194,21 +2558,30 @@ def technique_foreign_packer_diagnosis(data: bytes, target_crc: str) -> RepairAt
     # same (correct) content.
     n_entries = len(records)
     names_preview = ', '.join(r.name for r in records[:5])
+    job = current_job()
+    if job.verdict:
+        why = (f"LIKELY FOREIGN PACKER: {job.verdict}. The content checks out, but a "
+               f"re-packed copy of a zip made that way cannot be byte-matched by "
+               f"guessing — only a capture of the original (RSR) can rebuild it.")
+    else:
+        searched = f"{len(job.encoders)} encoder setting(s)"
+        if job.budget_hit:
+            searched += " (time budget reached before all were tried)"
+        own = (f" This file's own streams were written by {job.found_in_file.label}, "
+               f"so it was re-packed after release." if job.found_in_file else
+               " Its own streams match no encoder here either — consistent with a "
+               "PKZIP-era zipper, which most scene zips used.")
+        why = (f"LIKELY FOREIGN PACKER: zip structure and all internal file CRCs check "
+               f"out, but no rebuild across {searched} — zlib at every level, memLevel "
+               f"and strategy, Info-ZIP, 7-Zip and WinRAR — matches the DAT.{own} The "
+               f"content itself is probably correct.")
     return RepairAttempt(
         "foreign_packer_diagnosis", False,
         detail=f"all {n_entries} entr{'y' if n_entries == 1 else 'ies'} "
                f"internally consistent ({names_preview}"
                f"{', ...' if n_entries > 5 else ''}) — content is very "
                f"likely correct",
-        diagnosis="LIKELY FOREIGN PACKER: zip structure and all internal "
-                  "file CRCs check out cleanly, but the container's "
-                  "compressed bytes don't match any rebuild Python can "
-                  "produce. This usually means the original release was "
-                  "packed with a different zip tool (PKZIP/Info-ZIP/etc.) "
-                  "whose exact DEFLATE output cannot be reproduced — the "
-                  "content itself is probably correct, but byte-perfect "
-                  "container reconstruction isn't possible with current "
-                  "techniques."
+        diagnosis=why
     )
 
 
@@ -2393,6 +2766,14 @@ class PackerFingerprint:
     # known-good per the DAT. Far more reliable than name-pattern
     # guessing when a reference happens to be available.
     known_entry_names: frozenset = field(default_factory=frozenset)
+    # The encoder that reproduces this reference's entries byte for byte
+    # (Encoder.to_dict()), found by identify_zip_encoder over zlib, every
+    # memLevel and the real zippers. None with encoder_checked=True means
+    # it was looked for and nothing here reproduces it (a PKZIP-era group);
+    # encoder_checked=False marks an entry from before that search existed
+    # (zlib level/strategy only, memLevel 8), which is re-scanned.
+    encoder: dict = None
+    encoder_checked: bool = False
 
     def as_header_overrides(self) -> dict:
         """Return this fingerprint's header fields as an overrides dict
@@ -2433,6 +2814,8 @@ class PackerFingerprint:
             'internal_attr': self.internal_attr,
             'external_attr': self.external_attr,
             'known_entry_names': sorted(self.known_entry_names),
+            'encoder': self.encoder,
+            'encoder_checked': self.encoder_checked,
         }
 
     @classmethod
@@ -2451,7 +2834,21 @@ class PackerFingerprint:
             internal_attr=d.get('internal_attr', 0),
             external_attr=d.get('external_attr', 0),
             known_entry_names=frozenset(d.get('known_entry_names', [])),
+            encoder=d.get('encoder'),
+            encoder_checked=bool(d.get('encoder_checked', False)),
         )
+
+
+def fp_encoder(fp: 'PackerFingerprint'):
+    """The Encoder a fingerprint stands for, or None when its group's
+    zipper is known to be one nothing here reproduces."""
+    if fp.compress_method == 0:
+        return STORE
+    if fp.encoder:
+        return Encoder.from_dict(fp.encoder)
+    if fp.encoder_checked:
+        return None
+    return zlib_encoder(fp.zlib_level or 6, 8, fp.zlib_strategy or 0)
 
 
 def _entry_role(name: str) -> str:
@@ -2677,12 +3074,15 @@ def save_fingerprint_db(db_path: Path, fingerprints: dict) -> bool:
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db_path.write_text(
-            json.dumps({'version': 1, 'groups': existing}, indent=2),
+            json.dumps({'version': 2, 'groups': existing}, indent=2),
             encoding='utf-8'
         )
         return True
     except Exception:
         return False
+
+
+REF_ID_BUDGET_S = 90   # full encoder search per reference, at most
 
 
 def build_reference_fingerprints(ref_folder: Path, dat_index: dict,
@@ -2732,6 +3132,15 @@ def build_reference_fingerprints(ref_folder: Path, dat_index: dict,
             log_fn(msg, cls)
 
     fingerprints = {}  # group_lower -> list[PackerFingerprint]
+    group_encoders = {}         # group -> encoders its references were written with
+    group_unreproducible = {}   # group -> references no encoder here reproduced
+    for g, fps in (known_group_fps or {}).items():
+        for fp in fps:
+            enc = fp_encoder(fp) if fp.encoder_checked else None
+            if enc is not None and enc.impl != 'store':
+                group_encoders.setdefault(g, [])
+                if enc not in group_encoders[g]:
+                    group_encoders[g].append(enc)
 
     if not ref_folder or not ref_folder.is_dir():
         return fingerprints, 0, 0
@@ -2842,8 +3251,13 @@ def build_reference_fingerprints(ref_folder: Path, dat_index: dict,
             # at least once, regardless of how many other fingerprints
             # already exist for the same group name.
             existing_for_group = known_group_fps.get(group) if known_group_fps else None
+            # A fingerprint stored before the full encoder search existed
+            # (zlib levels at memLevel 8 only) does not count: it may name
+            # a "level 6" that never reproduced anything, so that file is
+            # looked at again, once.
             already_seen_this_file = existing_for_group and any(
-                fp.source_file.lower() == ref_path.name.lower() for fp in existing_for_group
+                fp.source_file.lower() == ref_path.name.lower() and fp.encoder_checked
+                for fp in existing_for_group
             )
             if already_seen_this_file:
                 if group not in fingerprints:
@@ -2866,44 +3280,38 @@ def build_reference_fingerprints(ref_folder: Path, dat_index: dict,
                 with zipfile.ZipFile(io.BytesIO(ref_data)) as zf:
                     ref_contents = {r.name: zf.read(r.name) for r in records}
 
-                # Fingerprint using EVERY deflate-compressed entry, not
-                # just the largest — small/simple content can compress
-                # identically at several levels (e.g. levels 5-9 all
-                # producing the same bytes), so a single entry's match
-                # set can be ambiguous. Intersecting across multiple
-                # entries narrows this down; if more than one entry is
-                # available, only candidates consistent with ALL of them
-                # survive, which is far more reliable than trusting one
-                # entry's possibly-ambiguous result.
+                # Which encoder wrote this reference: every intact deflate
+                # entry must agree, smallest first so the cheap ones narrow
+                # the field before the big one is touched. What already
+                # worked for this group's other references is tried first,
+                # so only a group's first reference pays for the full
+                # search (zlib x memLevel x strategy + every zipper).
                 deflate_records = [r for r in records if r.compress_method == 8]
-                candidate_set = None
-                compress_method_for_fp = records[0].compress_method
+                compress_method_for_fp = 8 if deflate_records else records[0].compress_method
+                found = []
                 if deflate_records:
-                    compress_method_for_fp = 8
-                    for rec in deflate_records:
-                        comp_data = _read_local_comp_data(ref_data, rec)
-                        matches = set(_detect_compression_fingerprint(
-                            ref_contents[rec.name], comp_data, 8
-                        ))
-                        candidate_set = matches if candidate_set is None else (candidate_set & matches)
-                        if candidate_set is not None and len(candidate_set) <= 1:
-                            break  # fully disambiguated, no need to check more entries
+                    known = group_encoders.setdefault(group, [])
+                    if known:
+                        found = identify_zip_encoder(ref_data, records, ref_contents,
+                                                     candidates=known, limit=4)
+                    if not found and group_unreproducible.get(group, 0) < 3:
+                        found = identify_zip_encoder(
+                            ref_data, records, ref_contents,
+                            candidates=encoder_plan(group, known),
+                            deadline=time.monotonic() + REF_ID_BUDGET_S, limit=4)
+                    for e in found:
+                        if e not in known:
+                            known.append(e)
+                    if not found:
+                        group_unreproducible[group] = group_unreproducible.get(group, 0) + 1
+                        _log(
+                            f'  Reference {ref_path.name}: no zlib setting or zipper on '
+                            f'this machine reproduces its entries — group "{group}" was '
+                            f'packed by a zipper we cannot re-create (other metadata '
+                            f'still used)', 'warn'
+                        )
                 else:
-                    candidate_set = {(0, None)}
-
-                if not candidate_set:
-                    # Entries individually matched something, but no
-                    # single (level, strategy) combo satisfies ALL of
-                    # them — genuinely inconsistent/foreign packer for
-                    # this reference, or our entries used different
-                    # settings from each other (unusual but possible)
-                    _log(
-                        f'  Reference {ref_path.name}: no single compression '
-                        f'level/strategy reproduces every entry — skipping '
-                        f'compression fingerprint for this reference (other '
-                        f'metadata still used)', 'warn'
-                    )
-                    candidate_set = {(6, None)}  # harmless default fallback
+                    found = [STORE]
 
                 main_rec = records[0]
                 # Use the largest record purely for header metadata
@@ -2945,31 +3353,29 @@ def build_reference_fingerprints(ref_folder: Path, dat_index: dict,
                     )
 
                 made_fps = []
-                for level, strat in sorted(candidate_set, key=lambda t: (t[0] != 6, t[0])):
-                    # Sort so level 6 (the overwhelmingly common real-
-                    # world default) is tried first among ties, purely
-                    # as a sensible tie-break ordering — every candidate
-                    # is still included, none are discarded
+                for enc in (found or [None]):
                     fp = PackerFingerprint(
                         group=group,
                         source_file=ref_path.name,
                         order_kind=order_kind,
                         compress_method=compress_method_for_fp,
-                        zlib_level=level,
-                        zlib_strategy=strat,
+                        zlib_level=enc.level if enc and enc.impl == 'zlib' else 6,
+                        zlib_strategy=(enc.strategy or None) if enc and enc.impl == 'zlib' else None,
                         version_made_by=largest_rec.version_made_by,
                         version_needed=largest_rec.version_needed,
                         flag_bits=largest_rec.flag_bits,
                         internal_attr=largest_rec.internal_attr,
                         external_attr=largest_rec.external_attr,
                         known_entry_names=clean_names,
+                        encoder=enc.to_dict() if enc else None,
+                        encoder_checked=True,
                     )
                     fingerprints.setdefault(group, []).append(fp)
                     made_fps.append(fp)
 
                 n_verified += 1
                 level_summary = ', '.join(
-                    f"level={fp.zlib_level}/{fp.zlib_strategy or 'default'}" for fp in made_fps
+                    (fp.encoder or {}).get('label', 'not reproducible') for fp in made_fps
                 )
                 _log(
                     f'  ✓ Reference {ref_path.name} verified — group "{group}": '
@@ -3062,14 +3468,17 @@ def build_reference_fingerprints_multi(ref_folders: list, dat_index: dict,
 def technique_fingerprint_rebuild(data: bytes, target_crc: str,
                                     fingerprints: list) -> RepairAttempt:
     """
-    Fast-path rebuild using one or more PackerFingerprints learned from
-    verified-good reference zips of the same release group. Tried before
-    falling back to the blind faithful_rebuild search — if the group's
-    packer convention is known, this needs only a handful of attempts
-    instead of dozens.
+    Fast-path rebuild using the PackerFingerprints learned from verified
+    reference zips of the same release group — their encoder, entry order
+    and header metadata — before the blind search. Entries whose content
+    is unchanged keep their packed bytes first.
     """
     if not fingerprints:
         return RepairAttempt("fingerprint_rebuild", False, detail="no reference fingerprints available for this group")
+    if not any(fp_encoder(fp) for fp in fingerprints):
+        return RepairAttempt("fingerprint_rebuild", False,
+                             detail="this group's references were packed by a zipper "
+                                    "nothing here reproduces")
 
     try:
         records = parse_central_directory(data)
@@ -3088,37 +3497,14 @@ def technique_fingerprint_rebuild(data: bytes, target_crc: str,
     except Exception as e:
         return RepairAttempt("fingerprint_rebuild", False, detail=f"could not read entries: {e}")
 
-    n = len(records)
-    tried = 0
-    for fp in fingerprints:
-        order = _order_indices_for_kind(records, fp.order_kind)
-        for use_overrides in (True, False):
-            try:
-                candidate = _rebuild_zip_faithful(
-                    records, contents, order,
-                    compress_method=fp.compress_method,
-                    zlib_level=fp.zlib_level if fp.compress_method == 8 else None,
-                    zlib_strategy=fp.zlib_strategy if fp.compress_method == 8 else None,
-                    header_overrides=fp.as_header_overrides() if use_overrides else None,
-                )
-                tried += 1
-                if crc32_of(candidate) == target_crc:
-                    override_note = " (using reference's header metadata)" if use_overrides else ""
-                    return RepairAttempt(
-                        "fingerprint_rebuild", True, candidate,
-                        f"matched group '{fp.group}' fingerprint from "
-                        f"{fp.source_file} (order={fp.order_kind}, "
-                        f"method={'STORE' if fp.compress_method==0 else 'DEFLATE'}"
-                        f"{f', level={fp.zlib_level}' if fp.compress_method==8 else ''})"
-                        f"{override_note}"
-                    )
-            except Exception:
-                continue
-
-    return RepairAttempt(
-        "fingerprint_rebuild", False,
-        detail=f"tried {tried} known fingerprint(s) for this group — no match"
-    )
+    result = _search_rebuild_combinations(records, contents, target_crc,
+                                          fingerprints=fingerprints,
+                                          technique_name="fingerprint_rebuild",
+                                          source_data=data, blind=False)
+    if not result.success:
+        result.detail = (f"tried {len(fingerprints)} known fingerprint(s) for this group "
+                         f"— no match")
+    return result
 
 
 # Filenames that are virtually always unique PER RELEASE (the actual ROM,
@@ -3212,64 +3598,28 @@ def technique_reference_junk_removal(data: bytes, target_crc: str,
         for r in range(1, len(junk_candidates)):
             removal_sets.extend(combinations(junk_candidates, r))
 
-    strategies = [None, zlib.Z_FILTERED, zlib.Z_HUFFMAN_ONLY, zlib.Z_RLE, zlib.Z_FIXED]
     tried = 0
-
     for remove_set in removal_sets:
         remove_names = {r.name for r in remove_set}
         surviving = [r for r in records if r.name not in remove_names]
         if not surviving:
             continue
-        order = list(range(len(surviving)))
-
-        # Try every fingerprint's order/compression convention for this
-        # group on the surviving entries, STORE first then DEFLATE
-        for fp in fingerprints:
-            fp_order = _order_indices_for_kind(surviving, fp.order_kind)
-            for use_overrides in (True, False):
-                try:
-                    candidate = _rebuild_zip_faithful(
-                        surviving, contents, fp_order,
-                        compress_method=fp.compress_method,
-                        zlib_level=fp.zlib_level if fp.compress_method == 8 else None,
-                        zlib_strategy=fp.zlib_strategy if fp.compress_method == 8 else None,
-                        header_overrides=fp.as_header_overrides() if use_overrides else None,
-                    )
-                    tried += 1
-                    if crc32_of(candidate) == target_crc:
-                        removed_str = ', '.join(r.name for r in remove_set)
-                        override_note = " (using reference's header metadata)" if use_overrides else ""
-                        return RepairAttempt(
-                            "reference_junk_removal", True, candidate,
-                            f"removed entr{'y' if len(remove_set)==1 else 'ies'} absent "
-                            f"from group's known-good references ({removed_str}), "
-                            f"rebuilt using group fingerprint from {fp.source_file}"
-                            f"{override_note}"
-                        )
-                except Exception:
-                    continue
-
-        # Also try the generic STORE + level/strategy search as a
-        # fallback for groups with only weak/no compression fingerprint
-        try:
-            candidate = _rebuild_zip_faithful(surviving, contents, order, compress_method=0)
-            tried += 1
-            if crc32_of(candidate) == target_crc:
-                removed_str = ', '.join(r.name for r in remove_set)
-                return RepairAttempt(
-                    "reference_junk_removal", True, candidate,
-                    f"removed entr{'y' if len(remove_set)==1 else 'ies'} absent "
-                    f"from group's known-good references ({removed_str}), "
-                    f"rebuilt using STORE"
-                )
-        except Exception:
-            pass
+        removed_str = ', '.join(r.name for r in remove_set)
+        tried += 1
+        result = _search_rebuild_combinations(
+            surviving, contents, target_crc, fingerprints=fingerprints,
+            source_data=data, technique_name="reference_junk_removal",
+            extra_detail=f"removed entr{'y' if len(remove_set) == 1 else 'ies'} absent "
+                         f"from group's known-good references ({removed_str}), "
+        )
+        if result.success:
+            return result
 
     return RepairAttempt(
         "reference_junk_removal", False,
         detail=f"found {len(junk_candidates)} entr{'y' if len(junk_candidates)==1 else 'ies'} "
-               f"absent from references ({', '.join(junk_names)}) and tried {tried} "
-               f"rebuild combinations after removal — no match"
+               f"absent from references ({', '.join(junk_names)}) and searched {tried} "
+               f"removal set(s) — no match"
     )
 
 
@@ -3619,6 +3969,27 @@ class SceneRecreatorAPI:
                 else:
                     self._log(f'Warning: could not save fingerprint database to {db_path}', 'warn')
 
+        # How hard to search. Every zip gets a time budget shared by all its
+        # techniques; deep search adds every zlib level x memLevel x
+        # strategy and every real zipper (Info-ZIP, 7-Zip, WinRAR) after
+        # the likely ones.
+        zip_budget = float(config.get('zip_budget_s', 120) or 0)
+        deep_search = bool(config.get('deep_search', True))
+        pri = rsr_zip_priors()
+        n_tools = len(tool_plans())
+        budget_txt = f'{zip_budget:.0f}s budget per zip' if zip_budget else 'no time limit'
+        self._log(
+            f'Encoders: {len(ZLIB_GRID)} zlib settings + {n_tools} zipper setting(s)'
+            f'{"" if n_tools else " (no Info-ZIP/7-Zip found under apps — zlib only)"}; '
+            f'RSR priors for {len(pri["groups"])} group(s); '
+            f'{"deep search" if deep_search else "likely encoders only"}, {budget_txt}', 'dim')
+        rsr_index = {}
+        if config.get('use_rsr_store', True):
+            rsr_index = self._rsr_content_index()
+            if rsr_index:
+                self._log(f'RSR store: {len(rsr_index):,} captured zip content file(s) '
+                          f'to check broken zips against', 'dim')
+
         self._log(f'Scanning: {src_dir}', 'info')
         zip_files = sorted(
             p for p in src_dir.rglob('*') if p.is_file() and p.suffix.lower() == '.zip'
@@ -3775,12 +4146,66 @@ class SceneRecreatorAPI:
                 fixed = False
                 attempt_log = []
                 last_diagnosis = ""
-                for cand in candidates:
+
+                store_hit = self._try_rsr_store(zpath, data, candidates, rsr_index)
+                if store_hit:
+                    cand, rebuilt, rel = store_hit
+                    self._log(f'  ✓✓ {zpath.name}: FIXED via rsr_store (rebuilt from the RSR '
+                              f'capture of {rel}; matched {cand["game_name"]} in '
+                              f'{cand["source_dat"]})', 'ok')
+                    stats['fixed']['rsr_store'] = stats['fixed'].get('rsr_store', 0) + 1
+                    details['fixed'].append({'file': zpath.name, 'technique': 'rsr_store',
+                                             'game_name': cand['game_name']})
+                    confirmed_candidate = cand
+                    confirmed_bytes = rebuilt
+                    if not dry_run:
+                        self._place_file(zpath, rebuilt, cand, dst_dir, move_mode)
+                    fixed = True
+
+                for cand in ([] if fixed else candidates):
                     if self._stop_flag.is_set() or self._skip_flag.is_set():
                         break
                     target_crc = cand['crc']
                     if not target_crc:
                         continue
+
+                    # One search job per target: the DAT's size, the time
+                    # budget, and the encoder plan for this group — what
+                    # its references and RSR history say first, and what
+                    # wrote this file's own streams.
+                    group = extract_release_group(cand['game_name'])
+                    group_fps = group_fingerprints.get(group)
+                    verdict = group_packer_verdict(group)
+                    if not verdict and group_fps and all(
+                            fp.encoder_checked and fp_encoder(fp) is None for fp in group_fps):
+                        verdict = (f'none of the {len(group_fps)} verified reference(s) for '
+                                   f'{group} could be reproduced by any zlib setting or zipper '
+                                   f'on this machine')
+                    first = [e for e in (fp_encoder(fp) for fp in group_fps or []) if e]
+                    try:
+                        size = int(cand.get('size') or 0)
+                    except (TypeError, ValueError):
+                        size = 0
+                    job = ZipSearchJob(
+                        target_size=size,
+                        deadline=time.monotonic() + zip_budget if zip_budget else None,
+                        should_stop=lambda: self._stop_flag.is_set() or self._skip_flag.is_set(),
+                        encoders=encoder_plan(group, first, deep=deep_search and not verdict),
+                        verdict=verdict)
+                    set_job(job)
+                    try:
+                        own = identify_zip_encoder(data, parse_central_directory(data),
+                                                   candidates=encoder_plan(group, first, deep=False),
+                                                   deadline=time.monotonic() + 20, limit=1)
+                    except Exception:
+                        own = []
+                    if own:
+                        job.found_in_file = own[0]
+                        job.encoders = [own[0]] + [e for e in job.encoders if e != own[0]]
+                        self._log(f'    the streams already in this file were written by {own[0].label}', 'dim')
+                    if verdict:
+                        self._log(f'    ⓘ {verdict} — only repairs that keep the existing '
+                                  f'compressed bytes can work, skipping the deep search', 'dim')
 
                     # Cheap early attempt: if the source folder has a
                     # loose .nfo/.diz whose CRC/MD5/SHA1 matches the
@@ -3873,8 +4298,6 @@ class SceneRecreatorAPI:
                     # Fast path: if we have learned packer fingerprints for
                     # this release group from verified reference zips, try
                     # those first — usually 1-4 attempts instead of dozens
-                    group = extract_release_group(cand['game_name'])
-                    group_fps = group_fingerprints.get(group)
                     if group_fps:
                         for fast_fn, fast_args in (
                             (technique_surgical_delete, (data, target_crc, group_fps)),
@@ -3978,6 +4401,12 @@ class SceneRecreatorAPI:
                             break
                     if fixed:
                         break
+
+                job = getattr(_JOB, 'job', None)
+                if job is not None and job.budget_hit and not fixed:
+                    self._log(f'    ⏱ {zip_budget:.0f}s search budget used up for this zip', 'warn')
+                    attempt_log.append('time budget reached')
+                set_job(None)
 
                 if not fixed:
                     if self._skip_flag.is_set():
@@ -4242,6 +4671,7 @@ class SceneRecreatorAPI:
         for key in ('sidecar_matched', 'sidecar_fixed', 'sidecar_no_hash'):
             details[key] = sidecar_details.get(key, [])
 
+        set_job(None)
         self._progress(100, 'Complete')
         self._running = False
         self._emit('status', {'state': 'done', 'stats': {
@@ -4490,6 +4920,88 @@ class SceneRecreatorAPI:
                     self._log(f'    Warning: could not remove original {src_path.name}: {e}', 'warn')
         except Exception as e:
             self._log(f'    ERROR writing output for {src_path.name}: {e}', 'err')
+
+    # ── RSR store ────────────────────────────────────────────────────────
+    # RSR rebuilds a captured zip byte-exact from its content, whatever
+    # zipper made it — including the PKZIP-era ones nothing here can
+    # re-create. Most zips brought here were never captured, so this is a
+    # cheap check that usually finds nothing: one dict lookup per entry.
+
+    def _rsr_content_index(self) -> dict:
+        """(crc32, size) of every captured ZIP release's content file ->
+        [(release, .rsr path)]."""
+        idx = {}
+        rows = _rsr_db_query(
+            "SELECT f.crc32, f.size, r.name, r.rsr_path FROM files f "
+            "JOIN releases r ON r.name = f.release "
+            "WHERE r.format = 'ZIP' AND f.source = 'content' AND f.size > 0")
+        for crc, size, rel, path in rows:
+            idx.setdefault((crc & 0xFFFFFFFF, size), []).append((rel, path))
+        return idx
+
+    def _try_rsr_store(self, zpath: Path, data: bytes, candidates: list, index: dict):
+        """(candidate, rebuilt bytes) when a captured release rebuilds into
+        the zip a DAT entry wants, else None."""
+        if not index or _rsr is None:
+            return None
+        try:
+            records = parse_central_directory(data)
+        except Exception:
+            return None
+        hits = []
+        for rec in records:
+            for rel, path in index.get((rec.crc32, rec.uncomp_size), ()):
+                if (rel, path) not in hits:
+                    hits.append((rel, path))
+        if not hits:
+            return None
+        import io
+        import tempfile
+        work = Path(tempfile.mkdtemp(prefix='scene_recreator_rsr_'))
+        try:
+            content = work / 'content'
+            content.mkdir()
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                for i, rec in enumerate(records):
+                    try:
+                        blob = zf.read(rec.name)
+                    except Exception:
+                        continue
+                    if (zlib.crc32(blob) & 0xFFFFFFFF) == rec.crc32:
+                        (content / f'{i}_{Path(rec.name).name or "entry"}').write_bytes(blob)
+            api = getattr(self, '_rsr_api', None)
+            if api is None:
+                api = self._rsr_api = _rsr.RsrToolAPI()
+                api._log = lambda m, c='info': None
+                api._progress = lambda m: None
+            for rel, path in hits[:3]:
+                rsr = Path(path or '')
+                if not rsr.is_file():
+                    continue
+                self._log(f'    [rsr_store] {rel} is captured in the RSR store — rebuilding it', 'dim')
+                out = work / f'out_{rel[:40]}'
+                try:
+                    api._rebuild_run(rsr, content, out)
+                except Exception as e:
+                    self._log(f'    [rsr_store] rebuild failed: {e}', 'dim')
+                    continue
+                for made in out.rglob('*.zip'):
+                    blob = made.read_bytes()
+                    crc = crc32_of(blob)
+                    for cand in candidates:
+                        if cand.get('crc') != crc:
+                            continue
+                        if cand.get('md5') and md5_of(blob) != cand['md5']:
+                            continue
+                        if cand.get('sha1') and sha1_of(blob) != cand['sha1']:
+                            continue
+                        return cand, blob, rel
+                self._log(f'    [rsr_store] {rel} rebuilt, but not into the zip this DAT wants', 'dim')
+        except Exception as e:
+            self._log(f'    [rsr_store] skipped: {e}', 'dim')
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return None
 
     def _finish_error(self):
         self._running = False

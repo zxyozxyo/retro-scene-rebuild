@@ -313,7 +313,13 @@ Repairs old scene `.zip` releases to byte-match a DAT-listed CRC32/MD5/SHA1 targ
 8. Strip to essentials — keeps only the largest entry plus `.nfo`/`.diz`, tries both line-ending variants across full search space
 9. Foreign-packer diagnosis — checks internal CRC32 consistency; distinguishes "probably fine, can't byte-match" (different original packer) from "actually broken content"
 
-**Reference fingerprinting:** Supply folders of known-good DAT-verified scene ZIPs. The tool learns each release group's packer fingerprint (compression level/strategy, entry ordering, header metadata, expected file set) and tries the learned fingerprint first — typically 1–4 attempts instead of dozens. Also catches injected files by direct comparison, even when name-pattern heuristics would miss them.
+**RSR store first:** if the release has been captured by the RSR scanner (`rsr_index.db`), the zip is rebuilt byte-exact from that capture using the content inside the broken zip — whatever zipper made the original. Most zips brought here were never captured, so this is a quick check that usually finds nothing.
+
+**Encoders:** every rebuild re-deflates with the encoder most likely to have made the original — not just Python zlib. The search covers zlib at every level × memLevel (1–9) × strategy, plus the real zippers bundled under `apps/` (Info-ZIP 1–9, 7-Zip, WinRAR's zip mode), ordered by the group's learned fingerprint, then RSR's history for the group, then the encoders most scene zips used. Entries whose content did not change keep their existing compressed bytes first. A rebuild that cannot add up to the DAT's listed size is never assembled. Each entry is compressed once per encoder for the whole repair, and each zip has a time budget (default 120 s, set in Options).
+
+**Why some zips cannot be fixed:** RSR measured ~13,800 scene-zip entries. About 89% were written by PKZIP-era zippers whose output no encoder on this machine reproduces; Info-ZIP accounts for ~8% and zlib ~2%. A re-packed copy of one of those PKZIP-era zips can only be fixed when its original compressed bytes survived (junk added, comment changed, a sidecar swapped). Otherwise it is reported as a likely foreign packer, with the reason.
+
+**Reference fingerprinting:** Supply folders of known-good DAT-verified scene ZIPs. The tool learns each release group's packer fingerprint (the exact encoder, found with a 256 KB prefix probe; entry ordering; header metadata; expected file set) and tries the learned fingerprint first — typically 1–4 attempts instead of dozens. A group whose references no encoder reproduces is flagged, and its zips skip the deep search. Also catches injected files by direct comparison, even when name-pattern heuristics would miss them.
 
 **Settings saved to `scene_recreator.json` (gitignored).**
 

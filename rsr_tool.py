@@ -2274,6 +2274,66 @@ def zip_assemble(skel: bytes, holes: list, streams: dict) -> bytes:
     return bytes(out)
 
 
+def zip_tool_plans(app_dir: Path) -> list[tuple]:
+    """(label, argv builder, output name) for every non-zlib deflate on
+    this machine. Info-ZIP, 7-Zip and WinRAR each write their own, and the
+    corpus uses all three. The Scene ZIP Recreator shares these."""
+    out = []
+    zx = next((Path(app_dir) / "apps").rglob("zip.exe"), None)
+    if zx:
+        out += [(f"Info-ZIP -{l}",
+                 lambda w, n, l=l, zx=zx: [str(zx), f"-{l}", "-X", "o.zip", n],
+                 "o.zip") for l in range(1, 10)]
+    sv = Path(app_dir) / "apps" / "7z.exe"
+    if sv.is_file():
+        out += [(f"7z -mx{l}",
+                 lambda w, n, l=l, sv=sv: [str(sv), "a", "-tzip",
+                                           "-mm=Deflate", f"-mx{l}",
+                                           "s.zip", n], "s.zip")
+                for l in (5, 9, 1, 3, 7)]
+    wr = Path(r"C:\Program Files\WinRAR\WinRAR.exe")
+    if wr.is_file():
+        out += [(f"WinRAR zip -m{l}",
+                 lambda w, n, l=l, wr=wr: [str(wr), "a", "-afzip", f"-m{l}",
+                                           "-ep", "-ibck", f"w{l}.zip", n],
+                 f"w{l}.zip") for l in (3, 5, 1)]
+    return out
+
+
+def tool_zip_entry(plan, data: bytes, name: str,
+                   work: Path) -> tuple[int, bytes] | None:
+    """Zip one file with an external zipper: (method, packed bytes) of the
+    entry it wrote. The method matters -- a zipper STORES what will not
+    shrink, and that choice is part of what it produces."""
+    label, argv, outname = plan
+    work.mkdir(parents=True, exist_ok=True)
+    for junk in work.iterdir():
+        try:
+            junk.unlink()
+        except OSError:
+            pass
+    safe = Path(name).name or "entry.bin"
+    (work / safe).write_bytes(data)
+    try:
+        subprocess.run(argv(work, safe), cwd=str(work),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=600, **_no_window())
+    except Exception:
+        return None
+    made = work / outname
+    if not made.is_file():
+        return None
+    ents = zip_entries(made)
+    if not ents:
+        return None
+    e = next((x for x in ents if Path(x["name"]).name == safe), None)
+    if e is None:
+        return None
+    with open(made, "rb") as fh:
+        fh.seek(e["data_offset"])
+        return e["method"], fh.read(e["packed_size"])
+
+
 def deflate_with(data: bytes, recipe: dict) -> bytes | None:
     """Reproduce one entry's compressed stream from its recipe."""
     if recipe.get("impl") == "zlib":
@@ -6349,60 +6409,13 @@ class RsrToolAPI:
     # ── ZIP ───────────────────────────────────────────────────────────────
 
     def _tool_zips(self) -> list[tuple]:
-        """(label, argv builder, output name) for every non-zlib deflate on
-        this machine. Info-ZIP, 7-Zip and WinRAR each write their own, and the
-        corpus uses all three."""
-        out = []
-        zx = next((self._app_dir / "apps").rglob("zip.exe"), None)
-        if zx:
-            out += [(f"Info-ZIP -{l}",
-                     lambda w, n, l=l, zx=zx: [str(zx), f"-{l}", "-X", "o.zip", n],
-                     "o.zip") for l in range(1, 10)]
-        sv = self._app_dir / "apps" / "7z.exe"
-        if sv.is_file():
-            out += [(f"7z -mx{l}",
-                     lambda w, n, l=l, sv=sv: [str(sv), "a", "-tzip",
-                                               "-mm=Deflate", f"-mx{l}",
-                                               "s.zip", n], "s.zip")
-                    for l in (5, 9, 1, 3, 7)]
-        wr = Path(r"C:\Program Files\WinRAR\WinRAR.exe")
-        if wr.is_file():
-            out += [(f"WinRAR zip -m{l}",
-                     lambda w, n, l=l, wr=wr: [str(wr), "a", "-afzip", f"-m{l}",
-                                               "-ep", "-ibck", f"w{l}.zip", n],
-                     f"w{l}.zip") for l in (3, 5, 1)]
-        return out
+        return zip_tool_plans(self._app_dir)
 
     def _tool_stream(self, plan, data: bytes, name: str, work: Path):
         """Compress one file with an external zipper and hand back the raw
         deflate stream it produced."""
-        label, argv, outname = plan
-        work.mkdir(parents=True, exist_ok=True)
-        for junk in work.iterdir():
-            try:
-                junk.unlink()
-            except OSError:
-                pass
-        safe = Path(name).name or "entry.bin"
-        (work / safe).write_bytes(data)
-        try:
-            subprocess.run(argv(work, safe), cwd=str(work),
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=600, **_no_window())
-        except Exception:
-            return None
-        made = work / outname
-        if not made.is_file():
-            return None
-        ents = zip_entries(made)
-        if not ents:
-            return None
-        e = next((x for x in ents if Path(x["name"]).name == safe), None)
-        if e is None:
-            return None
-        with open(made, "rb") as fh:
-            fh.seek(e["data_offset"])
-            return fh.read(e["packed_size"])
+        got = tool_zip_entry(plan, data, name, work)
+        return got[1] if got else None
 
     def _sweep_zip_entry(self, data: bytes, raw: bytes, name: str, work: Path,
                          deadline=None, grp: str = "") -> dict | None:
