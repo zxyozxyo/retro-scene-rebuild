@@ -5,6 +5,8 @@ Merges multiple DATs, deduplicates by ROM hash, outputs RomVault-compatible
 CLRMamePro format .dat files.
 """
 
+import copy
+from glob import escape as glob_escape
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -446,6 +448,258 @@ def write_fixdat(tree, dest: Path, original_path: Path) -> None:
         fh.write(decl + "\n")
         tree.write(fh, encoding="unicode", xml_declaration=False)
         fh.write("\n")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# DAT SPLITTER — split one big DAT into date-ordered parts that each fit
+# on a drive (RomVault cannot span one DAT across drives). Sizes are what
+# the files take on an NTFS drive: every file is rounded up to the cluster
+# size Windows picks for that drive. Drive sizes are as printed on the box
+# (1 TB = 10^12 bytes); Windows shows the same drive in TiB, so a "4 TB"
+# drive shows as 3.63 TB in Explorer.
+# ═══════════════════════════════════════════════════════════════════════
+
+_SPLIT_DATE_RE = re.compile(r'^(?:\[NUKED\]\s*)?(\d{4}-\d{2}-\d{2})')
+STANDARD_DRIVES_TB = (0.5, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 22,
+                      24, 26, 28, 30, 32, 36)
+NTFS_OVERHEAD = 0.001       # $MFT, $LogFile etc. on a freshly formatted drive
+_TIB = 1024 ** 4
+
+
+def ntfs_cluster(drive_bytes: int) -> int:
+    """Default NTFS allocation unit Windows picks when formatting a drive."""
+    for limit_tib, cluster in ((16, 4096), (32, 8192), (64, 16384),
+                               (128, 32768)):
+        if drive_bytes <= limit_tib * _TIB:
+            return cluster
+    return 65536
+
+
+def drive_usable_bytes(drive_bytes: int, reserve_pct: float = 0.0) -> int:
+    """Bytes of files that fit on a freshly formatted NTFS drive, leaving
+    reserve_pct of it free."""
+    return int(drive_bytes * (1 - NTFS_OVERHEAD) * (1 - reserve_pct / 100))
+
+
+class SplitItem:
+    __slots__ = ('name', 'date', 'nuked', 'sizes', 'node', '_disk')
+
+    def __init__(self, name, date, nuked, sizes, node):
+        self.name, self.date, self.nuked = name, date, nuked
+        self.sizes, self.node = sizes, node
+        self._disk = {}
+
+    @property
+    def data_bytes(self) -> int:
+        return sum(self.sizes)
+
+    def disk_bytes(self, cluster: int) -> int:
+        b = self._disk.get(cluster)
+        if b is None:
+            b = sum(-(-s // cluster) * cluster for s in self.sizes)
+            self._disk[cluster] = b
+        return b
+
+
+class SplitSource:
+    """One DAT loaded for splitting, its games in date order."""
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.fmt = detect_format(self.path)
+        self.prolog = ''
+        self.root = None
+        self.header = None
+        items = []
+        if self.fmt == 'xml':
+            raw = self.path.read_text(encoding='utf-8', errors='replace')
+            m = re.search(r'<datafile[\s>]', raw)
+            if m:
+                self.prolog = raw[:m.start()]
+            try:
+                self.root = ET.fromstring(raw)
+            except ET.ParseError:
+                raw = re.sub(r'[^\x09\x0A\x0D\x20-\x7F\x80-￿]', '', raw)
+                self.root = ET.fromstring(raw)
+            del raw
+            hdr = self.root.find('header')
+            self.dat_name = ((hdr.findtext('name') if hdr is not None else '')
+                             or self.path.stem).strip()
+            for g in self.root:
+                if g.tag not in ('game', 'machine'):
+                    continue
+                name = g.get('name', '')
+                sizes = [int(r.get('size') or 0) for r in g.iter('rom')]
+                nuked = (name.startswith('[NUKED]')
+                         or g.find('nukedreason') is not None)
+                items.append(SplitItem(name, self._date(name), nuked, sizes, g))
+        else:
+            self.header, entries = parse_clrmamepro(self.path)
+            self.dat_name = self.header.name or self.path.stem
+            for e in entries:
+                sizes = []
+                for r in e.roms:
+                    try:
+                        sizes.append(int(r.get('size') or 0))
+                    except (TypeError, ValueError):
+                        sizes.append(0)
+                items.append(SplitItem(e.name, self._date(e.name),
+                                       e.name.startswith('[NUKED]'), sizes, e))
+        # Date order; undated games go last, in their original order.
+        items.sort(key=lambda it: it.date or '9999-99-99')
+        self.items = items
+
+    @staticmethod
+    def _date(name: str) -> str:
+        m = _SPLIT_DATE_RE.match(name)
+        return m.group(1) if m else ''
+
+    def summary(self) -> dict:
+        dated = [it.date for it in self.items if it.date]
+        nuked = [it for it in self.items if it.nuked]
+        return {
+            'ok': True,
+            'path': str(self.path),
+            'dat_name': self.dat_name,
+            'format': self.fmt,
+            'games': len(self.items),
+            'data_bytes': sum(it.data_bytes for it in self.items),
+            'nuked': len(nuked),
+            'nuked_bytes': sum(it.data_bytes for it in nuked),
+            'undated': len(self.items) - len(dated),
+            'first_date': min(dated) if dated else '',
+            'last_date': max(dated) if dated else '',
+            'largest_bytes': max((it.data_bytes for it in self.items), default=0),
+        }
+
+
+def smallest_drive_for(item_list, reserve_pct: float):
+    """Smallest standard drive size (TB, as sold) the items fit on."""
+    for tb in STANDARD_DRIVES_TB:
+        d = int(tb * 10 ** 12)
+        c = ntfs_cluster(d)
+        if sum(it.disk_bytes(c) for it in item_list) <= drive_usable_bytes(d, reserve_pct):
+            return tb
+    return None
+
+
+def plan_split(src: SplitSource, first_drive: int, rest_drive: int,
+               reserve_pct: float = 1.0, nuke_mode: str = 'first') -> dict:
+    """Fill parts in date order until the next game would not fit.
+    nuke_mode: 'first' / 'last' put every NUKED game together at that end
+    (in date order); 'date' leaves them in date order with the rest."""
+    if nuke_mode == 'first':
+        seq = [it for it in src.items if it.nuked] + [it for it in src.items if not it.nuked]
+    elif nuke_mode == 'last':
+        seq = [it for it in src.items if not it.nuked] + [it for it in src.items if it.nuked]
+    else:
+        seq = list(src.items)
+
+    parts, cur, cur_bytes = [], [], 0
+    drive = first_drive
+    cap, cluster = drive_usable_bytes(drive, reserve_pct), ntfs_cluster(drive)
+    oversized = []
+    for it in seq:
+        sz = it.disk_bytes(cluster)
+        if cur and cur_bytes + sz > cap:
+            parts.append((drive, cur))
+            cur, cur_bytes = [], 0
+            drive = rest_drive
+            cap, cluster = drive_usable_bytes(drive, reserve_pct), ntfs_cluster(drive)
+            sz = it.disk_bytes(cluster)
+        if sz > cap:
+            oversized.append(it.name)
+        cur.append(it)
+        cur_bytes += sz
+    if cur:
+        parts.append((drive, cur))
+
+    out = []
+    for i, (drive, items) in enumerate(parts, 1):
+        c = ntfs_cluster(drive)
+        disk = sum(it.disk_bytes(c) for it in items)
+        dated = [it.date for it in items if not it.nuked and it.date]
+        nuked = sum(1 for it in items if it.nuked)
+        out.append({
+            'part': i,
+            'games': len(items),
+            'nuked': nuked,
+            'first_date': min(dated) if dated else '',
+            'last_date': max(dated) if dated else '',
+            'data_bytes': sum(it.data_bytes for it in items),
+            'disk_bytes': disk,
+            'drive_bytes': drive,
+            'usable_bytes': drive_usable_bytes(drive, reserve_pct),
+            'fits_on_tb': smallest_drive_for(items, reserve_pct),
+        })
+    for p in out:
+        p['file_name'] = split_part_filename(src.path, p, len(out), nuke_mode)
+    return {'parts': out, 'items': [items for _, items in parts],
+            'oversized': oversized}
+
+
+def _split_part_info(p: dict, nuke_mode: str) -> str:
+    rng = ''
+    if p['first_date']:
+        rng = (p['first_date'] if p['first_date'] == p['last_date']
+               else f"{p['first_date']}_to_{p['last_date']}")
+    if p['nuked'] and nuke_mode in ('first', 'last'):
+        if not rng:
+            return 'NUKED'
+        return f'NUKED+{rng}' if nuke_mode == 'first' else f'{rng}+NUKED'
+    return rng
+
+
+def split_part_filename(src_path: Path, p: dict, total: int, nuke_mode: str) -> str:
+    """Original name + _(Part_1_of_3)_(NUKED+2024-01-01_to_2024-05-14)."""
+    info = _split_part_info(p, nuke_mode)
+    name = f"{src_path.stem}_(Part_{p['part']}_of_{total})"
+    if info:
+        name += f'_({info})'
+    return name + (src_path.suffix or '.dat')
+
+
+def write_split_part(src: SplitSource, items: list, dest: Path,
+                     part: int, total: int, info: str) -> None:
+    """Write one part, keeping the original header and every game exactly
+    as it was; only the name/description gain ' (Part n of N)'."""
+    suffix = f' (Part {part} of {total})'
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if src.fmt == 'xml':
+        root = ET.Element(src.root.tag, src.root.attrib)
+        hdr = src.root.find('header')
+        if hdr is not None:
+            hdr = copy.deepcopy(hdr)
+            for tag in ('name', 'description'):
+                el = hdr.find(tag)
+                if el is not None:
+                    el.text = (el.text or '').strip() + suffix
+            if info:
+                text = f"Part {part} of {total}: {info.replace('_', ' ')}"
+                cm = hdr.find('comment')
+                if cm is None:
+                    # Logiqx header order: comment comes before clrmamepro
+                    cm = ET.Element('comment')
+                    cmp_el = hdr.find('clrmamepro')
+                    hdr.insert(list(hdr).index(cmp_el) if cmp_el is not None
+                               else len(hdr), cm)
+                    cm.text = text
+                else:
+                    cm.text = f"{(cm.text or '').strip()} | {text}"
+            root.append(hdr)
+        for it in items:
+            root.append(it.node)
+        ET.indent(root, space='  ')
+        prolog = src.prolog if src.prolog.strip() else '<?xml version="1.0" encoding="UTF-8"?>\n'
+        with dest.open('w', encoding='utf-8', newline='\n') as fh:
+            fh.write(prolog)
+            fh.write(ET.tostring(root, encoding='unicode'))
+            fh.write('\n')
+    else:
+        hdr = copy.copy(src.header)
+        hdr.name = (hdr.name or src.path.stem) + suffix
+        hdr.description = (hdr.description or src.path.stem) + suffix
+        write_clrmamepro_dat(dest, hdr, [it.node for it in items])
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2169,6 +2423,103 @@ class DatMergerAPI:
             "total_input": len(source_files), "duplicates_removed": unmatched,
             "total_output": matched,
         }})
+
+    # ══════════════════════════════════════════════════════════════════
+    # FEATURE: SPLIT BY SIZE — one DAT -> date-ordered parts per drive
+    # ══════════════════════════════════════════════════════════════════
+    def _split_source(self, path: str) -> SplitSource:
+        cached = getattr(self, '_split_cache', None)
+        p = str(Path(path).resolve())
+        mtime = os.path.getmtime(p)
+        if cached and cached[0] == (p, mtime):
+            return cached[1]
+        self._split_cache = None        # free the old tree before loading
+        src = SplitSource(Path(p))
+        self._split_cache = ((p, mtime), src)
+        return src
+
+    def split_analyse(self, path: str) -> dict:
+        """Read a DAT and report its size, NUKED count and date range."""
+        try:
+            path = (path or '').strip().strip('"')
+            if not path or not os.path.isfile(path):
+                return {'ok': False, 'error': 'File not found.'}
+            return self._split_source(path).summary()
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def split_plan(self, config: dict) -> dict:
+        """Preview: config = {path, first_drive_bytes, rest_drive_bytes,
+        reserve_pct, nuke_mode}. Returns the parts without writing."""
+        try:
+            src = self._split_source(config['path'])
+            plan = plan_split(src, int(config['first_drive_bytes']),
+                              int(config['rest_drive_bytes']),
+                              float(config.get('reserve_pct', 1.0)),
+                              config.get('nuke_mode', 'first'))
+            plan.pop('items')
+            plan['ok'] = True
+            return plan
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def run_split(self, config: dict):
+        """config = split_plan's config + output_dir ('' = beside the DAT)."""
+        if self._running:
+            return
+        t = threading.Thread(target=self._split_thread, args=(config,), daemon=True)
+        t.start()
+
+    def _split_thread(self, config: dict):
+        self._running = True
+        self._stop.clear()
+        ok = False
+        try:
+            path = (config.get('path') or '').strip().strip('"')
+            if not path or not os.path.isfile(path):
+                self._log('Choose a DAT to split first.', 'err')
+                return
+            self._log('=' * 50, 'info')
+            self._log(f'Split by Size — {Path(path).name}', 'ok')
+            self._log('=' * 50, 'info')
+            self._progress(5, 'Reading DAT...')
+            src = self._split_source(path)
+            nuke_mode = config.get('nuke_mode', 'first')
+            reserve = float(config.get('reserve_pct', 1.0))
+            plan = plan_split(src, int(config['first_drive_bytes']),
+                              int(config['rest_drive_bytes']), reserve, nuke_mode)
+            parts, total = plan['parts'], len(plan['parts'])
+            for name in plan['oversized']:
+                self._log(f'  WARNING: bigger than a whole drive on its own: {name}', 'warn')
+            if total < 2:
+                self._log('The whole DAT fits on one drive of that size; nothing to split.', 'warn')
+                return
+
+            out_dir = Path((config.get('output_dir') or '').strip() or src.path.parent)
+            stale = [f for f in out_dir.glob(f'{glob_escape(src.path.stem)}_(Part_*')
+                     if f.name not in {p['file_name'] for p in parts}]
+            for i, (p, items) in enumerate(zip(parts, plan['items'])):
+                if self._stop.is_set():
+                    self._log('Stopped.', 'warn')
+                    return
+                self._progress(10 + int(85 * i / total), f'Writing part {i + 1} of {total}...')
+                dest = out_dir / p['file_name']
+                write_split_part(src, items, dest, p['part'], total,
+                                 _split_part_info(p, nuke_mode))
+                self._log(f"  Part {p['part']} of {total}: {p['games']} games"
+                          f"{' (' + str(p['nuked']) + ' NUKED)' if p['nuked'] else ''}, "
+                          f"{p['disk_bytes'] / 1e12:.2f} TB on disk "
+                          f"(Windows shows {p['disk_bytes'] / _TIB:.2f} TB) -> {dest.name}", 'ok')
+            for f in stale:
+                self._log(f'  Note: older split file still in the folder: {f.name}', 'warn')
+            self._log(f'Done: {total} part DATs written to {out_dir}', 'ok')
+            ok = True
+        except Exception as e:
+            self._log(f'Split failed: {e}', 'err')
+        finally:
+            self._progress(100, 'Complete' if ok else 'Stopped')
+            self._running = False
+            self._emit('done', {'success': ok})
 
     def _hash_archive_contents(self, fpath, verbose=False) -> list:
         """Open an archive and hash each file inside. Returns list of rom dicts."""

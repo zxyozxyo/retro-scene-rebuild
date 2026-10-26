@@ -78,6 +78,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 .btn-stop:disabled{border-color:var(--border);color:var(--text3);cursor:not-allowed}
 .footer-status{font-size:11px;color:var(--text2)}
 .hint{font-size:11px;color:var(--text3);padding:4px 0}
+.split-range{flex:1;accent-color:var(--info)}
+.split-num{flex:0 0 80px;text-align:right}
+.split-unit-lbl{font-size:11px;color:var(--text2);width:20px}
+.split-win{margin:-4px 0 6px 118px}
+.split-table{width:100%;border-collapse:collapse;font-size:11px}
+.split-table th{text-align:left;color:var(--text3);font-weight:600;padding:4px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+.split-table td{padding:5px 8px;border-bottom:1px solid var(--border);font-family:var(--mono);color:var(--text);white-space:nowrap}
+.split-table td.over{color:var(--danger)}
+.split-fill{display:inline-block;width:60px;height:5px;background:var(--bg3);border-radius:3px;vertical-align:middle;margin-right:6px;overflow:hidden}
+.split-fill>span{display:block;height:100%;background:var(--acc)}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:var(--bg0)}
 ::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:3px}
@@ -102,6 +112,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
     <div class="tab" onclick="switchTab('create')">DAT Creator</div>
     <div class="tab" onclick="switchTab('rebuild')">Rebuilder</div>
     <div class="tab" onclick="switchTab('size')">Size Calc</div>
+    <div class="tab" onclick="switchTab('split')">Split by Size</div>
     <div class="tab" onclick="switchTab('stripmia')">Strip MIA</div>
   </div>
 
@@ -205,6 +216,59 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           <div class="file-list" id="size-list"><div class="file-empty">Add DATs to calculate total ROM sizes</div></div>
           <div class="row"><label>Save report to</label><input class="path-input" id="size-txt" placeholder="Optional: path for .txt report (leave blank for log only)"/><button class="browse-btn" onclick="browseSave('size-txt','size_report.txt')">Browse&hellip;</button></div>
           <div class="hint">Reads ROM sizes from DAT entries and totals them. Useful for estimating storage needs per set.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB: SPLIT BY SIZE ═══ -->
+    <div class="tab-body" id="tab-split">
+      <div class="panel">
+        <div class="panel-hdr"><div class="dot" style="background:var(--info)"></div>Split by Size &mdash; one big DAT into parts that each fit on a drive</div>
+        <div class="panel-body">
+          <div class="hint" style="margin-bottom:8px">RomVault cannot span one DAT across drives. Pick a DAT, set the drive size, and it is split into date-ordered parts. Each part is saved beside the original (or in the folder below) with <b>_(Part_1_of_3)_(date range)</b> added to the name.</div>
+          <div class="row"><label>DAT to split</label><input class="path-input" id="split-file" placeholder="e.g. PC_iSO_Games_Scene_2024_(...).dat" onchange="splitAnalyse()"/><button class="browse-btn" onclick="splitBrowse()">Browse&hellip;</button></div>
+          <div id="split-info" class="hint"></div>
+        </div>
+      </div>
+      <div class="panel" id="split-settings" style="display:none">
+        <div class="panel-hdr"><div class="dot" style="background:var(--acc)"></div>Drive size</div>
+        <div class="panel-body">
+          <div class="row"><label>Units</label>
+            <label class="opt"><input type="radio" name="split-unit" value="TB" checked onchange="splitUnitChanged()"> TB</label>
+            <label class="opt"><input type="radio" name="split-unit" value="GB" onchange="splitUnitChanged()"> GB</label>
+            <span class="hint" style="margin-left:8px">as printed on the drive / box</span>
+          </div>
+          <div class="row"><label id="split-first-lbl">Drive size</label>
+            <input type="range" id="split-first-range" class="split-range" oninput="splitSync('first','range')"/>
+            <input class="path-input split-num" id="split-first-num" oninput="splitSync('first','num')"/><span class="split-unit-lbl">TB</span>
+          </div>
+          <div class="hint split-win" id="split-first-win"></div>
+          <label class="opt" style="padding:4px 0"><input type="checkbox" id="split-same" checked onchange="splitSameChanged()"> Every part uses the same drive size</label>
+          <div id="split-rest-wrap" style="display:none">
+            <div class="row"><label>Other parts</label>
+              <input type="range" id="split-rest-range" class="split-range" oninput="splitSync('rest','range')"/>
+              <input class="path-input split-num" id="split-rest-num" oninput="splitSync('rest','num')"/><span class="split-unit-lbl">TB</span>
+            </div>
+            <div class="hint split-win" id="split-rest-win"></div>
+          </div>
+          <div class="row"><label>Keep free</label><input class="path-input split-num" id="split-reserve" value="1" oninput="splitSchedulePlan()"/><span class="hint">% of each drive left empty (headroom)</span></div>
+          <div class="row" id="split-nuke-wrap"><label>NUKED releases</label>
+            <label class="opt"><input type="radio" name="split-nuke" value="first" checked onchange="splitSchedulePlan()"> All on the first part</label>
+            <label class="opt"><input type="radio" name="split-nuke" value="last" onchange="splitSchedulePlan()"> All on the last part</label>
+            <label class="opt"><input type="radio" name="split-nuke" value="date" onchange="splitSchedulePlan()"> Keep in date order</label>
+          </div>
+          <div class="row"><label>Output folder</label><input class="path-input" id="split-outdir" placeholder="Blank = same folder as the DAT"/><button class="browse-btn" onclick="browseFolder('split-outdir')">Browse&hellip;</button></div>
+        </div>
+      </div>
+      <div class="panel" id="split-preview-panel" style="display:none">
+        <div class="panel-hdr"><div class="dot" style="background:var(--warn)"></div><span id="split-summary">Preview</span></div>
+        <div class="panel-body" style="overflow-x:auto">
+          <table class="split-table">
+            <thead><tr><th>Part</th><th>Dates</th><th>Games</th><th>NUKED</th><th>Size</th><th>Windows shows</th><th>Drive fill</th><th>Fits on</th></tr></thead>
+            <tbody id="split-rows"></tbody>
+          </table>
+          <div class="hint" id="split-names" style="margin-top:8px;font-family:var(--mono);user-select:text;-webkit-user-select:text"></div>
+          <div class="hint" style="margin-top:6px">Sizes are on-disk sizes on an NTFS drive. Drives are sold in decimal TB (1 TB = 1,000,000,000,000 bytes) but Windows counts in 1024s, so a &ldquo;20 TB&rdquo; drive shows as 18.19 TB in Explorer. &ldquo;Fits on&rdquo; is the smallest drive you can buy that holds the part, keeping the free space above.</div>
         </div>
       </div>
     </div>
@@ -370,7 +434,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 let activeTab = 'merge';
 function switchTab(name) {
   activeTab = name;
-  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['merge','diff','smart','ext','intdedupe','integrity','create','rebuild','size','stripmia'][i] === name));
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['merge','diff','smart','ext','intdedupe','integrity','create','rebuild','size','split','stripmia'][i] === name));
   document.querySelectorAll('.tab-body').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
 }
@@ -579,6 +643,17 @@ function runActive() {
       files: getList('size-list'),
       output_txt: document.getElementById('size-txt').value.trim(),
     });
+  } else if (activeTab === 'split') {
+    if (!splitInfo) {
+      addLog('Choose a DAT to split first.', 'err');
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-stop').disabled = true;
+      setStatus('idle');
+      return;
+    }
+    api.run_split(Object.assign(splitConfig(), {
+      output_dir: document.getElementById('split-outdir').value.trim(),
+    }));
   } else if (activeTab === 'stripmia') {
     api.run_strip_mia({
       input: document.getElementById('stripmia-input').value.trim(),
@@ -639,6 +714,144 @@ function autoFillDatName() {
     author_field.value = 'ToSort Toolkit';
 }
 
+// ── Split by Size ────────────────────────────────────────────────────────────
+// Drive sizes are decimal (as sold); Windows shows binary (TiB/GiB) as "TB/GB".
+const SPLIT_UNIT = {TB: 1e12, GB: 1e9};
+const TIB = 1024 ** 4, GIB = 1024 ** 3;
+let splitInfo = null, splitPlanSeq = 0, splitPlanTimer = null;
+
+function splitUnit() { return document.querySelector('input[name="split-unit"]:checked').value; }
+function fmtWin(b) { return b >= TIB ? (b / TIB).toFixed(2) + ' TB' : (b / GIB).toFixed(1) + ' GB'; }
+function fmtDec(b) { return b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : (b / 1e9).toFixed(1) + ' GB'; }
+function escHtml(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function splitBrowse() {
+  await browseSingle('split-file');
+  splitAnalyse();
+}
+
+async function splitAnalyse() {
+  const path = document.getElementById('split-file').value.trim();
+  const info = document.getElementById('split-info');
+  splitInfo = null;
+  document.getElementById('split-settings').style.display = 'none';
+  document.getElementById('split-preview-panel').style.display = 'none';
+  if (!path) { info.textContent = ''; return; }
+  info.textContent = 'Reading DAT…';
+  const r = await window.pywebview.api.split_analyse(path);
+  if (!r || !r.ok) { info.textContent = 'Could not read DAT: ' + (r && r.error); return; }
+  splitInfo = r;
+  let t = `<b>${escHtml(r.dat_name)}</b> &mdash; ${r.games.toLocaleString()} games, ${fmtDec(r.data_bytes)} (Windows shows ${fmtWin(r.data_bytes)})`;
+  if (r.first_date) t += `, ${r.first_date} to ${r.last_date}`;
+  t += r.nuked ? `<br>${r.nuked} NUKED releases (${fmtDec(r.nuked_bytes)})` : '<br>No NUKED releases';
+  if (r.undated) t += ` &middot; ${r.undated} games without a date go at the end`;
+  info.innerHTML = t;
+  document.getElementById('split-nuke-wrap').style.display = r.nuked ? '' : 'none';
+  document.getElementById('split-settings').style.display = '';
+  splitUnitChanged(true);
+}
+
+function splitSetRange(which, bytes) {
+  const u = splitUnit(), range = document.getElementById(`split-${which}-range`);
+  const num = document.getElementById(`split-${which}-num`);
+  if (u === 'TB') { range.min = 0.5; range.max = 36; range.step = 0.1; }
+  else { range.min = 100; range.max = 36000; range.step = 10; }
+  const v = bytes / SPLIT_UNIT[u];
+  range.value = v;
+  num.value = u === 'TB' ? (+v.toFixed(2)).toString() : Math.round(v).toString();
+}
+
+// Read the drive size in bytes; the unit radio may have just changed, so the
+// caller passes the unit the number was typed in.
+function splitBytes(which, unit) {
+  const v = parseFloat(document.getElementById(`split-${which}-num`).value);
+  return v > 0 ? Math.round(v * SPLIT_UNIT[unit || splitUnit()]) : 0;
+}
+
+let splitLastUnit = 'TB';
+function splitUnitChanged(initial) {
+  const first = initial ? 12e12 : (splitBytes('first', splitLastUnit) || 12e12);
+  const rest = initial ? first : (splitBytes('rest', splitLastUnit) || first);
+  splitLastUnit = splitUnit();
+  splitSetRange('first', first);
+  splitSetRange('rest', rest);
+  document.querySelectorAll('.split-unit-lbl').forEach(e => e.textContent = splitLastUnit);
+  splitSchedulePlan();
+}
+
+function splitSameChanged() {
+  const same = document.getElementById('split-same').checked;
+  document.getElementById('split-rest-wrap').style.display = same ? 'none' : '';
+  document.getElementById('split-first-lbl').textContent = same ? 'Drive size' : 'First part drive';
+  if (same) splitSetRange('rest', splitBytes('first'));
+  splitSchedulePlan();
+}
+
+function splitSync(which, from) {
+  const range = document.getElementById(`split-${which}-range`);
+  const num = document.getElementById(`split-${which}-num`);
+  if (from === 'range') num.value = range.value;
+  else range.value = num.value;
+  if (which === 'first' && document.getElementById('split-same').checked)
+    splitSetRange('rest', splitBytes('first'));
+  splitSchedulePlan();
+}
+
+function splitDriveNote(which, reserve) {
+  const b = splitBytes(which);
+  const el = document.getElementById(`split-${which}-win`);
+  if (!b) { el.textContent = ''; return; }
+  const usable = b * 0.999 * (1 - reserve / 100);   // NTFS overhead, then headroom
+  el.textContent = `A ${fmtDec(b)} drive shows as ${fmtWin(b)} in Windows; about ${fmtWin(usable)} of it gets filled.`;
+}
+
+function splitConfig() {
+  const first = splitBytes('first');
+  const same = document.getElementById('split-same').checked;
+  return {
+    path: splitInfo.path,
+    first_drive_bytes: first,
+    rest_drive_bytes: same ? first : splitBytes('rest'),
+    reserve_pct: Math.max(0, Math.min(50, parseFloat(document.getElementById('split-reserve').value) || 0)),
+    nuke_mode: document.querySelector('input[name="split-nuke"]:checked').value,
+  };
+}
+
+function splitSchedulePlan() {
+  clearTimeout(splitPlanTimer);
+  splitPlanTimer = setTimeout(splitPlan, 120);
+}
+
+async function splitPlan() {
+  if (!splitInfo) return;
+  const cfg = splitConfig();
+  splitDriveNote('first', cfg.reserve_pct); splitDriveNote('rest', cfg.reserve_pct);
+  if (!cfg.first_drive_bytes || !cfg.rest_drive_bytes) return;
+  const seq = ++splitPlanSeq;
+  const r = await window.pywebview.api.split_plan(cfg);
+  if (seq !== splitPlanSeq) return;   // a newer slider move is on its way
+  document.getElementById('split-preview-panel').style.display = '';
+  if (!r || !r.ok) { document.getElementById('split-summary').textContent = 'Error: ' + (r && r.error); return; }
+  const n = r.parts.length;
+  document.getElementById('split-summary').textContent = n === 1
+    ? 'Fits on one drive — no split needed'
+    : `Needs ${n} parts (${n} drives)`;
+  document.getElementById('split-rows').innerHTML = r.parts.map(p => {
+    const fill = 100 * p.disk_bytes / p.drive_bytes;
+    const over = p.disk_bytes > p.usable_bytes;
+    const dates = p.first_date ? (p.first_date === p.last_date ? p.first_date : `${p.first_date} → ${p.last_date}`) : '—';
+    const fits = p.fits_on_tb ? `${p.fits_on_tb} TB drive (Windows: ${fmtWin(p.fits_on_tb * 1e12)})` : 'larger than 36 TB';
+    return `<tr><td>${p.part} of ${n}</td><td>${dates}</td><td>${p.games.toLocaleString()}</td>`
+      + `<td>${p.nuked || ''}</td><td>${fmtDec(p.disk_bytes)}</td><td>${fmtWin(p.disk_bytes)}</td>`
+      + `<td class="${over ? 'over' : ''}"><span class="split-fill"><span style="width:${Math.min(100, fill).toFixed(0)}%"></span></span>${fill.toFixed(1)}%</td>`
+      + `<td>${fits}</td></tr>`;
+  }).join('');
+  let names = r.parts.map(p => escHtml(p.file_name)).join('<br>');
+  if (r.oversized.length)
+    names = `<span style="color:var(--danger)">Bigger than one drive on their own: ${r.oversized.map(escHtml).join(', ')}</span><br>` + names;
+  document.getElementById('split-names').innerHTML = names;
+}
+
 function clearStats() {
   document.getElementById('stats-panel').style.display = 'none';
 }
@@ -668,6 +881,11 @@ document.querySelectorAll('.file-list').forEach(el => {
 
 // Called by Python DOMEventHandler with full file paths
 window.handlePythonDrop = function(paths) {
+  if (activeTab === 'split') {
+    document.getElementById('split-file').value = paths[0];
+    splitAnalyse();
+    return;
+  }
   // Find which list is in the active tab
   const tabListMap = {
     'merge': 'merge-list',
