@@ -180,6 +180,49 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
     </div>
   </div>
 
+  <!-- Sidecar fixer -->
+  <div class="panel">
+    <div class="panel-hdr"><div class="dot" style="background:var(--warn)"></div>Fix sidecars (.sfv / .nfo / .diz / .jpg)</div>
+    <div class="panel-body">
+      <div class="row">
+        <span class="lbl">Release folders</span>
+        <input class="txt" id="sc_releases" placeholder="One release folder, or a folder of them (any depth)"/>
+        <button class="btn" onclick="browseScReleases()">Browse</button>
+      </div>
+      <div class="row">
+        <span class="lbl">Backup (optional)</span>
+        <input class="txt" id="sc_backup" placeholder="Where replaced files go — default: _sidecar_backup inside the release folder above"/>
+        <button class="btn" onclick="browseScBackup()">Browse</button>
+      </div>
+      <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the folder is missing</label>
+      <label class="opt"><input type="checkbox" id="sc_use_extras" checked> Look in the srrdb extras store (srrdb_extras.db)</label>
+      <label class="opt"><input type="checkbox" id="sc_use_srrdb" checked> Use srrdb online when nothing local has it (downloads the .srr once, then it is cached)</label>
+      <div class="row" style="gap:6px">
+        <button class="btn btn-acc" id="btn-sc-start" onclick="startSidecarRun()">▶ Fix sidecars</button>
+      </div>
+      <div class="hint">
+        Uses the DAT folder above, plus the Dry run and RSR store options below. Each release folder is matched
+        to its DAT entry by name (with or without the date prefix) or by the archive names inside it. For each
+        sidecar that is missing or does not hash right, the first source that produces the DAT's exact bytes
+        wins: the file on disk repaired (line endings, trailing ^Z/newline, BOM) &rarr; a renamed copy in the
+        release &rarr; the RSR store (captured sidecars + .srr) &rarr; the srrdb extras store &rarr; srrdb's .srr
+        and adds &rarr; an .sfv rebuilt from the DAT's own archive CRCs. Nothing is written unless size, CRC32 and
+        MD5/SHA1 all match; a replaced file is moved to the backup folder, never deleted. A CSV report goes to
+        <code>reports/</code>.
+      </div>
+      <div id="sc-stats" style="display:none">
+        <div class="stats-grid">
+          <div class="stat-box"><div class="num" id="sc-st-ok" style="color:var(--acc)">0</div><div class="lbl2">Already Right</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_fixed"><div class="num" id="sc-st-fixed" style="color:var(--info)">0</div><div class="lbl2">Fixed</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_added"><div class="num" id="sc-st-added" style="color:var(--info)">0</div><div class="lbl2">Added</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_not_found"><div class="num" id="sc-st-nf" style="color:var(--danger)">0</div><div class="lbl2">Not Found</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_extra"><div class="num" id="sc-st-extra" style="color:var(--text3)">0</div><div class="lbl2">Not In DAT</div></div>
+        </div>
+        <div id="sc-detail" style="display:none;margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Progress -->
   <div class="panel">
     <div class="panel-hdr"><div class="dot" style="background:var(--info)"></div>Progress</div>
@@ -258,6 +301,11 @@ window.addEventListener('pywebviewready', async () => {
     refFolders = [cfg.ref_dir];
   }
   renderRefFolders();
+  if (cfg.sc_releases) document.getElementById('sc_releases').value = cfg.sc_releases;
+  if (cfg.sc_backup) document.getElementById('sc_backup').value = cfg.sc_backup;
+  if (cfg.sc_add_missing === false) document.getElementById('sc_add_missing').checked = false;
+  if (cfg.sc_use_extras === false) document.getElementById('sc_use_extras').checked = false;
+  if (cfg.sc_use_srrdb === false) document.getElementById('sc_use_srrdb').checked = false;
 
   // Wire up the clickable stat boxes once, at load time
   document.querySelectorAll('.stat-clickable').forEach(box => {
@@ -279,13 +327,24 @@ window.srEvent = function(event, data) {
     if (data.state === 'running') {
       pill.textContent = 'RUNNING'; pill.className = 'pill pill-run';
       bst.disabled = true; bsp.disabled = false; bsk.disabled = false;
+      document.getElementById('btn-sc-start').disabled = true;
       document.getElementById('stats-panel').style.display = 'none';
       document.getElementById('stat-detail').style.display = 'none';
     } else if (data.state === 'done') {
       pill.textContent = 'DONE'; pill.className = 'pill pill-ok';
       bst.disabled = false; bsp.disabled = true; bsk.disabled = true;
+      document.getElementById('btn-sc-start').disabled = false;
       lastDetails = data.details || {};
-      if (data.stats) {
+      if (data.mode === 'sidecars') {
+        const s = data.stats || {};
+        document.getElementById('sc-stats').style.display = '';
+        document.getElementById('sc-st-ok').textContent = s.ok ?? 0;
+        document.getElementById('sc-st-fixed').textContent = s.fixed ?? 0;
+        document.getElementById('sc-st-added').textContent = s.added ?? 0;
+        document.getElementById('sc-st-nf').textContent = s.not_found ?? 0;
+        document.getElementById('sc-st-extra').textContent = (lastDetails.sc_extra || []).length;
+        document.getElementById('sc-detail').style.display = 'none';
+      } else if (data.stats) {
         document.getElementById('stats-panel').style.display = '';
         document.getElementById('st-match').textContent = data.stats.already_match ?? 0;
         document.getElementById('st-fixed').textContent = data.stats.fixed ?? 0;
@@ -302,12 +361,13 @@ window.srEvent = function(event, data) {
     } else {
       pill.textContent = 'ERROR'; pill.className = 'pill pill-err';
       bst.disabled = false; bsp.disabled = true; bsk.disabled = true;
+      document.getElementById('btn-sc-start').disabled = false;
     }
   }
 };
 
 function showStatDetail(cat, boxEl) {
-  const detailEl = document.getElementById('stat-detail');
+  const detailEl = document.getElementById(boxEl.closest('#sc-stats') ? 'sc-detail' : 'stat-detail');
   const alreadyActive = boxEl.classList.contains('active');
   document.querySelectorAll('.stat-clickable').forEach(b => b.classList.remove('active'));
 
@@ -327,6 +387,7 @@ function showStatDetail(cat, boxEl) {
   const lines = items.map(item => {
     const metaParts = [];
     if (item.technique) metaParts.push('via ' + item.technique);
+    if (item.was) metaParts.push(item.was);
     if (item.game_name) metaParts.push(item.game_name);
     if (item.in_zip) metaParts.push('extracted from zip');
     if (item.diagnosis) metaParts.push(item.diagnosis);
@@ -420,6 +481,7 @@ function showStatDetail(cat, boxEl) {
 
       const metaParts = [];
       if (item.technique) metaParts.push('via ' + item.technique);
+      if (item.was) metaParts.push(item.was);
       if (item.game_name) metaParts.push(item.game_name);
       if (item.in_zip) metaParts.push('extracted from zip');
       if (item.diagnosis) metaParts.push(item.diagnosis);
@@ -506,13 +568,51 @@ async function startRun() {
   if (!dry_run && !dst) { addLog('Select an Output folder (or enable Dry Run).', 'warn'); return; }
 
   const run_cfg = { src, dat_dir, ref_dirs, dst, dry_run, move_mode, use_fingerprint_db,
-                    auto_retry_excluding_suspect_refs, deep_search, use_rsr_store, zip_budget_s };
+                    auto_retry_excluding_suspect_refs, deep_search, use_rsr_store, zip_budget_s,
+                    ...sidecarFields() };
   await window.pywebview.api.save_config(run_cfg);
 
   document.getElementById('prog-bar').style.width = '0%';
   document.getElementById('prog-label').textContent = '—';
 
   await window.pywebview.api.start_run(run_cfg);
+}
+
+// Sidecar-fixer settings, saved with every run so neither run drops the other's
+function sidecarFields() {
+  return {
+    sc_releases: document.getElementById('sc_releases').value.trim(),
+    sc_backup: document.getElementById('sc_backup').value.trim(),
+    sc_add_missing: document.getElementById('sc_add_missing').checked,
+    sc_use_extras: document.getElementById('sc_use_extras').checked,
+    sc_use_srrdb: document.getElementById('sc_use_srrdb').checked,
+  };
+}
+async function browseScReleases() {
+  const p = await window.pywebview.api.browse_folder();
+  if (p) document.getElementById('sc_releases').value = p;
+}
+async function browseScBackup() {
+  const p = await window.pywebview.api.browse_folder();
+  if (p) document.getElementById('sc_backup').value = p;
+}
+async function startSidecarRun() {
+  const sc = sidecarFields();
+  const dat_dir = document.getElementById('dat_dir').value.trim();
+  if (!sc.sc_releases) { addLog('Select the Release folders to fix.', 'warn'); return; }
+  if (!dat_dir) { addLog('Select the DAT folder.', 'warn'); return; }
+  const cfg = await window.pywebview.api.load_config();
+  Object.assign(cfg, sc, { dat_dir,
+    dry_run: document.getElementById('dry_run').checked,
+    use_rsr_store: document.getElementById('use_rsr_store').checked });
+  await window.pywebview.api.save_config(cfg);
+  document.getElementById('prog-bar').style.width = '0%';
+  document.getElementById('prog-label').textContent = '—';
+  await window.pywebview.api.start_sidecar_run({
+    releases: sc.sc_releases, dat_dir, backup_dir: sc.sc_backup,
+    dry_run: cfg.dry_run, add_missing: sc.sc_add_missing,
+    use_rsr_store: cfg.use_rsr_store, use_extras_store: sc.sc_use_extras,
+    use_srrdb: sc.sc_use_srrdb });
 }
 
 async function stopRun() {

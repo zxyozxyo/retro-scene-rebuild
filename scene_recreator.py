@@ -3697,6 +3697,31 @@ class SceneRecreatorAPI:
         t.start()
         return True
 
+    def start_sidecar_run(self, config: dict) -> bool:
+        """Fix a folder of releases' .sfv/.nfo/.jpg against the DAT
+        (sidecar_fixer.run), in the background like a zip run."""
+        if self._running:
+            self._log('Already running.', 'warn')
+            return False
+        self._stop_flag.clear()
+        threading.Thread(target=self._sidecar_run, args=(config,), daemon=True).start()
+        return True
+
+    def _sidecar_run(self, config: dict):
+        self._running = True
+        self._emit('status', {'state': 'running'})
+        try:
+            import sidecar_fixer
+            res = sidecar_fixer.run(config, log=self._log, progress=self._progress,
+                                    should_stop=self._stop_flag.is_set)
+        except Exception as e:
+            self._log(f'ERROR: sidecar fix failed: {e}', 'err')
+            self._finish_error()
+            return
+        self._running = False
+        self._emit('status', {'state': 'done', 'mode': 'sidecars', 'stats': res['stats'],
+                              'details': {'sc_' + k: v for k, v in res['details'].items()}})
+
     def stop_run(self):
         self._stop_flag.set()
         self._log('Stopping...', 'warn')
