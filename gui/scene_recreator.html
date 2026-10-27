@@ -103,6 +103,11 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
         </div>
       </div>
       <div class="row">
+        <span class="lbl">Sidecar folders</span>
+        <input class="txt" id="sidecar_dirs" placeholder="Optional — e.g. Q:\RomRoot; where the releases' real .nfo/.diz live (separate several with ;)"/>
+        <button class="btn" onclick="addSidecarDir()">+ Add</button>
+      </div>
+      <div class="row">
         <span class="lbl">Output</span>
         <input class="txt" id="dst" placeholder="Where fixed/matching copies are written"/>
         <button class="btn" onclick="browseDst()">Browse</button>
@@ -137,6 +142,7 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
       </div>
       <label class="opt"><input type="checkbox" id="auto_retry" checked> Auto-retry unresolved files by excluding suspect references (catches a poisoned DAT-verified reference)</label>
       <label class="opt"><input type="checkbox" id="deep_search" checked> Deep search: after the likely encoders, try every zlib level &times; memLevel &times; strategy and every real zipper (Info-ZIP, 7-Zip, WinRAR)</label>
+      <label class="opt"><input type="checkbox" id="sidecar_revision" checked> Undo edited .nfo/.diz inside a zip: put the release's real text back (from loose copies, the sidecar folders, the RSR store, srr_cache), restore the group's header and solve the save time from the DAT's CRC (accepted only when MD5/SHA1 agree too)</label>
       <label class="opt"><input type="checkbox" id="use_rsr_store" checked> Check the RSR store first (rebuilds byte-exact any zip RSR has captured, whatever zipper made it)</label>
       <div class="row" style="gap:8px">
         <span style="font-size:10px;color:var(--text2)">Time budget per zip:</span>
@@ -288,6 +294,8 @@ window.addEventListener('pywebviewready', async () => {
   if (cfg.auto_retry_excluding_suspect_refs === false) document.getElementById('auto_retry').checked = false;
   if (cfg.deep_search === false) document.getElementById('deep_search').checked = false;
   if (cfg.use_rsr_store === false) document.getElementById('use_rsr_store').checked = false;
+  if (cfg.sidecar_revision === false) document.getElementById('sidecar_revision').checked = false;
+  if (Array.isArray(cfg.sidecar_dirs)) document.getElementById('sidecar_dirs').value = cfg.sidecar_dirs.join('; ');
   if (cfg.zip_budget_s !== undefined) document.getElementById('zip_budget_s').value = cfg.zip_budget_s;
   if (cfg.move_mode) document.getElementById('mode_move').checked = true;
   else document.getElementById('mode_copy').checked = true;
@@ -562,6 +570,8 @@ async function startRun() {
   const deep_search = document.getElementById('deep_search').checked;
   const use_rsr_store = document.getElementById('use_rsr_store').checked;
   const zip_budget_s = Math.max(0, parseFloat(document.getElementById('zip_budget_s').value) || 0);
+  const sidecar_revision = document.getElementById('sidecar_revision').checked;
+  const sidecar_dirs = sidecarDirs();
 
   if (!src)     { addLog('Select the Scene ZIPs folder.', 'warn'); return; }
   if (!dat_dir) { addLog('Select the DAT folder.', 'warn'); return; }
@@ -569,13 +579,24 @@ async function startRun() {
 
   const run_cfg = { src, dat_dir, ref_dirs, dst, dry_run, move_mode, use_fingerprint_db,
                     auto_retry_excluding_suspect_refs, deep_search, use_rsr_store, zip_budget_s,
-                    ...sidecarFields() };
+                    sidecar_revision, sidecar_dirs, ...sidecarFields() };
   await window.pywebview.api.save_config(run_cfg);
 
   document.getElementById('prog-bar').style.width = '0%';
   document.getElementById('prog-label').textContent = '—';
 
   await window.pywebview.api.start_run(run_cfg);
+}
+
+function sidecarDirs() {
+  return document.getElementById('sidecar_dirs').value.split(';').map(s => s.trim()).filter(Boolean);
+}
+async function addSidecarDir() {
+  const p = await window.pywebview.api.browse_folder();
+  if (!p) return;
+  const dirs = sidecarDirs();
+  if (!dirs.includes(p)) dirs.push(p);
+  document.getElementById('sidecar_dirs').value = dirs.join('; ');
 }
 
 // Sidecar-fixer settings, saved with every run so neither run drops the other's

@@ -339,8 +339,8 @@ class Sources:
             con.close()
 
     def rsr(self, release: str, work: Path):
-        """(label, bytes) for every sidecar and .srr-stored file the RSR store
-        captured for this release."""
+        """(label, bytes, name) for every sidecar and .srr-stored file the RSR
+        store captured for this release."""
         for rsr in self._rsr_paths(release):
             if not rsr.is_file():
                 continue
@@ -350,7 +350,7 @@ class Sources:
                     man = json.loads(z.read('manifest.json'))
                     for f in man.get('sidecars', []):
                         if f.get('stored') in names:
-                            yield f'RSR store ({f["name"]})', z.read(f['stored'])
+                            yield f'RSR store ({f["name"]})', z.read(f['stored']), f['name']
                     srr_name = man.get('srr') if isinstance(man.get('srr'), str) else 'release.srr'
                     if srr_name not in names:
                         srr_name = 'release.srr' if 'release.srr' in names else None
@@ -358,7 +358,7 @@ class Sources:
                         srr = work / f'rsr_{rsr.stem}.srr'
                         srr.write_bytes(z.read(srr_name))
                         for p in _srr_stored_files(srr, work):
-                            yield f'RSR store .srr ({p.name})', p.read_bytes()
+                            yield f'RSR store .srr ({p.name})', p.read_bytes(), p.name
             except Exception as e:
                 self.log(f'    RSR store: could not read {rsr.name}: {e}', 'dim')
 
@@ -403,7 +403,7 @@ class Sources:
         if not cached:
             return
         for p in _srr_stored_files(cached, work):
-            yield f'srrdb .srr ({p.name})', p.read_bytes()
+            yield f'srrdb .srr ({p.name})', p.read_bytes(), p.name
 
     def adds(self, release: str, target: Target, work: Path):
         """srrdb 'adds' whose CRC is the one the DAT wants (proof jpgs mostly)."""
@@ -422,6 +422,19 @@ class Sources:
                 yield f'srrdb add ({Path(a["name"]).name})', dest.read_bytes()
             else:
                 self.log(f'    srrdb add {a["name"]}: {res.get("error")}', 'dim')
+
+
+def release_texts(release: str, work: Path, srrdb: bool = False, log=lambda m, c='': None) -> dict:
+    """lower basename -> [(label, bytes)] of every .nfo/.diz/.txt the RSR
+    store or the release's .srr holds — candidate texts for a zip whose
+    nfo/diz was edited (scene_recreator.technique_sidecar_revision)."""
+    src = Sources(True, False, srrdb, log)
+    out = {}
+    for gen in (src.rsr(release, work), src.srr(release, work)):
+        for label, data, name in gen:
+            if name.lower().endswith(TEXT_EXTS):
+                out.setdefault(Path(name).name.lower(), []).append((label, data))
+    return out
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -472,7 +485,7 @@ def _find(target: Target, folder: Path, game_roms: list, local: dict,
                 return f'copied from {rel}' + ('' if how == 'as-is' else f', {how}'), v, spare
 
     for gen in release_src:
-        for how, data in gen:
+        for how, data, _name in gen:
             if target.matches(data):
                 return how, data, None
             if is_text:

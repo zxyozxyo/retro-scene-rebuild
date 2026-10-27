@@ -71,6 +71,7 @@ import zlib
 import struct
 import shutil
 import hashlib
+import io
 import threading
 import time
 import zipfile
@@ -2341,6 +2342,307 @@ def technique_sidecar_content_substitute(data: bytes, target_crc: str,
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# EDITED SIDECARS
+# ═══════════════════════════════════════════════════════════════════════
+#
+# The commonest damage to a modern scene zip: someone opened the .nfo or
+# .diz inside it, changed it (a revised line, LF line endings, a different
+# revision of the release's text) and saved it back. The game files keep
+# the group's original compressed bytes, but the edited entry carries new
+# text, new compressed bytes, the moment it was saved, and sometimes the
+# editing tool's header (made-by system, flags, Unix attributes).
+#
+# The fix: the release's real text, from anywhere it survives (loose
+# copies, the sidecar folders, the RSR store, srr_cache), in each line-
+# ending form, re-deflated the way this zip's own text entries were; the
+# group's header convention restored; and the entry's timestamp SOLVED
+# rather than searched. CRC32 is affine, so the CRC change from each bit
+# of the 4-byte time/date field is a constant; the 32 bits that give the
+# DAT's CRC come out of a 32x32 GF(2) system in microseconds, however far
+# the edit was from the release date. Solving makes ANY CRC reachable, so
+# a solved timestamp counts only when it is a real date AND the DAT's MD5
+# or SHA1 agrees.
+
+_EDITABLE_TEXT_EXTS = ('.nfo', '.diz', '.txt')
+_CRC_EFFECTS = {}
+
+
+def _crc_bit_effects(n: int, pos: int) -> list:
+    """The CRC32 change from flipping each of the 32 bits of the 4 bytes at
+    pos, in any n-byte message."""
+    key = (n, pos)
+    if key not in _CRC_EFFECTS:
+        if len(_CRC_EFFECTS) > 64:
+            _CRC_EFFECTS.clear()
+        msg = bytearray(n)
+        c0 = zlib.crc32(msg)
+        out = []
+        for bit in range(32):
+            msg[pos + bit // 8] ^= 1 << (bit % 8)
+            out.append(zlib.crc32(msg) ^ c0)
+            msg[pos + bit // 8] ^= 1 << (bit % 8)
+        _CRC_EFFECTS[key] = out
+    return _CRC_EFFECTS[key]
+
+
+def _solve_gf2(cols: list, target: int):
+    """x with XOR of cols[k] over the set bits k of x == target, or None."""
+    basis = {}
+    for k, v in enumerate(cols):
+        c = 1 << k
+        while v:
+            h = v.bit_length() - 1
+            if h not in basis:
+                basis[h] = (v, c)
+                break
+            v ^= basis[h][0]
+            c ^= basis[h][1]
+    x = 0
+    while target:
+        h = target.bit_length() - 1
+        if h not in basis:
+            return None
+        target ^= basis[h][0]
+        x ^= basis[h][1]
+    return x
+
+
+def _dos_stamp_ok(v: int, newest_date: int) -> bool:
+    """A real DOS time/date (time low 16 bits, date high), no later than a
+    year past the newest date already in the zip."""
+    t, d = v & 0xFFFF, v >> 16
+    if (t & 31) > 29 or ((t >> 5) & 63) > 59 or (t >> 11) > 23:
+        return False
+    if not 1 <= (d & 31) <= 31 or not 1 <= ((d >> 5) & 15) <= 12:
+        return False
+    return d <= newest_date + (1 << 9)
+
+
+def _dos_stamp_text(v: int) -> str:
+    t, d = v & 0xFFFF, v >> 16
+    return (f'{1980 + (d >> 9)}-{(d >> 5) & 15:02d}-{d & 31:02d} '
+            f'{t >> 11:02d}:{(t >> 5) & 63:02d}:{(t & 31) * 2:02d}')
+
+
+def _rebuild_with_changes(data: bytes, records: list, changes: dict):
+    """(zip bytes, {local_offset: (local time pos, central time pos)}).
+    changes: local_offset -> {comp, crc, usize, made, flags, ea, stamp};
+    every other entry, and the archive comment, carried over verbatim."""
+    local, cd, where = [], [], {}
+    off = 0
+    new_off = {}
+    for rec in records:
+        ch = changes.get(rec.local_offset)
+        if ch is None:
+            entry = _extract_local_entry_verbatim(data, rec)
+        else:
+            name = rec.name_bytes
+            entry = (LOCAL_SIG + struct.pack('<HHHI', rec.version_needed, ch['flags'],
+                                             rec.compress_method, ch['stamp'])
+                     + struct.pack('<IIIHH', ch['crc'], len(ch['comp']), ch['usize'],
+                                   len(name), len(rec.extra))
+                     + name + rec.extra + ch['comp'])
+        new_off[rec.local_offset] = off
+        local.append(entry)
+        off += len(entry)
+    cd_off = off
+    for rec in records:
+        ch = changes.get(rec.local_offset)
+        if ch is None:
+            r = rec.raw[:42] + struct.pack('<I', new_off[rec.local_offset]) + rec.raw[46:]
+        else:
+            r = (rec.raw[:4] + struct.pack('<HHHHI', ch['made'], rec.version_needed, ch['flags'],
+                                           rec.compress_method, ch['stamp'])
+                 + struct.pack('<III', ch['crc'], len(ch['comp']), ch['usize'])
+                 + rec.raw[28:38] + struct.pack('<II', ch['ea'], new_off[rec.local_offset])
+                 + rec.raw[46:])
+        where[rec.local_offset] = (new_off[rec.local_offset] + 10, off + 12)
+        cd.append(r)
+        off += len(r)
+    eocd_idx = find_eocd(data)
+    comment = data[eocd_idx + 22:] if eocd_idx is not None else b''
+    cd_blob = b''.join(cd)
+    return b''.join(local) + cd_blob + build_eocd(len(records), len(cd_blob), cd_off, comment), where
+
+
+def _text_forms(b: bytes):
+    yield b
+    unix = b.replace(b'\r\n', b'\n')
+    yield unix
+    yield unix.replace(b'\n', b'\r\n')
+
+
+def technique_sidecar_revision(data: bytes, cand: dict, sources: dict) -> RepairAttempt:
+    """Undo an edit to the .nfo/.diz inside a zip (see EDITED SIDECARS).
+
+    sources: lower-case basename -> [(label, plain bytes)], unverified —
+    candidate texts of the release's real nfo/diz; only the finished zip
+    is checked, against the DAT's size, CRC32 and MD5/SHA1."""
+    tech = 'sidecar_revision'
+    target_crc = int(cand.get('crc') or '0', 16)
+    try:
+        target_size = int(cand.get('size') or 0)
+    except (TypeError, ValueError):
+        target_size = 0
+    want_md5, want_sha1 = cand.get('md5') or '', cand.get('sha1') or ''
+    try:
+        records = parse_central_directory(data)
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except Exception as e:
+        return RepairAttempt(tech, False, detail=f'parse error: {e}')
+    texts = [r for r in records if r.name.lower().endswith(_EDITABLE_TEXT_EXTS)
+             and r.compress_method in (0, 8) and not r.flag_bits & 0x09]
+    if not texts or not target_size:
+        return RepairAttempt(tech, False, detail='no .nfo/.diz entries to revise')
+
+    # How this zip deflates text: whatever reproduces its own intact text
+    # entries (an edited one was usually saved by a deflater that agrees
+    # on small text with the group's), else the job's likely encoders.
+    # Cheap (well under a second), so it does not live on the zip's search
+    # budget: earlier steps may have spent all of it
+    job = current_job()
+    deadline = time.monotonic() + 60
+    out_of_time = lambda: time.monotonic() > deadline or job.should_stop()
+    plains = {}
+    for r in texts:
+        try:
+            plains[r.local_offset] = zf.read(r.name)
+        except Exception:
+            pass
+    # A tiny .diz agrees with many encoders, so keep only those that agree
+    # with every intact text entry; if the entries disagree (one of them
+    # was saved by the editor's tool), try each one's encoders.
+    survivors, seen_any = list(job.encoders), []
+    for r in sorted(texts, key=lambda r: r.uncomp_size):
+        if r.compress_method != 8 or r.local_offset not in plains:
+            continue
+        hits = identify_encoders(plains[r.local_offset], _read_local_comp_data(data, r), r.name,
+                                 candidates=job.encoders, deadline=deadline,
+                                 limit=len(job.encoders))
+        seen_any += [e for e in hits[:3] if e not in seen_any]
+        survivors = [e for e in survivors if e in hits]
+    encoders = (survivors[:3] if survivors and seen_any else seen_any[:6]) or \
+        [e for e in job.encoders if e.impl != 'store'][:3]
+
+    # The group's header convention: what most of the other file entries say
+    files = [r for r in records if not r.name.endswith('/')]
+    def _majority(get):
+        vals = [get(r) for r in files]
+        return max(set(vals), key=vals.count) if vals else None
+    house = (_majority(lambda r: r.version_made_by), _majority(lambda r: r.flag_bits & ~0x08),
+             _majority(lambda r: r.external_attr))
+
+    newest = max(r.dos_date for r in records)
+    tried = 0
+    for enc in encoders:
+        if out_of_time():
+            break
+        # Per text entry: (label, change or None) — own text in each
+        # line-ending form, then every source text in each form
+        options = []
+        for r in texts:
+            seen, opts = set(), [('as is', None)]
+            own = plains.get(r.local_offset)
+            cands = ([('its own text', own)] if own is not None else []) + \
+                list(sources.get(Path(r.name).name.lower(), []))
+            heads = {(r.version_made_by, r.flag_bits, r.external_attr)}
+            if None not in house:
+                heads.add(house)
+            for label, text in cands:
+                for form in _text_forms(text):
+                    if form in seen:
+                        continue
+                    seen.add(form)
+                    if r.compress_method == 8:
+                        got = job.encode(form, enc, r.name)
+                        if got is None or got[0] != 8:
+                            continue
+                        comp = got[1]
+                    else:
+                        comp = form
+                    eol = 'CRLF' if b'\r\n' in form else 'LF'
+                    for made, flags, ea in heads:
+                        if comp == _read_local_comp_data(data, r) and \
+                                (made, flags, ea) == (r.version_made_by, r.flag_bits, r.external_attr):
+                            continue    # identical to 'as is'
+                        opts.append((f'{label} ({eol})'
+                                     + ('' if (made, flags, ea) == (r.version_made_by, r.flag_bits,
+                                                                    r.external_attr)
+                                        else ', header restored'),
+                                     dict(comp=comp, crc=zlib.crc32(form) & 0xFFFFFFFF,
+                                          usize=len(form), made=made, flags=flags, ea=ea,
+                                          stamp=r.dos_time | r.dos_date << 16)))
+                    if len(opts) > 24:
+                        break
+            options.append(opts)
+
+        import itertools
+        for combo in itertools.product(*options):
+            if out_of_time():
+                break
+            size = len(data) + sum(len(ch['comp']) - r.comp_size
+                                   for r, (_, ch) in zip(texts, combo) if ch)
+            if size != target_size:
+                continue
+            tried += 1
+            changes = {r.local_offset: ch for r, (_, ch) in zip(texts, combo) if ch}
+            built, where = _rebuild_with_changes(data, records, changes)
+            what = '; '.join(f'{r.name}: {label}' for r, (label, ch) in zip(texts, combo) if ch)
+
+            def _accept(blob, extra=''):
+                if crc32_of(blob) != f'{target_crc:08x}':
+                    return None
+                if want_md5 and md5_of(blob) != want_md5:
+                    return None
+                if want_sha1 and sha1_of(blob) != want_sha1:
+                    return None
+                if extra and not (want_md5 or want_sha1):
+                    return None     # a solved timestamp needs a second hash
+                how = f', re-deflated with {enc.label}' if changes else ''
+                return RepairAttempt(tech, True, blob,
+                                     f'{what or "text unchanged"}{extra}{how}; every other '
+                                     f'entry carried over byte-for-byte')
+
+            hit = _accept(built)
+            if hit:
+                return hit
+            # Solve the timestamp: each text entry alone, then every
+            # changed entry sharing one stamp
+            groups = [[r] for r in texts]
+            changed = [r for r in texts if r.local_offset in changes]
+            if len(changed) > 1:
+                groups.append(changed)
+            for grp in groups:
+                stamp0 = changes.get(grp[0].local_offset, {}).get(
+                    'stamp', grp[0].dos_time | grp[0].dos_date << 16)
+                blob = bytearray(built)
+                for r in grp[1:]:
+                    lp, cp = where[r.local_offset]
+                    blob[lp:lp + 4] = blob[cp:cp + 4] = struct.pack('<I', stamp0)
+                cols = [0] * 32
+                for r in grp:
+                    for p in where[r.local_offset]:
+                        for k, e in enumerate(_crc_bit_effects(len(blob), p)):
+                            cols[k] ^= e
+                delta = _solve_gf2(cols, zlib.crc32(blob) ^ target_crc)
+                if delta is None:
+                    continue
+                stamp = stamp0 ^ delta
+                if not _dos_stamp_ok(stamp, newest):
+                    continue
+                for r in grp:
+                    lp, cp = where[r.local_offset]
+                    blob[lp:lp + 4] = blob[cp:cp + 4] = struct.pack('<I', stamp)
+                names = ', '.join(r.name for r in grp)
+                hit = _accept(bytes(blob), f'; {names} saved at {_dos_stamp_text(stamp)}')
+                if hit:
+                    return hit
+    return RepairAttempt(tech, False,
+                         detail=f'{tried} text revision(s) reached the DAT size, none its hashes'
+                         if tried else 'no revision of the .nfo/.diz texts reaches the DAT size')
+
+
 _SIDECAR_ONLY_EXTENSIONS = {
     '.nfo', '.diz', '.txt', '.md',
     '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.bmp',
@@ -2662,6 +2964,14 @@ def extract_release_group(game_name: str) -> str:
     return stripped.rsplit('-', 1)[-1].strip().lower()
 
 
+def loose_name_key(name: str) -> str:
+    """A release name with spaces, dots and underscores folded together —
+    "The Shapeshifter v2 0 0 GBC-bADkARMA.zip" and the DAT's
+    "The_Shapeshifter_v2.0.0_GBC-bADkARMA" both give the same key."""
+    stem = name[:-4] if name.lower().endswith('.zip') else name
+    return '~' + re.sub(r'[ ._]+', '_', stem.strip().lower()) + '.zip'
+
+
 def build_dat_index(dat_folder: Path) -> dict:
     """
     Parse every DAT in dat_folder and build an index:
@@ -2729,6 +3039,10 @@ def build_dat_index(dat_folder: Path) -> dict:
                 stripped = strip_date_prefix(entry.name)
                 if stripped != entry.name:
                     _add(stripped, candidate)
+                # Index 4: either name with spaces/dots/underscores folded
+                # (a zip renamed by hand, "v2 0 0" for "v2.0.0")
+                _add(loose_name_key(entry.name), candidate)
+                _add(loose_name_key(stripped), candidate)
     return index
 
 
@@ -4087,7 +4401,7 @@ class SceneRecreatorAPI:
             self._progress(pct, zpath.name)
 
             key = zpath.name.lower()
-            candidates = dat_index.get(key)
+            candidates = dat_index.get(key) or dat_index.get(loose_name_key(zpath.name))
 
             if not candidates:
                 stats['no_dat_entry'] += 1
@@ -4319,6 +4633,29 @@ class SceneRecreatorAPI:
                                     self._place_file(zpath, sub_result.data, confirmed_candidate, dst_dir, move_mode)
                                 fixed = True
                                 break
+
+                    # An edited .nfo/.diz inside the zip: the release's
+                    # real text from anywhere it survives, re-deflated, its
+                    # header and save time restored (technique_sidecar_revision)
+                    if not fixed and config.get('sidecar_revision', True):
+                        rev = technique_sidecar_revision(
+                            data, cand, self._revision_sources(cand, zpath, loose_sidecar_index, config))
+                        attempt_log.append(f"{rev.technique}: "
+                                           f"{'MATCH' if rev.success else 'no match'} — {rev.detail}")
+                        self._log(f'    [{rev.technique}] {"✓ MATCH" if rev.success else "no match"} '
+                                  f'— {rev.detail}', 'ok' if rev.success else 'dim')
+                        if rev.success:
+                            self._log(f'  ✓✓ {zpath.name}: FIXED via {rev.technique} '
+                                      f'(matched {cand["game_name"]} in {cand["source_dat"]})', 'ok')
+                            stats['fixed'][rev.technique] = stats['fixed'].get(rev.technique, 0) + 1
+                            details['fixed'].append({'file': zpath.name, 'technique': rev.technique,
+                                                     'game_name': cand['game_name']})
+                            confirmed_candidate = cand
+                            confirmed_bytes = rev.data
+                            if not dry_run:
+                                self._place_file(zpath, rev.data, cand, dst_dir, move_mode)
+                            fixed = True
+                            break
 
                     # Fast path: if we have learned packer fingerprints for
                     # this release group from verified reference zips, try
@@ -4945,6 +5282,62 @@ class SceneRecreatorAPI:
                     self._log(f'    Warning: could not remove original {src_path.name}: {e}', 'warn')
         except Exception as e:
             self._log(f'    ERROR writing output for {src_path.name}: {e}', 'err')
+
+    # ── Texts for an edited nfo/diz ──────────────────────────────────────
+
+    @staticmethod
+    def _release_dirs(roots: list, game_name: str) -> list:
+        """The release's own folder under the sidecar folders, looked up by
+        name (dated or not) at the depths a collection uses — root/Release,
+        root/System/Release, root/System/Year/Release — so a 180,000-folder
+        tree costs a few directory listings, not a walk."""
+        import glob
+        names = {game_name, strip_date_prefix(game_name)}
+        names |= {n.replace('_', '.') for n in names} | {n.replace('.', '_') for n in names}
+        found = []
+        for root in roots:
+            for depth in range(0, 4):
+                for n in names:
+                    pat = os.path.join(glob.escape(root), *(['*'] * depth), glob.escape(n))
+                    found += [Path(p) for p in glob.glob(pat) if os.path.isdir(p)]
+            if found:
+                break
+        return list(dict.fromkeys(found))
+
+    def _revision_sources(self, cand: dict, zpath: Path, loose_sidecar_index: dict,
+                          config: dict) -> dict:
+        """lower basename -> [(label, bytes)]: candidate texts of this
+        release's real nfo/diz — loose copies in the scan folder, the
+        release's folder under the sidecar folders, the RSR store and
+        srr_cache. Unverified; only the rebuilt zip's hashes decide."""
+        import sidecar_fixer
+        import tempfile
+        out = {}
+
+        def add(name, label, path):
+            try:
+                out.setdefault(name.lower(), []).append((label, Path(path).read_bytes()))
+            except OSError:
+                pass
+
+        for stem_paths in loose_sidecar_index.values():
+            for p in stem_paths:
+                if p.parent == zpath.parent:
+                    add(p.name, 'loose copy', p)
+        roots = [r for r in (config.get('sidecar_dirs') or []) if r]
+        for d in self._release_dirs(roots, cand.get('game_name', ''))[:3]:
+            for p in d.iterdir():
+                if p.is_file() and p.suffix.lower() in _EDITABLE_TEXT_EXTS:
+                    add(p.name, f'sidecar folder {d.name}', p)
+        work = Path(tempfile.mkdtemp(prefix='scene_recreator_texts_'))
+        try:
+            for name, items in sidecar_fixer.release_texts(cand.get('game_name', ''), work).items():
+                out.setdefault(name, []).extend(items)
+        except Exception as e:
+            self._log(f'    RSR store / srr_cache texts skipped: {e}', 'dim')
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return out
 
     # ── RSR store ────────────────────────────────────────────────────────
     # RSR rebuilds a captured zip byte-exact from its content, whatever
