@@ -4628,6 +4628,9 @@ class RsrToolAPI:
             "max_mt": _num(cfg.get("max_mt"), 16, int),
             "embed_extras": bool(cfg.get("embed_extras", True)),
             "embed_max_mb": _num(cfg.get("embed_max_mb"), 16, int),
+            # A loose file over the embed cap that is no set's content (a .ppf
+            # patch beside the rars) is carried up to this size.
+            "big_sidecar_max_mb": _num(cfg.get("big_sidecar_max_mb"), 128, int),
             # A wall (no recipe at any build) up to this size is carried WHOLE
             # -- no space saving, but kept, indexed and rebuildable. 0 = only
             # walls under the embed cap, as before.
@@ -4694,6 +4697,8 @@ class RsrToolAPI:
             "embed_extras": bool(s.get("embed_extras", cur["embed_extras"])),
             "embed_max_mb": max(0, min(4096, _num(s.get("embed_max_mb"),
                                                   cur["embed_max_mb"], int))),
+            "big_sidecar_max_mb": max(0, min(4096, _num(s.get("big_sidecar_max_mb"),
+                                                        cur["big_sidecar_max_mb"], int))),
             "wall_carry_mb": max(0, min(65536, _num(s.get("wall_carry_mb"),
                                                     cur["wall_carry_mb"], int))),
             "write_srr": bool(s.get("write_srr", cur["write_srr"])),
@@ -5632,7 +5637,14 @@ class RsrToolAPI:
                 union = sorted(mine + theirs,
                                key=lambda p: _classify_volume(p.name)[2])
                 idx = [_classify_volume(p.name)[2] for p in union]
-                if idx == list(range(-1, len(idx) - 1)):
+                # Unbroken from the scheme's own first volume: .rar/.r00
+                # counts from -1, .part1.rar and .001 from 1 (.000 from 0).
+                # Only the first of those was accepted, so a .001 or .partNNN
+                # set whose fix supplied the missing LAST volume --
+                # Frogger_Helmet_Chaos-ARTiSAN's .007, Tekken_Dark_
+                # Resurrection-WRG's part058 from HAZARD -- never joined.
+                if idx and idx[0] in (-1, 0, 1) and \
+                        idx == list(range(idx[0], idx[0] + len(idx))):
                     return sib, s2, union
         return None
 
@@ -7505,6 +7517,7 @@ class RsrToolAPI:
         # the recipe that already rebuilds it.
         captured |= {v.get("name") for st in manifest.get("sets", [])
                      for v in st.get("volumes") or [] if isinstance(v, dict)}
+        sets_here = bool(manifest.get("sets"))
         out: list[dict] = []
         for p in sorted(folder.rglob("*")):
             # `whole`: a release carried in its entirety, volumes included --
@@ -7519,10 +7532,23 @@ class RsrToolAPI:
                 self._log(f"    (skipping loose {rel} — it is the set's "
                           "content, supplied at rebuild)", "dim")
                 continue
-            if cap and size >= cap and not whole:
+            # Over the cap AND nobody's content (the check above): a patch
+            # the release ships beside its rars. Googlecus' READNFO PSP sets
+            # carry a 26-40 MB .ppf that turns the iso into the playable one;
+            # skipping it as "content" left every rebuild a file short, and
+            # nothing can make it but the bytes themselves. Carried up to a
+            # second ceiling, so a stray unrelated iso still is not.
+            big = max(0, int(s.get("big_sidecar_max_mb", 128))) * 1024 * 1024
+            if cap and size >= cap and not whole and not (
+                    sets_here and size <= big
+                    and not _classify_volume(p.name)):
                 self._log(f"    (skipping loose {rel} — {size:,} B is over the "
                           "embed cap, treated as content)", "dim")
                 continue
+            if cap and size >= cap and not whole:
+                self._log(f"    carrying loose {rel} ({size:,} B, over the embed "
+                          "cap) — it is no set's content, so only these bytes "
+                          "can put it back", "dim")
             data = p.read_bytes()
             sha = _sha256(data)
             rec = {"name": rel, "size": size, "crc32": _file_crc32(p),
