@@ -2940,11 +2940,15 @@ _DATE_PREFIX_RE = re.compile(
 )
 
 
+_TAG_PREFIX_RE = re.compile(r'^(?:\[[^\]]{1,24}\]\s*)+')
+
+
 def strip_date_prefix(name: str) -> str:
     """Strip a leading YYYY-MM-DD- / YYYYMMDD- / YYYY.MM.DD- style date
-    prefix from a release name, if present. Returns the name unchanged
-    if no such prefix is found."""
-    return _DATE_PREFIX_RE.sub('', name)
+    prefix from a release name, if present, and the status tag dats.site
+    puts before it ("[NUKED] 2005-04-01-..."). Returns the name unchanged
+    if there is neither."""
+    return _DATE_PREFIX_RE.sub('', _TAG_PREFIX_RE.sub('', name.strip()))
 
 
 def extract_release_group(game_name: str) -> str:

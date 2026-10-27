@@ -49,8 +49,14 @@ BACKUP_DIR_NAME = '_sidecar_backup'
 _DATE_PREFIX_RE = re.compile(r'^(?:\d{4}-\d{2}-\d{2}|\d{8}|\d{4}\.\d{2}\.\d{2})[-_.]')
 
 
+_TAG_PREFIX_RE = re.compile(r'^(?:\[[^\]]{1,24}\]\s*)+')
+
+
 def strip_date_prefix(name: str) -> str:
-    return _DATE_PREFIX_RE.sub('', name)
+    """The scene release name srrdb knows: dats.site's status tag and date
+    dropped — "[NUKED] 2005-04-01-Metal_Gear_Acid_PSP-KALISTO" ->
+    "Metal_Gear_Acid_PSP-KALISTO"."""
+    return _DATE_PREFIX_RE.sub('', _TAG_PREFIX_RE.sub('', name.strip()))
 
 
 def name_keys(name: str) -> list:

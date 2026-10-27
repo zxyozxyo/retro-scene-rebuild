@@ -196,6 +196,11 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
         <button class="btn" onclick="browseScReleases()">Browse</button>
       </div>
       <div class="row">
+        <span class="lbl">DAT folder</span>
+        <input class="txt" id="sc_dat" placeholder="DAT file or folder of DATs for these releases (separate from the zip DAT folder above)"/>
+        <button class="btn" onclick="browseScDat()">Browse</button>
+      </div>
+      <div class="row">
         <span class="lbl">Backup (optional)</span>
         <input class="txt" id="sc_backup" placeholder="Where replaced files go — default: _sidecar_backup inside the release folder above"/>
         <button class="btn" onclick="browseScBackup()">Browse</button>
@@ -207,8 +212,9 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
         <button class="btn btn-acc" id="btn-sc-start" onclick="startSidecarRun()">▶ Fix sidecars</button>
       </div>
       <div class="hint">
-        Uses the DAT folder above, plus the Dry run and RSR store options below. Each release folder is matched
-        to its DAT entry by name (with or without the date prefix) or by the archive names inside it. For each
+        Uses its own DAT folder (this panel's), plus the Dry run and RSR store options below. Each release
+        folder is matched to its DAT entry by name (with or without the date prefix and a [NUKED]-style tag)
+        or by the archive names inside it; srrdb is always asked for the bare scene name. For each
         sidecar that is missing or does not hash right, the first source that produces the DAT's exact bytes
         wins: the file on disk repaired (line endings, trailing ^Z/newline, BOM) &rarr; a renamed copy in the
         release &rarr; the RSR store (captured sidecars + .srr) &rarr; the srrdb extras store &rarr; srrdb's .srr
@@ -311,6 +317,7 @@ window.addEventListener('pywebviewready', async () => {
   renderRefFolders();
   if (cfg.sc_releases) document.getElementById('sc_releases').value = cfg.sc_releases;
   if (cfg.sc_backup) document.getElementById('sc_backup').value = cfg.sc_backup;
+  if (cfg.sc_dat) document.getElementById('sc_dat').value = cfg.sc_dat;
   if (cfg.sc_add_missing === false) document.getElementById('sc_add_missing').checked = false;
   if (cfg.sc_use_extras === false) document.getElementById('sc_use_extras').checked = false;
   if (cfg.sc_use_srrdb === false) document.getElementById('sc_use_srrdb').checked = false;
@@ -604,6 +611,7 @@ function sidecarFields() {
   return {
     sc_releases: document.getElementById('sc_releases').value.trim(),
     sc_backup: document.getElementById('sc_backup').value.trim(),
+    sc_dat: document.getElementById('sc_dat').value.trim(),
     sc_add_missing: document.getElementById('sc_add_missing').checked,
     sc_use_extras: document.getElementById('sc_use_extras').checked,
     sc_use_srrdb: document.getElementById('sc_use_srrdb').checked,
@@ -613,17 +621,21 @@ async function browseScReleases() {
   const p = await window.pywebview.api.browse_folder();
   if (p) document.getElementById('sc_releases').value = p;
 }
+async function browseScDat() {
+  const p = await window.pywebview.api.browse_folder();
+  if (p) document.getElementById('sc_dat').value = p;
+}
 async function browseScBackup() {
   const p = await window.pywebview.api.browse_folder();
   if (p) document.getElementById('sc_backup').value = p;
 }
 async function startSidecarRun() {
   const sc = sidecarFields();
-  const dat_dir = document.getElementById('dat_dir').value.trim();
+  const dat_dir = sc.sc_dat;
   if (!sc.sc_releases) { addLog('Select the Release folders to fix.', 'warn'); return; }
-  if (!dat_dir) { addLog('Select the DAT folder.', 'warn'); return; }
+  if (!dat_dir) { addLog('Select the DAT folder in the Fix sidecars panel.', 'warn'); return; }
   const cfg = await window.pywebview.api.load_config();
-  Object.assign(cfg, sc, { dat_dir,
+  Object.assign(cfg, sc, {
     dry_run: document.getElementById('dry_run').checked,
     use_rsr_store: document.getElementById('use_rsr_store').checked });
   await window.pywebview.api.save_config(cfg);
