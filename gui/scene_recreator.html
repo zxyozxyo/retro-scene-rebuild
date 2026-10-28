@@ -197,8 +197,8 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
       </div>
       <div class="row">
         <span class="lbl">Extras (optional)</span>
-        <input class="txt" id="sc_extras" placeholder="Optional — a folder of extras: loose sidecars, or zips / rars / 7z of them"/>
-        <button class="btn" onclick="browseScExtras()">Browse</button>
+        <input class="txt" id="sc_extras" placeholder="Optional — folders of extras: loose sidecars, or zips / rars / 7z of them (separate several with ;)"/>
+        <button class="btn" onclick="browseScExtras()">+ Add</button>
       </div>
       <div class="row">
         <span class="lbl">Backup (optional)</span>
@@ -631,7 +631,11 @@ async function browseScFolder() {
 }
 async function browseScExtras() {
   const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('sc_extras').value = p;
+  if (!p) return;
+  const el = document.getElementById('sc_extras');
+  const dirs = el.value.split(';').map(s => s.trim()).filter(Boolean);
+  if (!dirs.includes(p)) dirs.push(p);
+  el.value = dirs.join('; ');
 }
 async function browseScBackup() {
   const p = await window.pywebview.api.browse_folder();
@@ -648,7 +652,8 @@ async function startSidecarRun() {
   document.getElementById('prog-bar').style.width = '0%';
   document.getElementById('prog-label').textContent = '—';
   await window.pywebview.api.start_sidecar_run({
-    folder: sc.sc_folder, extras_dir: sc.sc_extras, backup_dir: sc.sc_backup,
+    folder: sc.sc_folder,
+    extras_dirs: sc.sc_extras.split(';').map(s => s.trim()).filter(Boolean), backup_dir: sc.sc_backup,
     dry_run: cfg.dry_run, add_missing: sc.sc_add_missing, make_sfv: sc.sc_make_sfv,
     update_rsr_store: sc.sc_update_rsr,
     use_rsr_store: cfg.use_rsr_store, use_extras_store: sc.sc_use_extras,

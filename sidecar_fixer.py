@@ -732,34 +732,53 @@ def archive_members(path: Path) -> list:
     return out
 
 
-class ExtrasFolder:
-    """Every sidecar in the extras folder — loose, or inside zips, rars and
-    7z archives — indexed by (size, CRC) and by file name."""
+def extras_dirs(value) -> list:
+    """The extras folders a config names: a list, or one string of them
+    separated by ';'."""
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        items = str(value or '').split(';')
+    return [Path(v.strip()).expanduser() for v in items if v and str(v).strip()]
 
-    def __init__(self, root: Path, log, should_stop=lambda: False):
+
+class ExtrasFolder:
+    """Every sidecar in the extras folders — loose, or inside zips, rars and
+    7z archives — indexed by (size, CRC) and by file name. Several folders
+    can be given (packs from different DAT authors hold different copies);
+    each hit is labelled with the folder it came from."""
+
+    def __init__(self, roots, log, should_stop=lambda: False):
         self.by_hash, self.by_name = {}, {}
         self.files = 0
-        if not root or not root.is_dir():
-            return
-        log(f'Indexing the extras folder {root}', 'info')
-        archives = 0
-        for p in root.rglob('*'):
+        for root in ([roots] if isinstance(roots, Path) else roots):
             if should_stop():
                 break
-            if not p.is_file():
+            if not root.is_dir():
+                log(f'Extras folder {root} does not exist — skipped', 'warn')
                 continue
-            if is_sidecar(p.name) and p.stat().st_size <= MAX_SIDECAR:
-                try:
-                    data = p.read_bytes()
-                except OSError:
+            log(f'Indexing the extras folder {root}', 'info')
+            before, archives = self.files, 0
+            for p in root.rglob('*'):
+                if should_stop():
+                    break
+                if not p.is_file():
                     continue
-                self._add(str(p.relative_to(root)), p.name, len(data), _crc(data), lambda d=data: d)
-            elif p.suffix.lower() in ARCHIVE_EXTS and _first_volume(p):
-                archives += 1
-                for m in archive_members(p):
-                    self._add(f'{p.relative_to(root)} > {m.name}', PurePosixPath(m.name).name,
-                              m.size, m.crc, m.read)
-        log(f'  {self.files:,} sidecar(s) in the extras folder ({archives:,} archive(s) opened)', 'dim')
+                rel = f'{root.name}/{p.relative_to(root).as_posix()}'
+                if is_sidecar(p.name) and p.stat().st_size <= MAX_SIDECAR:
+                    try:
+                        data = p.read_bytes()
+                    except OSError:
+                        continue
+                    # Read again when wanted: a whole extras pack is too big to hold
+                    self._add(rel, p.name, len(data), _crc(data), lambda p=p: p.read_bytes())
+                elif p.suffix.lower() in ARCHIVE_EXTS and _first_volume(p):
+                    archives += 1
+                    for m in archive_members(p):
+                        self._add(f'{rel} > {m.name}', PurePosixPath(m.name).name,
+                                  m.size, m.crc, m.read)
+            log(f'  {self.files - before:,} sidecar(s) in {root.name} '
+                f'({archives:,} archive(s) opened)', 'dim')
 
     def _add(self, label, name, size, crc, read):
         self.files += 1
@@ -1056,14 +1075,14 @@ def find_sidecar(target: Target, ctx: dict, log):
     # 3. the extras folder
     extras = ctx['extras']
     if extras is not None and extras.files:
-        log('    3. extras folder', 'dim')
+        log(f'    3. extras folders ({extras.files:,} sidecar(s))', 'dim')
         hit = _try_tier(target, 'extras folder',
                         itertools.chain(extras.exact(target), extras.named(target, release)),
                         log, wrong_sfvs)
         if hit:
             return hit
     else:
-        log('    3. extras folder: none set', 'dim')
+        log('    3. extras folders: none set', 'dim')
 
     # 4. the RSR store and the srrdb extras store
     src = ctx['src']
@@ -1174,7 +1193,8 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
         should_stop=lambda: False) -> dict:
     """Fix every set in config['folder'] against the DATs in it.
 
-    config: folder (sets + DATs + incorrect sidecars), extras_dir (optional),
+    config: folder (sets + DATs + incorrect sidecars), extras_dirs (optional:
+    a list, or folders separated by ';'),
     dat_dir (optional: DATs somewhere else), backup_dir (default
     <folder>/_sidecar_backup), dry_run, add_missing, use_rsr_store,
     use_extras_store, use_srrdb, make_sfv.
@@ -1220,8 +1240,9 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
     loose_of = assign_loose(loose, releases, index, log)
 
     extras = None
-    if config.get('extras_dir'):
-        extras = ExtrasFolder(Path(config['extras_dir']).expanduser(), log, should_stop)
+    dirs = extras_dirs(config.get('extras_dirs') or config.get('extras_dir'))
+    if dirs:
+        extras = ExtrasFolder(dirs, log, should_stop)
     if dry:
         log('Dry run: nothing will be written.', 'warn')
     src = Sources(config.get('use_rsr_store', True), config.get('use_extras_store', True),
