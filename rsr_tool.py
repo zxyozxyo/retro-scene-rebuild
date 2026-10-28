@@ -12207,11 +12207,27 @@ class RsrToolAPI:
         # before handing back what may be short; the hash check decides.
         for attempt in range(3):
             if attempt:
-                for q in list(out.iterdir()):
-                    try:
-                        q.unlink()
-                    except OSError:
-                        pass
+                # The volumes of the short pack have to be GONE: rar `a` onto
+                # a volume left behind (an antivirus still holding it) updates
+                # that archive instead of writing a fresh one. The second pack
+                # of Civilization.2.USA.PSXPSP-MiRiBS exited 0 and still lacked
+                # its KEYS.BIN.
+                for _wait in range(10):
+                    for q in list(out.iterdir()):
+                        try:
+                            q.unlink()
+                        except OSError:
+                            pass
+                    if not any(out.iterdir()):
+                        break
+                    time.sleep(2)
+                if any(out.iterdir()):
+                    left = ", ".join(q.name for q in list(out.iterdir())[:3])
+                    self._log(f"    ✗ the short pack's volumes ({left}) cannot "
+                              "be removed — not packing over them.", "err")
+                    if getattr(self._tl, "in_verify", False):
+                        return None
+                    break
                 time.sleep(5 * attempt)
             rc = 0
             for c in cmds:
@@ -12225,6 +12241,18 @@ class RsrToolAPI:
                 rc = rc or getattr(self._tl, "last_rc", 0) or 0
             if not rc:
                 break
+            if attempt == 2 and getattr(self._tl, "in_verify", False):
+                # At CAPTURE the "hash check" is a delta against the original,
+                # and a delta can paste a missing file's bytes back in:
+                # Civilization.2.USA.PSXPSP-MiRiBS (2026-10-18) packed without
+                # its 16 B KEYS.BIN three times, verified through a delta that
+                # inserted it, and every correct rebuild then got KEYS.BIN
+                # twice (the last volume 96 B long). A pack rar itself calls
+                # short proves nothing; at rebuild the hash check still decides.
+                self._log(f"    ✗ {recipe['version']} exited {rc} three times — "
+                          "rar could not open a source, so this pack is short "
+                          "of a file and cannot verify anything.", "err")
+                return None
             self._log(f"    · {recipe['version']} exited {rc} — rar warns so "
                       "when it could not open a source and packed without it"
                       + ("; packing again." if attempt < 2 else
@@ -12324,6 +12352,15 @@ class RsrToolAPI:
         """The whole point of capture-time: don't claim the recipe works, run
         it and compare. Returns ('exact'|'delta'|'none', volume records,
         {path-in-rsr: patch bytes})."""
+        self._tl.in_verify = True
+        try:
+            return self._verify_replay_inner(recipe, src_files, vols, work,
+                                             comment, st, si, base, packed)
+        finally:
+            self._tl.in_verify = False
+
+    def _verify_replay_inner(self, recipe, src_files, vols, work, comment, st,
+                             si=0, base=None, packed=None):
         produced = None
         sweep_exe = recipe.get("exe")
         # Record the folder form the sweep packed with, so the rebuild replays
