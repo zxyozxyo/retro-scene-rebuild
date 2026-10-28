@@ -191,36 +191,39 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
     <div class="panel-hdr"><div class="dot" style="background:var(--warn)"></div>Fix sidecars (.sfv / .nfo / .diz / .jpg)</div>
     <div class="panel-body">
       <div class="row">
-        <span class="lbl">Release folders</span>
-        <input class="txt" id="sc_releases" placeholder="One release folder, or a folder of them (any depth)"/>
-        <button class="btn" onclick="browseScReleases()">Browse</button>
+        <span class="lbl">Work folder</span>
+        <input class="txt" id="sc_folder" placeholder="The scene sets that need sidecars, their DAT(s), and any incorrect .sfv/.nfo/.diz copies (inside the sets or loose)"/>
+        <button class="btn" onclick="browseScFolder()">Browse</button>
       </div>
       <div class="row">
-        <span class="lbl">DAT folder</span>
-        <input class="txt" id="sc_dat" placeholder="DAT file or folder of DATs for these releases (separate from the zip DAT folder above)"/>
-        <button class="btn" onclick="browseScDat()">Browse</button>
+        <span class="lbl">Extras (optional)</span>
+        <input class="txt" id="sc_extras" placeholder="Optional — a folder of extras: loose sidecars, or zips / rars / 7z of them"/>
+        <button class="btn" onclick="browseScExtras()">Browse</button>
       </div>
       <div class="row">
         <span class="lbl">Backup (optional)</span>
-        <input class="txt" id="sc_backup" placeholder="Where replaced files go — default: _sidecar_backup inside the release folder above"/>
+        <input class="txt" id="sc_backup" placeholder="Where replaced files go — default: _sidecar_backup inside the work folder"/>
         <button class="btn" onclick="browseScBackup()">Browse</button>
       </div>
-      <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the folder is missing</label>
+      <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the set is missing</label>
+      <label class="opt"><input type="checkbox" id="sc_make_sfv" checked> Make an .sfv when no copy can be found or repaired (the DAT's CRCs in every layout, under the group's headers from the RSR store)</label>
       <label class="opt"><input type="checkbox" id="sc_use_extras" checked> Look in the srrdb extras store (srrdb_extras.db)</label>
       <label class="opt"><input type="checkbox" id="sc_use_srrdb" checked> Use srrdb online when nothing local has it (downloads the .srr once, then it is cached)</label>
       <div class="row" style="gap:6px">
         <button class="btn btn-acc" id="btn-sc-start" onclick="startSidecarRun()">▶ Fix sidecars</button>
       </div>
       <div class="hint">
-        Uses its own DAT folder (this panel's), plus the Dry run and RSR store options below. Each release
-        folder is matched to its DAT entry by name (with or without the date prefix and a [NUKED]-style tag)
-        or by the archive names inside it; srrdb is always asked for the bare scene name. For each
-        sidecar that is missing or does not hash right, the first source that produces the DAT's exact bytes
-        wins: the file on disk repaired (line endings, trailing ^Z/newline, BOM) &rarr; a renamed copy in the
-        release &rarr; the RSR store (captured sidecars + .srr) &rarr; the srrdb extras store &rarr; srrdb's .srr
-        and adds &rarr; an .sfv rebuilt from the DAT's own archive CRCs. Nothing is written unless size, CRC32 and
-        MD5/SHA1 all match; a replaced file is moved to the backup folder, never deleted. A CSV report goes to
-        <code>reports/</code>.
+        The DATs are read from the work folder itself (loose, or in a subfolder with no archives) and are the
+        only judge: a sidecar counts as found when its size, CRC32 and the DAT's MD5/SHA1 all match. Each set is
+        matched to its DAT entry by folder name (with or without the date prefix) or by its archive names; a loose
+        incorrect copy goes to the set whose DAT lists its name, whose volumes it lists, or whose archive stem it
+        carries. For each sidecar that is missing or wrong, in order: the incorrect copies in the work folder, as they
+        are then repaired &rarr; inside the set's own zip/rar &rarr; the extras folder &rarr; the RSR store and extras
+        store &rarr; srrdb (its copies repaired too) &rarr; a made .sfv. Repairs: line endings (CRLF, LF, CR CR LF,
+        double-spaced), BOM, trailing ^Z/newline, cp437&harr;UTF-8, trailing blanks; an .sfv keeps the incorrect
+        copy's header and has its entries rebuilt from the DAT, its time re-searched and a zipscript site tag solved.
+        The Dry run and RSR store options below apply; every step is logged; a replaced file is moved to the backup
+        folder, never deleted. A CSV report goes to <code>reports/</code>.
       </div>
       <div id="sc-stats" style="display:none">
         <div class="stats-grid">
@@ -315,9 +318,10 @@ window.addEventListener('pywebviewready', async () => {
     refFolders = [cfg.ref_dir];
   }
   renderRefFolders();
-  if (cfg.sc_releases) document.getElementById('sc_releases').value = cfg.sc_releases;
+  if (cfg.sc_folder || cfg.sc_releases) document.getElementById('sc_folder').value = cfg.sc_folder || cfg.sc_releases;
+  if (cfg.sc_extras) document.getElementById('sc_extras').value = cfg.sc_extras;
   if (cfg.sc_backup) document.getElementById('sc_backup').value = cfg.sc_backup;
-  if (cfg.sc_dat) document.getElementById('sc_dat').value = cfg.sc_dat;
+  if (cfg.sc_make_sfv === false) document.getElementById('sc_make_sfv').checked = false;
   if (cfg.sc_add_missing === false) document.getElementById('sc_add_missing').checked = false;
   if (cfg.sc_use_extras === false) document.getElementById('sc_use_extras').checked = false;
   if (cfg.sc_use_srrdb === false) document.getElementById('sc_use_srrdb').checked = false;
@@ -609,21 +613,22 @@ async function addSidecarDir() {
 // Sidecar-fixer settings, saved with every run so neither run drops the other's
 function sidecarFields() {
   return {
-    sc_releases: document.getElementById('sc_releases').value.trim(),
+    sc_folder: document.getElementById('sc_folder').value.trim(),
+    sc_extras: document.getElementById('sc_extras').value.trim(),
     sc_backup: document.getElementById('sc_backup').value.trim(),
-    sc_dat: document.getElementById('sc_dat').value.trim(),
     sc_add_missing: document.getElementById('sc_add_missing').checked,
+    sc_make_sfv: document.getElementById('sc_make_sfv').checked,
     sc_use_extras: document.getElementById('sc_use_extras').checked,
     sc_use_srrdb: document.getElementById('sc_use_srrdb').checked,
   };
 }
-async function browseScReleases() {
+async function browseScFolder() {
   const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('sc_releases').value = p;
+  if (p) document.getElementById('sc_folder').value = p;
 }
-async function browseScDat() {
+async function browseScExtras() {
   const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('sc_dat').value = p;
+  if (p) document.getElementById('sc_extras').value = p;
 }
 async function browseScBackup() {
   const p = await window.pywebview.api.browse_folder();
@@ -631,9 +636,7 @@ async function browseScBackup() {
 }
 async function startSidecarRun() {
   const sc = sidecarFields();
-  const dat_dir = sc.sc_dat;
-  if (!sc.sc_releases) { addLog('Select the Release folders to fix.', 'warn'); return; }
-  if (!dat_dir) { addLog('Select the DAT folder in the Fix sidecars panel.', 'warn'); return; }
+  if (!sc.sc_folder) { addLog('Select the Work folder (the sets and their DATs).', 'warn'); return; }
   const cfg = await window.pywebview.api.load_config();
   Object.assign(cfg, sc, {
     dry_run: document.getElementById('dry_run').checked,
@@ -642,8 +645,8 @@ async function startSidecarRun() {
   document.getElementById('prog-bar').style.width = '0%';
   document.getElementById('prog-label').textContent = '—';
   await window.pywebview.api.start_sidecar_run({
-    releases: sc.sc_releases, dat_dir, backup_dir: sc.sc_backup,
-    dry_run: cfg.dry_run, add_missing: sc.sc_add_missing,
+    folder: sc.sc_folder, extras_dir: sc.sc_extras, backup_dir: sc.sc_backup,
+    dry_run: cfg.dry_run, add_missing: sc.sc_add_missing, make_sfv: sc.sc_make_sfv,
     use_rsr_store: cfg.use_rsr_store, use_extras_store: sc.sc_use_extras,
     use_srrdb: sc.sc_use_srrdb });
 }

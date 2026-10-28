@@ -4016,8 +4016,9 @@ class SceneRecreatorAPI:
         return True
 
     def start_sidecar_run(self, config: dict) -> bool:
-        """Fix a folder of releases' .sfv/.nfo/.jpg against the DAT
-        (sidecar_fixer.run), in the background like a zip run."""
+        """Find or fix the .sfv/.nfo/.diz/.jpg of a work folder of sets
+        against the DATs in it (sidecar_fixer.run), in the background like
+        a zip run."""
         if self._running:
             self._log('Already running.', 'warn')
             return False

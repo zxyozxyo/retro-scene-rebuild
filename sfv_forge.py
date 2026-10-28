@@ -276,12 +276,14 @@ def _formatters(t):
 
 
 def forge(want, entries, release: str, cache: dict = None, days=(-4, 1),
-          extra_groups=()):
+          extra_groups=(), layouts=()):
     """(how, bytes) for an sfv matching `want` (an object with size, crc and
     matches(bytes)), or None.
 
     entries: [(name, crc hex)] for the files the sfv covers. release: the DAT
-    game name (its date bounds the search, its group picks the templates)."""
+    game name (its date bounds the search, its group picks the templates).
+    layouts: other line endings to try after each template's own (zipscripts
+    rewrite them: CR CR LF, double-spaced)."""
     cache = cache if cache is not None else load_cache()
     m = _DATE_PREFIX.match(release)
     day0 = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
@@ -294,51 +296,51 @@ def forge(want, entries, release: str, cache: dict = None, days=(-4, 1),
     target_crc = int(want.crc, 16)
     tried = 0
     for t in templates:
-        eol = t['eol']
-        for order in [t['order']] + [o for o in ('vol', 'alpha', 'ralpha') if o != t['order']]:
-            if order == 'other':
-                continue
-            for upper in (t['upper'], not t['upper']):
-                body = eol.join(n + ' ' + (c.upper() if upper else c.lower())
-                                for n, c in _order(entries, order))
-                tail = (eol + eol.join(t['tail'])) if t['tail'] else ''
-                end = eol if t['final'] else ''
-                if t['field'] is None:
-                    text = eol.join(t['head'] + [body]) + tail + end if t['head'] else body + tail + end
-                    data = text.encode('latin-1')
-                    tried += 1
-                    if len(data) == want.size and want.matches(data):
-                        return f'forged sfv (group template from {t["example"]})', data
+        for eol in [t['eol']] + [e for e in layouts if e != t['eol']]:
+            for order in [t['order']] + [o for o in ('vol', 'alpha', 'ralpha') if o != t['order']]:
+                if order == 'other':
                     continue
-                if day0 is None:
-                    continue
-                pre_lines = t['head'][:t['field']]
-                pre_txt, _nf, post_txt = t['head'][t['field']]
-                post_lines = t['head'][t['field'] + 1:]
-                prefix = ''.join(l + eol for l in pre_lines) + pre_txt
-                suffix = post_txt + eol + ''.join(l + eol for l in post_lines) + body + tail + end
-                pb, sb = prefix.encode('latin-1'), suffix.encode('latin-1')
-                c0 = zlib.crc32(pb)
-                for fmt in _formatters(t):
-                    fixed = len(pb) + len(sb)
-                    # Most templates cannot reach the DAT's size whatever the
-                    # moment: the field is a few characters wide at most.
-                    widths = {len(fmt(datetime.datetime(2000, mo, dd, hh, 0, 0)))
-                              for mo in (1, 10) for dd in (1, 10) for hh in (1, 10, 13)}
-                    if fixed + min(widths) > want.size or fixed + max(widths) < want.size:
-                        continue
-                    start = datetime.datetime.combine(day0, datetime.time()) + datetime.timedelta(days=days[0])
-                    for s in range((days[1] - days[0] + 1) * 86400):
-                        d = start + datetime.timedelta(seconds=s)
-                        mid = fmt(d).encode('latin-1')
-                        if fixed + len(mid) != want.size:
-                            continue
+                for upper in (t['upper'], not t['upper']):
+                    body = eol.join(n + ' ' + (c.upper() if upper else c.lower())
+                                    for n, c in _order(entries, order))
+                    tail = (eol + eol.join(t['tail'])) if t['tail'] else ''
+                    end = eol if t['final'] else ''
+                    if t['field'] is None:
+                        text = eol.join(t['head'] + [body]) + tail + end if t['head'] else body + tail + end
+                        data = text.encode('latin-1')
                         tried += 1
-                        if zlib.crc32(sb, zlib.crc32(mid, c0)) == target_crc:
-                            data = pb + mid + sb
-                            if want.matches(data):
-                                return (f'forged sfv (group template from {t["example"]}, '
-                                        f'time {d:%Y-%m-%d %H:%M:%S})'), data
+                        if len(data) == want.size and want.matches(data):
+                            return f'forged sfv (group template from {t["example"]})', data
+                        continue
+                    if day0 is None:
+                        continue
+                    pre_lines = t['head'][:t['field']]
+                    pre_txt, _nf, post_txt = t['head'][t['field']]
+                    post_lines = t['head'][t['field'] + 1:]
+                    prefix = ''.join(l + eol for l in pre_lines) + pre_txt
+                    suffix = post_txt + eol + ''.join(l + eol for l in post_lines) + body + tail + end
+                    pb, sb = prefix.encode('latin-1'), suffix.encode('latin-1')
+                    c0 = zlib.crc32(pb)
+                    for fmt in _formatters(t):
+                        fixed = len(pb) + len(sb)
+                        # Most templates cannot reach the DAT's size whatever the
+                        # moment: the field is a few characters wide at most.
+                        widths = {len(fmt(datetime.datetime(2000, mo, dd, hh, 0, 0)))
+                                  for mo in (1, 10) for dd in (1, 10) for hh in (1, 10, 13)}
+                        if fixed + min(widths) > want.size or fixed + max(widths) < want.size:
+                            continue
+                        start = datetime.datetime.combine(day0, datetime.time()) + datetime.timedelta(days=days[0])
+                        for s in range((days[1] - days[0] + 1) * 86400):
+                            d = start + datetime.timedelta(seconds=s)
+                            mid = fmt(d).encode('latin-1')
+                            if fixed + len(mid) != want.size:
+                                continue
+                            tried += 1
+                            if zlib.crc32(sb, zlib.crc32(mid, c0)) == target_crc:
+                                data = pb + mid + sb
+                                if want.matches(data):
+                                    return (f'forged sfv (group template from {t["example"]}, '
+                                            f'time {d:%Y-%m-%d %H:%M:%S})'), data
     return None
 
 
