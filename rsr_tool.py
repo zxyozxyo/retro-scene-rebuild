@@ -16386,8 +16386,56 @@ class RsrToolAPI:
             return out
         return out
 
-    def _db_record(self, manifest: dict, rsr_path: Path):
+    @staticmethod
+    def _release_sig(manifest: dict) -> frozenset:
+        """What makes a capture THIS release: its volumes' hashes (a release
+        without archives: its sidecars')."""
+        vols = {v.get("sha256") for st in manifest.get("sets", [])
+                for v in st.get("volumes") or [] if isinstance(v, dict)}
+        vols.discard(None)
+        if vols:
+            return frozenset(vols)
+        return frozenset(f.get("sha256") for f in manifest.get("sidecars", [])
+                         if f.get("sha256"))
+
+    def _index_key(self, manifest: dict, rsr_path: Path, held=None) -> str:
+        """The name a capture is indexed under: its release name -- unless a
+        DIFFERENT release already holds that name, when it is its dated folder
+        name instead.
+
+        MiRAGE released Robo-Ninja_Climb_DC-MiRAGE twice, 2024-10-01
+        (mir-rncd.zip) and 2025-12-12 (mir-1593.zip). The store kept both,
+        a year apart on disk, but the index is keyed by release name: the
+        second capture deleted the first's row and its file rows, so the 2024
+        release could no longer be found to rebuild. 26 such pairs in the
+        store (2026-10-28). Same name AND same volumes is one release stored
+        twice (a re-file) and keeps the plain name."""
         rel = manifest["release"]
+        if held is None:
+            con = self._db()
+            try:
+                row = con.execute("SELECT rsr_path FROM releases WHERE name=?",
+                                  (rel,)).fetchone()
+            finally:
+                con.close()
+            held = row[0] if row else None
+        if not held or Path(held) == Path(rsr_path) or not Path(held).is_file():
+            return rel
+        try:
+            other, z = self.read_rsr(Path(held))
+            z.close()
+        except Exception:
+            return rel
+        if self._release_sig(other) == self._release_sig(manifest):
+            return rel
+        src = Path(manifest.get("source_folder") or "").name
+        dated = _TAG_PREFIX.sub("", src)
+        if not _DATE_PREFIX.match(dated):
+            dated = f"{rel} [{Path(rsr_path).parent.parent.name}]"
+        return dated
+
+    def _db_record(self, manifest: dict, rsr_path: Path):
+        rel = self._index_key(manifest, rsr_path)
         sets = manifest.get("sets", [])
         recipe = next((s["recipe"] for s in sets if s.get("recipe")), {})
         nfiles = sum(len(s.get("files", [])) for s in sets)
@@ -16491,7 +16539,15 @@ class RsrToolAPI:
                 continue
             # The manifest is the authority on the release name; the filename
             # is only a convention and a rename would otherwise fork the row.
-            rel = manifest.get("release") or p.stem
+            manifest.setdefault("release", p.stem)
+            # The key the row will carry: the release name, or the dated folder
+            # name when a DIFFERENT release already holds it (_index_key, the
+            # same rule _db_record applies). Asked of the index as it stands,
+            # so a pair met in either order ends up as one plain row and one
+            # dated row.
+            rel = self._index_key(manifest, p,
+                                  held=str(seen[manifest["release"]])
+                                  if manifest["release"] in seen else None)
             if rel in seen:
                 # Two files claiming one release — exactly what re-filing a
                 # release leaves behind. Index the newer and say where the
