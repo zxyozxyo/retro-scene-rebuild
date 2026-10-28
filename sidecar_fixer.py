@@ -165,6 +165,27 @@ def _vol_order(name: str):
     return (2, 0, n)
 
 
+def sfv_covers(target: Target, game_roms: list) -> list:
+    """The candidate file lists an sfv covers: the archives of its own stem
+    when the folder holds more than one set, then every archive beside it."""
+    folder = str(PurePosixPath(target.name).parent)
+    folder = '' if folder == '.' else folder
+    stem = PurePosixPath(target.name).stem.lower()
+    listed = []
+    for rom in game_roms:
+        t = _target_of(rom)
+        if not t or is_sidecar(t.name):
+            continue
+        p = PurePosixPath(t.name)
+        if ('' if str(p.parent) == '.' else str(p.parent)) == folder:
+            listed.append((p.name, t.crc))
+    if not listed:
+        return []
+    same_stem = [e for e in listed if PurePosixPath(e[0]).stem.lower() == stem
+                 or re.sub(r'\.part\d+$', '', PurePosixPath(e[0]).stem.lower()) == stem]
+    return ([same_stem] if same_stem and len(same_stem) < len(listed) else []) + [listed]
+
+
 def sfv_variants(target: Target, game_roms: list, local_sfv: bytes = None):
     """Rebuilt sfv files for target, from the DAT's own CRCs for the files the
     sfv covers. The header comment (tool name, date) cannot be invented: it is
@@ -511,6 +532,16 @@ def _find(target: Target, folder: Path, game_roms: list, local: dict,
         for how, v in sfv_variants(target, game_roms, on_disk):
             if target.matches(v):
                 return how, v, None
+        # A header'd sfv: the group's (or the tool's) header, its moment
+        # searched around the release date (sfv_forge)
+        try:
+            import sfv_forge
+            for entries in sfv_covers(target, game_roms):
+                hit = sfv_forge.forge(target, entries, release)
+                if hit:
+                    return hit[0], hit[1], None
+        except Exception:
+            pass
     return None
 
 
@@ -589,7 +620,15 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
                     stats['not_found'] += 1
                     row['result'] = 'not found'
                     details['not_found'].append(row)
-                    log(f'  ✗ {t.name}: {row["was"]}, no source has the DAT\'s bytes', 'warn')
+                    why = ''
+                    if t.name.lower().endswith('.sfv'):
+                        try:
+                            import sfv_forge
+                            why = ' — could not forge it either: ' + sfv_forge.describe(game)
+                        except Exception:
+                            pass
+                    row['why'] = why.lstrip(' —')
+                    log(f'  ✗ {t.name}: {row["was"]}, no source has the DAT\'s bytes{why}', 'warn')
                     rows.append(row)
                     continue
                 how, data, spare = hit
@@ -625,7 +664,7 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
         report = rep_dir / f'sidecar_fix_{time.strftime("%Y-%m-%d_%H%M%S")}.csv'
         with open(report, 'w', newline='', encoding='utf-8') as f:
             w = csv.DictWriter(f, fieldnames=['release', 'game_name', 'file', 'was',
-                                              'result', 'technique'])
+                                              'result', 'technique', 'why'])
             w.writeheader()
             for r in rows:
                 w.writerow({k: r.get(k, '') for k in w.fieldnames})
