@@ -2384,7 +2384,37 @@ def end_block_sig(vol: Path) -> tuple | None:
         hsize = int.from_bytes(tail[i + 5:i + 7], "little")
         if 7 <= hsize <= 64 and (len(tail) - i) == hsize:
             return flags, hsize
+        # A PADDED end block (see end_block_pad): longer than any build writes
+        # on its own, zeros after the standard fields.
+        if (64 < hsize <= len(tail) and (len(tail) - i) == hsize
+                and end_block_std(flags) < hsize
+                and not any(tail[i + end_block_std(flags):])):
+            return flags, hsize
     return None
+
+
+def end_block_std(flags: int) -> int:
+    """The size a RAR 3+ end block has with these flags and nothing else:
+    7, plus the data CRC (0x02, 4 B), the volume number (0x08, 2 B) and the
+    space reserved for a REV file (0x04, 7 B). 0x4001 -> 7, 0x4007 -> 18,
+    0x400f -> 20, the three families measured on every build."""
+    return 7 + (4 if flags & 2 else 0) + (2 if flags & 8 else 0) + (7 if flags & 4 else 0)
+
+
+def end_block_pad(sig) -> int:
+    """Zero bytes an original's end block carries past its standard fields.
+
+    Ratatouille_EUR_FRENCH_PROPER_PSP-LameAssFucker ends every volume but the
+    last with a 252-byte end block (flags 0x400f, 232 zeros after the 20
+    standard bytes) -- the room an authenticity signature takes, left empty.
+    No build writes it, so every volume of a replay held 232 B more data than
+    the original's and volume one never matched: 7,857 combos rejected, while
+    rar 3.61 -mt2 -rr reproduces the stream byte for byte. Packed that much
+    smaller per volume, every boundary lands where the original's does and
+    the end block itself travels as a header delta."""
+    if not isinstance(sig, tuple):
+        return 0
+    return max(0, sig[1] - end_block_std(sig[0])) if sig[1] > 64 else 0
 
 
 def _rar4_file_headers(vol: Path, limit: int = 8) -> list[dict]:
@@ -8124,6 +8154,17 @@ class RsrToolAPI:
         # RAR 2.x writes none and 3.00+ always does. Read once here and passed
         # down as-is -- END_UNKNOWN is the only "do not check" value.
         want_end = end_block_sig(vols[0]) if vols[0].is_file() else END_UNKNOWN
+        end_pad = end_block_pad(want_end) if len(vols) > 1 else 0
+        if end_pad and sweep_vol:
+            self._log(f"    every volume but the last ends with a {want_end[1]} B "
+                      f"end block, {end_pad} B of it zeros no build writes — "
+                      f"packing {end_pad:,} B smaller per volume so the "
+                      "boundaries land where the original's do; the end blocks "
+                      "travel as header deltas.", "dim")
+            sweep_vol -= end_pad
+            if head_vol:
+                head_vol -= end_pad
+            want_end = (want_end[0], end_block_std(want_end[0]))
         # Volume one of a SET whose end block says "no next volume". Every
         # build sets that bit on a volume it continues from, so judging on it
         # rejected every combo -- 51 of DBGT-AHU's 64 -- before a stream was
@@ -8533,7 +8574,9 @@ class RsrToolAPI:
         vol_bytes = 0 if st["byte_split"] or len(vols) == 1 \
             else vols[0].stat().st_size
         if head_vol:
-            vol_bytes = sweep_vol          # the common size; head_vol leads
+            # the common size; head_vol leads. sweep_vol is already padded
+            # down (end_pad) and the replay takes av_pad off again.
+            vol_bytes = sweep_vol + end_pad
         # rr_bytes / rr_pct / rr_sectors were measured BEFORE the sweep, so
         # that the probe could ask for the record as well; the replay reads
         # them off the recipe here. _verify_replay still corrects the ask if
@@ -8541,6 +8584,9 @@ class RsrToolAPI:
         recipe.update({"level": level, "solid": solid,
                        "volume_bytes": vol_bytes, "naming": st["scheme"],
                        **({"volume_head_bytes": head_vol} if head_vol else {}),
+                       # head_vol is already the padded-down size (see end_pad)
+                       **({"av_pad": int(recipe.get("av_pad") or 0) + end_pad,
+                           "end_pad": end_pad} if end_pad else {}),
                        "new_numbering": newnum, "rr_pct": rr_pct,
                        "rr_sectors": rr_sectors,
                        "byte_split": st["byte_split"],
@@ -9197,7 +9243,12 @@ class RsrToolAPI:
         not a near miss. Nothing is packed here; the replay is the cost, and
         it declines by itself when the decisions are not few."""
         bd = (getattr(self._tl, "depth_box", None) or {}).get("best")
-        if (not bd or st["format"] != "RAR4" or solid or rr_bytes
+        # Solid only matters BETWEEN files: an archive of one file is one
+        # stream either way (BreakQuest_Extra_Evolution_PSN_PSP-ABSTRAKT, one
+        # 50 MB file packed -s, rar 4.10 writes 6.3 MB of it exactly).
+        # A recovery record no longer rules it out: the splice recomputes its
+        # data (marker R in _splice_attempt).
+        if (not bd or st["format"] != "RAR4" or (solid and len(targets) > 1)
                 or len(groups) != 1 or st.get("sfx") or head_vol
                 or rar4_unp_max(st["volumes"]) < 29 or bd[0] < 4 << 20):
             return None
@@ -9214,7 +9265,18 @@ class RsrToolAPI:
         bp = self._best_partial
         if bp and bp[0] and len(targets) - bp[0] <= _near_miss_streams(
                 len(targets)):
-            return None
+            # ...but only when the near-miss step can carry what is left: it
+            # takes a missed stream WHOLE, up to NEAR_MISS_CEIL. Dream_Again_
+            # Arcade_Vol_2_USA_DC-IND matches its .mds and misses the 470 MB
+            # .mdf -- each path left it to the other, and it stayed a wall.
+            try:
+                ob = packed_blocks(Path(st["volumes"][0]))
+                missed = sum(sz for n in targets if n not in set(bp[4])
+                             for _v, _o, sz in ob.get(n, ()))
+            except Exception:
+                missed = 0
+            if missed <= NEAR_MISS_CEIL:
+                return None
         self._log(f"    ◐ {_exe_label(exe)}{'' if mt_ <= 0 else f' -mt{mt_}'} "
                   f"wrote {depth:,} B of the stream exactly before parting "
                   "— replaying it to see whether the rest differs in only a "
@@ -12405,6 +12467,32 @@ class RsrToolAPI:
         if produced is None:
             produced = self._replay(recipe, src_files, work, comment,
                                     st["format"], base=base)
+        if (produced and recipe.get("end_pad") and not st["byte_split"]
+                and len(produced) == len(vols)):
+            # The padded-down volume size (end_pad) is the original's end-block
+            # padding less what the BUILD itself writes there, which depends on
+            # its rounding: Ratatouille's 252 B end blocks need 230 B, not 232,
+            # because at that size rar 3.61 pads its own end block to 22 B.
+            # Measured, not guessed: the stream data volume one holds against
+            # the original's, and one replay at the corrected size.
+            try:
+                def _vol_data(vol):
+                    return sum(sz for runs in packed_blocks(vol).values()
+                               for v, _o, sz in runs if Path(v) == Path(vol))
+                d = _vol_data(vols[0]) - _vol_data(produced[0])
+            except Exception:
+                d = 0
+            if d:
+                fixed = dict(recipe, av_pad=int(recipe.get("av_pad") or 0) - d,
+                             end_pad=int(recipe["end_pad"]) - d)
+                alt = self._replay(fixed, src_files, work / "endpad",
+                                   comment, st["format"], base=base)
+                if alt and len(alt) == len(vols):
+                    self._log(f"    end-block padding is {fixed['end_pad']} B "
+                              f"for this build, not {recipe['end_pad']} — "
+                              "replayed at that size.", "dim")
+                    recipe.update(av_pad=fixed["av_pad"], end_pad=fixed["end_pad"])
+                    produced = alt
         volmeta, deltas = [], {}
         # The -rr percentage was derived from the block size, which is rounded
         # to whole sectors — so a set can sit between two percentages. If the
@@ -12419,7 +12507,11 @@ class RsrToolAPI:
                      and bool(vols) and rar2_av_block(vols[0]) is not None)
         if (produced and recipe.get("rr_pct") and not st["byte_split"]
                 and not av_signed):
-            want = sum(v.stat().st_size for v in vols)
+            # A padded end block (end_pad) is short in every replayed volume
+            # but the last by design -- the delta puts it back -- and must
+            # not set the recovery-record walk off hunting a size.
+            want = (sum(v.stat().st_size for v in vols)
+                    - int(recipe.get("end_pad") or 0) * max(0, len(vols) - 1))
             if sum(p.stat().st_size for p in produced) != want:
                 # The sweep matches on STREAMS, and builds of one version
                 # produce identical streams while disagreeing about the
@@ -14743,7 +14835,14 @@ class RsrToolAPI:
 
     # ── RAR 3 streams carried as decisions (rar3_splice) ─────────────────────
 
-    SPLICE_MAX_TOKENS = 200_000        # decisions carried, whole set
+    # Decisions carried, whole set. 200,000 kept out a whole class: every
+    # stock 3.x build parts at the same byte and the scene's pack differs in
+    # scattered decisions all the way through. World_Snooker_Challenge_2005
+    # _EUR_PSP-AIDP is 3,147,885 of them (.rsr 14.7 MB for 485 MB; diff
+    # 2 h at capture, the full rebuild 61 min), Prince_of_Persia_Rival_
+    # Swords-LIGHTFORCE 5,310,031 (16.2 MB for 806 MB). A parse that differs
+    # wholesale overruns even this in minutes (Aedis, Gurumin, Xyanide).
+    SPLICE_MAX_TOKENS = 20_000_000
     SPLICE_MAX_LITERAL = 4 << 20       # header bytes carried, whole set
 
     @staticmethod
@@ -14883,23 +14982,55 @@ class RsrToolAPI:
             runs = sorted(per_vol.get(str(v), []))
             blob = bytearray(b"RSRV1\x00")
             pos = 0
-            with open(v, "rb") as fh:
-                for off, size, fi, at in runs:
-                    if off > pos:
-                        fh.seek(pos)
-                        lit = fh.read(off - pos)
+            # A RAR 3 recovery record is the volume's own bytes run through
+            # rar's arithmetic, so its DATA is recomputed rather than carried
+            # (marker R): Macross_Ultimate_Frontier_JPN_PSP-Caravan, 3.61
+            # exact for 288 MB, has 199 KB of it in each of 34 volumes. Its
+            # 54-byte header stays literal -- rar's CRC field there is not a
+            # plain CRC of the data.
+            rr_at = None
+            if rar3:
+                head = v.read_bytes()
+                rr_at = next(((o + sz, ad, sz) for o, t, _f, sz, ad
+                              in _rar4_walk(head)
+                              if t == 0x7A and _newsub_name(head, o) == b"RR"),
+                             None)
+                del head
+
+            def _lit(fh, a, b):
+                nonlocal blob, literal
+                pieces = [(a, b)]
+                if rr_at and a < rr_at[0] + rr_at[1] and rr_at[0] < b:
+                    pieces = [(a, max(a, rr_at[0])), None,
+                              (min(b, rr_at[0] + rr_at[1]), b)]
+                    if not (a <= rr_at[0] and rr_at[0] + rr_at[1] <= b):
+                        raise ValueError("recovery record split across runs")
+                for pc in pieces:
+                    if pc is None:
+                        blob += (b"R" + rr_at[1].to_bytes(4, "little")
+                                 + rr_at[2].to_bytes(4, "little"))
+                        continue
+                    if pc[1] > pc[0]:
+                        fh.seek(pc[0])
+                        lit = fh.read(pc[1] - pc[0])
                         literal += len(lit)
                         blob += b"L" + len(lit).to_bytes(4, "little") + lit
-                    blob += (b"S" + fi.to_bytes(4, "little")
-                             + at.to_bytes(8, "little")
-                             + size.to_bytes(8, "little"))
-                    pos = off + size
-                end = v.stat().st_size
-                if end > pos:
-                    fh.seek(pos)
-                    lit = fh.read(end - pos)
-                    literal += len(lit)
-                    blob += b"L" + len(lit).to_bytes(4, "little") + lit
+
+            with open(v, "rb") as fh:
+                try:
+                    for off, size, fi, at in runs:
+                        if off > pos:
+                            _lit(fh, pos, off)
+                        blob += (b"S" + fi.to_bytes(4, "little")
+                                 + at.to_bytes(8, "little")
+                                 + size.to_bytes(8, "little"))
+                        pos = off + size
+                    end = v.stat().st_size
+                    if end > pos:
+                        _lit(fh, pos, end)
+                except ValueError as e:
+                    self._log(f"      {v.name}: {e} — not carried.", "dim")
+                    return None
             if literal > self.SPLICE_MAX_LITERAL:
                 self._log("      the volumes carry more than "
                           f"{self.SPLICE_MAX_LITERAL:,} B outside the "
@@ -15003,6 +15134,18 @@ class RsrToolAPI:
                 if fi >= len(streams) or at + n > len(streams[fi]):
                     return None
                 out += streams[fi][at:at + n]
+            elif kind == b"R":
+                # the recovery record's data, from the bytes before its
+                # header (the header itself was the literal just written)
+                n = int.from_bytes(blob[i:i + 4], "little")
+                hsz = int.from_bytes(blob[i + 4:i + 8], "little")
+                i += 8
+                hdr = bytes(out[len(out) - hsz:])
+                sectors = int.from_bytes(hdr[hsz - 12:hsz - 8], "little")
+                data, _nb = rar2_rr_data(bytes(out[:len(out) - hsz]), sectors)
+                if len(data) != n:
+                    return None
+                out += data
             else:
                 return None
         return bytes(out)
