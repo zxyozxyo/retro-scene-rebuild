@@ -120,5 +120,23 @@ rom_test_matrix/stage_*.txt
 # local backups and reports (2026-10-03 tidy-up)
 _old_backups/
 reports/
-BACKUP_*/
+BACKUP_*
 \!DATS/
+
+# Work folders the user drops sets, DATs and extras into (2026-10-28)
+\!DAT/
+\!Extras/
+
+# Local data that must never be pushed, wherever it lands
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.rsr
+*.rsr.tmp
+*.srr
+*.dat
+sfv_templates.json
+
+# Claude Code's per-project settings
+.claude/
