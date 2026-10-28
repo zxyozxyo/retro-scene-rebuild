@@ -958,7 +958,35 @@ def _repair(target: Target, data: bytes):
         for how, v in text_repairs(data):
             if len(v) == target.size and target.matches(v):
                 return how, v
+    if target.ext == '.sfv':
+        for how, v in _comment_cuts(data):
+            for fix, w in text_repairs(v):
+                if len(w) == target.size and target.matches(w):
+                    return how + ('' if fix == 'as-is' else f', {fix}'), w
     return None
+
+
+def _comment_cuts(data: bytes):
+    """An sfv with comment lines taken off: a QuickPAR ';Q2-' trailer (srrdb
+    keeps the copy a site's QuickPAR touched), the trailing comments, the
+    header, or every comment."""
+    eol = b'\r\n' if b'\r\n' in data else b'\n'
+    lines = data.split(eol)
+    final = lines[-1] == b''
+    if final:
+        lines = lines[:-1]
+    first = next((i for i, l in enumerate(lines) if l and not l.startswith(b';')), len(lines))
+    last = max((i for i, l in enumerate(lines) if l and not l.startswith(b';')), default=-1)
+    cuts = [('QuickPAR ;Q2- trailer removed', [l for l in lines if not l.startswith(b';Q2-')]),
+            ('trailing comment lines removed', lines[:last + 1]),
+            ('header comment lines removed', lines[first:]),
+            ('every comment line removed', [l for l in lines if not l.startswith(b';')])]
+    seen = {data}
+    for how, kept in cuts:
+        v = eol.join(kept) + (eol if final and kept else b'')
+        if v not in seen:
+            seen.add(v)
+            yield how, v
 
 
 def _try_tier(target: Target, name: str, items, log, wrong_sfvs: list, relevant=None):
@@ -1075,6 +1103,70 @@ def find_sidecar(target: Target, ctx: dict, log):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# THE RSR STORE
+# ═══════════════════════════════════════════════════════════════════════
+
+def update_store(folder: Path, release: str, targets: list, backup: Path, dry: bool,
+                 stats: dict, details: dict, log):
+    """Give the release's .rsr in the RSR store the sidecars now proven right
+    on disk: a stored one whose bytes differ is replaced, one it never had is
+    added (rsr_tool.update_sidecars). No re-scan — the archive recipe never
+    reads a sidecar. Only files matching the DAT go in."""
+    rsrs = [p for p in Sources(True, False, False, log)._rsr_paths(release) if p.is_file()]
+    if not rsrs:
+        log('  RSR store: this release is not captured — nothing to update', 'dim')
+        return
+    fixes = []
+    for t in targets:
+        p = folder / t.name
+        if p.is_file() and p.stat().st_size == t.size:
+            data = p.read_bytes()
+            if t.matches(data):
+                fixes.append((t.name, data))
+    if not fixes:
+        return
+    for rsr in rsrs:
+        try:
+            with zipfile.ZipFile(rsr) as z:
+                man = json.loads(z.read('manifest.json'))
+                names = set(z.namelist())
+        except Exception as e:
+            log(f'  RSR store: cannot read {rsr.name}: {e}', 'warn')
+            continue
+        have = {f['name'].lower(): f for f in man.get('sidecars', [])}
+        plan = []
+        for name, data in fixes:
+            old = have.get(name.lower())
+            if old and old.get('sha256') == hashlib.sha256(data).hexdigest() and old.get('stored') in names:
+                continue
+            plan.append((name, data, 'wrong' if old else 'missing'))
+        if not plan:
+            log(f'  RSR store: {rsr.name} already carries the right sidecars', 'dim')
+            continue
+        what = ', '.join(f'{n} ({w})' for n, _d, w in plan)
+        if dry:
+            log(f'  RSR store: would update {rsr.name} — {what}', 'info')
+            stats['rsr_updated'] += 1
+            details['rsr'].append({'release': folder.name, 'file': what, 'result': 'would update'})
+            continue
+        try:
+            import rsr_tool
+            api = rsr_tool.RsrToolAPI()
+            api._app_dir = HERE
+            api._log = lambda *a, **k: None
+            api._emit = lambda *a, **k: None
+            res = api.update_sidecars(rsr, [(n, d) for n, d, _w in plan], backup / '_rsr_store')
+        except Exception as e:
+            log(f'  RSR store: could not update {rsr.name}: {e}', 'err')
+            continue
+        if res.get('changed'):
+            stats['rsr_updated'] += 1
+            details['rsr'].append({'release': folder.name, 'file': what, 'result': 'updated'})
+            log(f'  ✓ RSR store: {rsr.name} updated — {what} (old .rsr in '
+                f'{backup / "_rsr_store"})', 'ok')
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # THE RUN
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1091,8 +1183,8 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
     dry = bool(config.get('dry_run', False))
     add_missing = bool(config.get('add_missing', True))
     backup = Path(config.get('backup_dir') or (root / BACKUP_DIR_NAME))
-    stats = dict(releases=0, ok=0, fixed=0, added=0, not_found=0)
-    details = {k: [] for k in ('fixed', 'added', 'not_found', 'extra')}
+    stats = dict(releases=0, ok=0, fixed=0, added=0, not_found=0, rsr_updated=0)
+    details = {k: [] for k in ('fixed', 'added', 'not_found', 'extra', 'rsr')}
 
     if parse_dat_file is None:
         log('ERROR: dat_merger is not available to read DATs.', 'err')
@@ -1174,6 +1266,8 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
             if right:
                 log(f'  already right: {", ".join(right)}', 'dim')
             if not todo:
+                if config.get('update_rsr_store'):
+                    update_store(folder, game, targets, backup, dry, stats, details, log)
                 continue
             rwork = work / f'r{n}'
             rwork.mkdir()
@@ -1232,6 +1326,8 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_bytes(data)
                 local[t.name.lower()] = p
+            if config.get('update_rsr_store'):
+                update_store(folder, game, targets, backup, dry, stats, details, log)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -1249,6 +1345,8 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
                 w.writerow({k: r.get(k, '') for k in w.fieldnames})
     log(f'Done: {stats["releases"]} set(s), {stats["ok"]} sidecar(s) already right, '
         f'{stats["fixed"]} fixed, {stats["added"]} added, {stats["not_found"]} not found'
+        + (f'; {stats["rsr_updated"]} .rsr {"would be " if dry else ""}updated in the RSR store'
+           if config.get('update_rsr_store') else '')
         + (f'; {src.srrdb_calls} srrdb request(s)' if src.srrdb_calls else '')
         + (f'. Report: {report}' if report else ''), 'ok')
     if details['extra']:

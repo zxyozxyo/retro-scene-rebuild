@@ -207,6 +207,7 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
       </div>
       <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the set is missing</label>
       <label class="opt"><input type="checkbox" id="sc_make_sfv" checked> Make an .sfv when no copy can be found or repaired (the DAT's CRCs in every layout, under the group's headers from the RSR store)</label>
+      <label class="opt"><input type="checkbox" id="sc_update_rsr" checked> Update the RSR store: a captured release's .rsr gets the DAT-matched sidecars (wrong one replaced, missing one added; old .rsr backed up; no re-scan needed)</label>
       <label class="opt"><input type="checkbox" id="sc_use_extras" checked> Look in the srrdb extras store (srrdb_extras.db)</label>
       <label class="opt"><input type="checkbox" id="sc_use_srrdb" checked> Use srrdb online when nothing local has it (downloads the .srr once, then it is cached)</label>
       <div class="row" style="gap:6px">
@@ -322,6 +323,7 @@ window.addEventListener('pywebviewready', async () => {
   if (cfg.sc_extras) document.getElementById('sc_extras').value = cfg.sc_extras;
   if (cfg.sc_backup) document.getElementById('sc_backup').value = cfg.sc_backup;
   if (cfg.sc_make_sfv === false) document.getElementById('sc_make_sfv').checked = false;
+  if (cfg.sc_update_rsr === false) document.getElementById('sc_update_rsr').checked = false;
   if (cfg.sc_add_missing === false) document.getElementById('sc_add_missing').checked = false;
   if (cfg.sc_use_extras === false) document.getElementById('sc_use_extras').checked = false;
   if (cfg.sc_use_srrdb === false) document.getElementById('sc_use_srrdb').checked = false;
@@ -618,6 +620,7 @@ function sidecarFields() {
     sc_backup: document.getElementById('sc_backup').value.trim(),
     sc_add_missing: document.getElementById('sc_add_missing').checked,
     sc_make_sfv: document.getElementById('sc_make_sfv').checked,
+    sc_update_rsr: document.getElementById('sc_update_rsr').checked,
     sc_use_extras: document.getElementById('sc_use_extras').checked,
     sc_use_srrdb: document.getElementById('sc_use_srrdb').checked,
   };
@@ -647,6 +650,7 @@ async function startSidecarRun() {
   await window.pywebview.api.start_sidecar_run({
     folder: sc.sc_folder, extras_dir: sc.sc_extras, backup_dir: sc.sc_backup,
     dry_run: cfg.dry_run, add_missing: sc.sc_add_missing, make_sfv: sc.sc_make_sfv,
+    update_rsr_store: sc.sc_update_rsr,
     use_rsr_store: cfg.use_rsr_store, use_extras_store: sc.sc_use_extras,
     use_srrdb: sc.sc_use_srrdb });
 }

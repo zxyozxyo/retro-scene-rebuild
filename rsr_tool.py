@@ -13254,6 +13254,75 @@ class RsrToolAPI:
         manifest = json.loads(z.read("manifest.json"))
         return manifest, z
 
+    def update_sidecars(self, rsr: Path, fixes: list,
+                        backup_dir: Path | None = None) -> dict:
+        """Put DAT-verified sidecars into an EXISTING .rsr: a stored sidecar
+        whose bytes differ is replaced, one the capture never had is added.
+
+        The sidecar fixer (Scene Recreator) proves each file against the
+        release's DAT; the .rsr still carries what the source folder had at
+        capture -- srrdb's sfv with a QuickPAR trailer, or no sfv at all -- so
+        every rebuild put the wrong file back. The archive recipe never reads
+        a sidecar, so nothing is re-swept: only the sidecar records and their
+        stored bytes change. fixes: [(release-relative name, bytes)]. A
+        replaced sidecar keeps its timestamp and attributes; an added one
+        takes its siblings'. The old .rsr goes to backup_dir first."""
+        rsr = Path(rsr)
+        man, z = self.read_rsr(rsr)
+        embedded = {n: z.read(n) for n in z.namelist() if n != "manifest.json"}
+        z.close()
+        side = man.setdefault("sidecars", [])
+        by_name = {f["name"].lower(): f for f in side}
+        sibling = next((f for f in side if f.get("mtime_ns")), {})
+        changed = []
+        for rel, data in fixes:
+            rel = rel.replace("\\", "/")
+            sha = _sha256(data)
+            old = by_name.get(rel.lower())
+            if old and old.get("sha256") == sha and old.get("stored") in embedded:
+                continue
+            key = f"sidecars/{rel}"
+            # An old stored key may be shared (a loose proof jpg points at the
+            # embedded extra): never overwrite bytes something else reads.
+            refs = [f for f in side if f.get("stored") == key and f is not old]
+            if refs or (key in embedded and not (old and old.get("stored") == key)):
+                key = f"sidecars/{rel}.{sha[:8]}"
+            rec = {"name": rel, "size": len(data),
+                   "crc32": zlib.crc32(data) & 0xFFFFFFFF, "sha256": sha,
+                   "mtime_ns": (old or sibling).get("mtime_ns"),
+                   "win_attrs": (old or sibling).get("win_attrs", 32),
+                   "stored": key, "dat_verified": True}
+            embedded[key] = data
+            if old:
+                rec["replaced_sha256"] = old.get("sha256")
+                side[side.index(old)] = rec
+            else:
+                side.append(rec)
+            by_name[rel.lower()] = rec
+            changed.append({"name": rel, "was": "wrong" if old else "missing"})
+        if not changed:
+            return {"ok": True, "changed": []}
+        used = {f.get("stored") for f in side}
+        used |= {f.get("stored") for st in man.get("sets", [])
+                 for f in st.get("files", []) if isinstance(f, dict)}
+        for k in [k for k in embedded if k.startswith("sidecars/") and k not in used]:
+            del embedded[k]
+        if backup_dir:
+            Path(backup_dir).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(rsr, Path(backup_dir) / f"{rsr.stem}.before-sidecars.rsr")
+        self._write_rsr(rsr, man, embedded)
+        # The loose copies beside the .rsr are for people to look at; keep
+        # them the same as what the container holds.
+        for f in side:
+            if f["name"].lower() in {c["name"].lower() for c in changed}:
+                dst = rsr.parent / "sidecars" / f["name"]
+                try:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(embedded[f["stored"]])
+                except OSError:
+                    pass
+        return {"ok": True, "changed": changed}
+
     # ══════════════════════════════════════════════════════════════════
     #  REBUILD
     # ══════════════════════════════════════════════════════════════════
