@@ -10535,11 +10535,18 @@ class RsrToolAPI:
         # One second per MB, floored at the old 900 s and capped so a genuinely
         # hung build still cannot run away: 4 GB buys 4,096 s against the
         # 1,717 s needed, and every release under 900 MB is unchanged.
+        #
+        # THREE seconds per MB since 2026-10-29: one was measured on a build
+        # running alone. To_Heart_2_Dungeon_Travelers_JPN_PSP-Caravan (1.26 GB,
+        # rar 3.42 single-threaded -m5 -rr1017, four packs at a time) needs
+        # ~1,400 s, so every combo of its right-recipe pass was killed at
+        # 1,257 s -- 1,146 then 355 combos, all "the pack command itself
+        # failed to run", while volume one matched the original byte for byte.
         try:
             _src_mb = sum(Path(s).stat().st_size for s in srcs) / (1 << 20)
         except OSError:
             _src_mb = 0
-        pack_timeout = max(900, min(4 * 3600, int(_src_mb)))
+        pack_timeout = max(900, min(4 * 3600, int(3 * _src_mb)))
         if prefix and cmds and len(cmds) == 1 and (vol_args or synthetic):
             # By VOLUME INDEX, never by name. Under new numbering rar writes
             # probe.part1.rar and no probe.rar exists: the old test ("any file
