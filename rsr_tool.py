@@ -4655,6 +4655,9 @@ class RsrToolAPI:
             # Where sources are extracted and sweeps/rebuilds staged -- tens of
             # GB at a time with several jobs. "" = the system temp folder.
             "work_dir": str(cfg.get("work_dir") or "").strip(),
+            # After a capture, rebuild the release from its new .rsr; when it
+            # comes back complete the ORIGINAL folder is moved here. "" = off.
+            "proven_dir": str(cfg.get("proven_dir") or "").strip(),
             "max_mt": _num(cfg.get("max_mt"), 16, int),
             "embed_extras": bool(cfg.get("embed_extras", True)),
             "embed_max_mb": _num(cfg.get("embed_max_mb"), 16, int),
@@ -4723,6 +4726,8 @@ class RsrToolAPI:
             # Unlike `store`, an empty box is a real choice: back to %TEMP%.
             "work_dir": str(s["work_dir"] if "work_dir" in s
                             else cur["work_dir"]).strip(),
+            "proven_dir": str(s["proven_dir"] if "proven_dir" in s
+                              else cur["proven_dir"]).strip(),
             "max_mt": max(0, min(32, _num(s.get("max_mt"), cur["max_mt"], int))),
             "embed_extras": bool(s.get("embed_extras", cur["embed_extras"])),
             "embed_max_mb": max(0, min(4096, _num(s.get("embed_max_mb"),
@@ -5401,6 +5406,17 @@ class RsrToolAPI:
         counters = {"done": 0, "ok": 0, "failed": 0, "skipped": 0, "zips": 0,
                     "parked": 0, "walls": 0, "meta": 0, "partial": 0,
                     "damaged": 0}
+        # Release folders whose .rsr rebuilt complete, moved to the "Proven
+        # sets" folder once the run is over -- not straight away, because a
+        # RARFIX later in the same run looks for its base among the siblings.
+        proven: list[Path] = []
+        proven_dir = str(s.get("proven_dir") or "").strip()
+
+        def _prove(folder, rel):
+            if proven_dir and not self._stop.is_set() and \
+                    self._prove_release(folder, rel, store, exes):
+                with lock:
+                    proven.append(folder)
 
         def _one(i, folder):
             rel_short = _release_name(folder)[:22]
@@ -5545,6 +5561,7 @@ class RsrToolAPI:
                 self._emit("row", {"name": rel, "status": "done",
                                    "recipe": res.get("recipe", "metadata only"),
                                    "kind": "metadata"})
+                _prove(folder, rel)
                 return
             if res.get("ok"):
                 with lock:
@@ -5553,6 +5570,7 @@ class RsrToolAPI:
                 self._emit("row", {"name": rel, "status": "done",
                                    "recipe": res.get("recipe", ""),
                                    "kind": "ok"})
+                _prove(folder, rel)
             else:
                 with lock:
                     counters["failed"] += 1
@@ -5607,6 +5625,8 @@ class RsrToolAPI:
             self._live_jobs = max(1, len(live))
         for th in live:
             th.join()
+        if proven:
+            self._move_proven(proven, roots, Path(proven_dir))
         done = counters["done"]; ok = counters["ok"]
         failed = counters["failed"]; skipped = counters["skipped"]
         zips = counters["zips"]; parked = counters["parked"]
@@ -5625,6 +5645,121 @@ class RsrToolAPI:
                   + (f", {broken} DAMAGED (fail their own .sfv)"
                      if broken else "")
                   + ".", "ok" if failed == 0 else "warn")
+
+    # ── proven sets ───────────────────────────────────────────────────────
+
+    def _prove_release(self, folder: Path, rel: str, store: Path,
+                       exes) -> bool:
+        """Rebuild a release from the .rsr it was just captured to, the way
+        anyone else will: content in, volumes out, every one hash-checked.
+
+        The capture's own replay is NOT this test. It packs from the sources it
+        has just extracted, with the recipe still in memory, and compares with
+        the originals -- so it proves the recipe, not the .rsr. What the store
+        file carries (deltas, folder times, sidecars, the comment) is only
+        exercised by a real rebuild, and that is where the captures that
+        verified and then failed were caught: Burnout OneUp (an -mt race), and
+        three releases on 2026-09-26 whose folder times were never stored.
+
+        Content comes from the release itself (its archives extracted to the
+        work folder), so nothing outside it is needed. Both copies are deleted
+        afterwards; only the verdict is kept."""
+        rsr = self._existing_rsr(store, folder, rel)
+        if rsr is None:
+            # A RARFIX pair is filed under its base release's name.
+            self._log("  Proven sets: no .rsr under this release's own name "
+                      "(a joined pair?) — left where it is.", "dim")
+            return False
+        try:
+            need = sum(p.stat().st_size for p in folder.rglob("*")
+                       if p.is_file())
+            free = shutil.disk_usage(self._work_root()).free
+        except OSError:
+            need, free = 0, 0
+        if free < need * 2 + (1 << 30):
+            self._log(f"  Proven sets: the work folder has "
+                      f"{free / (1 << 30):,.1f} GB free and a rebuild test "
+                      f"needs about {need * 2 / (1 << 30):,.1f} GB — not "
+                      f"tested, left where it is.", "warn")
+            return False
+        work = Path(tempfile.mkdtemp(prefix="rsr-", dir=self._work_root()))
+        content, out = work / "c", work / "o"
+        content.mkdir()
+        ok = False
+        try:
+            self._log("  Proven sets: rebuilding from the new .rsr to test "
+                      "it…", "dim")
+            self._progress(f"rebuild test — {rel}")
+            sets = group_archive_sets(folder)
+            zips = [p for p in folder.rglob("*") if p.is_file()
+                    and p.suffix.lower() in (".zip", ".7z", ".lha", ".lzh")]
+            sz = str(self._app_dir / "apps" / "7z.exe")
+            for st in sets:
+                head = Path(st["volumes"][0])
+                # A byte-split set is one archive chopped up afterwards; 7z
+                # reads .001 chunks as one, rar does not.
+                cmd = ([sz, "x", "-y", f"-o{content}", str(head)]
+                       if st.get("byte_split") else
+                       [str(self._extractor(exes)), "x", "-y", "-o+",
+                        str(head), str(content) + os.sep])
+                self._run(cmd, timeout=3600,
+                          heartbeat=f"rebuild test: extracting {head.name}")
+            for zp in zips:
+                self._run([sz, "x", "-y", f"-o{content / zp.stem}", str(zp)],
+                          timeout=3600,
+                          heartbeat=f"rebuild test: extracting {zp.name}")
+            if not self._stop.is_set():
+                # A release with no archive keeps its content loose in itself.
+                res = self._rebuild_run(
+                    rsr, content if sets or zips else folder, out)
+                ok = bool(res.get("ok")) and any(p.is_file()
+                                                 for p in out.rglob("*"))
+        except Exception as e:
+            self._log(f"  Proven sets: rebuild test error: {e}", "err")
+            ok = False
+        finally:
+            cache = getattr(self, "_size_map_cache", None)
+            if cache:
+                cache.pop(str(content), None)
+                cache.pop(str(folder), None)
+            self._tl.rebuild_rsr = None     # a capture must not read it
+            _rmtree(work)
+        if self._stop.is_set() and not ok:
+            return False
+        self._log("  ✓ Proven: the .rsr rebuilds complete — the release "
+                  "folder moves to Proven sets at the end of the run."
+                  if ok else
+                  "  ✗ Rebuild test FAILED — the .rsr is in the store, but "
+                  "the release stays where it is; rebuild it by hand to see "
+                  "why.", "ok" if ok else "err")
+        return ok
+
+    def _move_proven(self, folders: list[Path], roots, dest: Path):
+        """Move each proven release folder under `dest`, keeping its path
+        below the scan root it came from (system / year folders and all)."""
+        moved = 0
+        for folder in folders:
+            rel_path = Path(folder.name)
+            for r in roots:
+                try:
+                    rel_path = Path(folder).relative_to(Path(r))
+                    break
+                except ValueError:
+                    continue
+            tgt = dest / rel_path
+            if tgt.exists():
+                self._log(f"  Proven sets: {tgt} already exists — "
+                          f"{folder.name} left where it is.", "warn")
+                continue
+            try:
+                tgt.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(folder), str(tgt))
+                moved += 1
+            except OSError as e:
+                self._log(f"  Proven sets: could not move {folder.name} "
+                          f"({e}).", "err")
+        self._log(f"Proven sets: {moved} of {len(folders)} rebuild-tested "
+                  f"release folder(s) moved to {dest}.", "ok")
 
     # ── one release ───────────────────────────────────────────────────────
 
