@@ -217,7 +217,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           <div class="row">
             <div class="lbl">Proven sets</div>
             <input class="txt" id="proven_dir" placeholder="blank = off (no rebuild test)"
-                   title="After each capture, rebuild the release from its new .rsr in the work folder. If every volume comes back hash-exact, the ORIGINAL release folder is moved here (at the end of the run) and the test copy is deleted. A release that fails stays where it is."
+                   title="After each capture, rebuild the release from its new .rsr in the work folder. If every volume comes back hash-exact, the ORIGINAL release folder is moved here straight away and the test copy is deleted. A release that fails stays where it is, and so do a fix release (RARFIX...) and the set beside it that it fixes."
                    onchange="save()">
             <button class="btn btn-sm" onclick="pick('proven_dir')">…</button>
           </div>

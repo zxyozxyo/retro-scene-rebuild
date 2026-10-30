@@ -1053,6 +1053,10 @@ def _release_tag(name: str) -> str:
     return m.group(1).upper() if m else ""
 
 
+# A fix release by name: RARFIX, NFOFIX, DIRFIX, SFVFIX...
+_FIX_RE = re.compile(r"(?i)fix")
+
+
 def _release_name(folder: Path) -> str:
     """Folder name with any bracketed status AND dats.site date prefix
     stripped, so the store is keyed by the ACTUAL release name (point 5 —
@@ -5406,17 +5410,23 @@ class RsrToolAPI:
         counters = {"done": 0, "ok": 0, "failed": 0, "skipped": 0, "zips": 0,
                     "parked": 0, "walls": 0, "meta": 0, "partial": 0,
                     "damaged": 0}
-        # Release folders whose .rsr rebuilt complete, moved to the "Proven
-        # sets" folder once the run is over -- not straight away, because a
-        # RARFIX later in the same run looks for its base among the siblings.
-        proven: list[Path] = []
+        # Release folders whose .rsr rebuilt complete move to the "Proven sets"
+        # folder straight away -- except a fix release and the set it fixes,
+        # which stay together where they are: the fix finds its base among
+        # its siblings, and the two are one release to whoever sorts them.
         proven_dir = str(s.get("proven_dir") or "").strip()
 
         def _prove(folder, rel):
-            if proven_dir and not self._stop.is_set() and \
-                    self._prove_release(folder, rel, store, exes):
-                with lock:
-                    proven.append(folder)
+            if not proven_dir or self._stop.is_set() or \
+                    not self._prove_release(folder, rel, store, exes):
+                return
+            mate = self._fix_mate(folder)
+            if mate is not None:
+                self._log(f"  Proven sets: left where it is — "
+                          f"{'it is a fix for' if _FIX_RE.search(rel) else 'it has a fix beside it,'} "
+                          f"{_release_name(mate)}.", "dim")
+                return
+            self._move_proven([folder], roots, Path(proven_dir))
 
         def _one(i, folder):
             rel_short = _release_name(folder)[:22]
@@ -5625,8 +5635,6 @@ class RsrToolAPI:
             self._live_jobs = max(1, len(live))
         for th in live:
             th.join()
-        if proven:
-            self._move_proven(proven, roots, Path(proven_dir))
         done = counters["done"]; ok = counters["ok"]
         failed = counters["failed"]; skipped = counters["skipped"]
         zips = counters["zips"]; parked = counters["parked"]
@@ -5726,13 +5734,35 @@ class RsrToolAPI:
             _rmtree(work)
         if self._stop.is_set() and not ok:
             return False
-        self._log("  ✓ Proven: the .rsr rebuilds complete — the release "
-                  "folder moves to Proven sets at the end of the run."
+        self._log("  ✓ Proven: the .rsr rebuilds complete."
                   if ok else
                   "  ✗ Rebuild test FAILED — the .rsr is in the store, but "
                   "the release stays where it is; rebuild it by hand to see "
                   "why.", "ok" if ok else "err")
         return ok
+
+    @staticmethod
+    def _fix_mate(folder: Path):
+        """The sibling this release belongs with as a fix pair, or None: a
+        FIX release beside it carrying the same archive stem, or -- when this
+        one is the fix -- the release beside it with that stem."""
+        try:
+            stems = {st["stem"] for st in group_archive_sets(folder)}
+            sibs = sorted(folder.parent.iterdir())
+        except OSError:
+            return None
+        am_fix = bool(_FIX_RE.search(_release_name(folder)))
+        for sib in sibs:
+            if not sib.is_dir() or sib == folder:
+                continue
+            if not am_fix and not _FIX_RE.search(_release_name(sib)):
+                continue
+            try:
+                if stems & {st["stem"] for st in group_archive_sets(sib)}:
+                    return sib
+            except Exception:
+                continue
+        return None
 
     def _move_proven(self, folders: list[Path], roots, dest: Path):
         """Move each proven release folder under `dest`, keeping its path
@@ -5755,11 +5785,11 @@ class RsrToolAPI:
                 tgt.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(folder), str(tgt))
                 moved += 1
+                self._log(f"  Proven sets: moved to {tgt.parent}.", "ok")
             except OSError as e:
                 self._log(f"  Proven sets: could not move {folder.name} "
                           f"({e}).", "err")
-        self._log(f"Proven sets: {moved} of {len(folders)} rebuild-tested "
-                  f"release folder(s) moved to {dest}.", "ok")
+        return moved
 
     # ── one release ───────────────────────────────────────────────────────
 
@@ -5787,7 +5817,11 @@ class RsrToolAPI:
         for sib in sorted(folder.parent.iterdir()):
             if not sib.is_dir() or sib == folder:
                 continue
-            for s2 in group_archive_sets(sib):
+            try:
+                sets2 = group_archive_sets(sib)
+            except OSError:
+                continue                        # moved away mid-scan
+            for s2 in sets2:
                 if s2["stem"] != want or s2["byte_split"]:
                     continue
                 theirs = [Path(v) for v in s2["volumes"]]
@@ -5966,17 +6000,20 @@ class RsrToolAPI:
         for sib in sorted(folder.parent.iterdir()):
             if not sib.is_dir() or sib == folder:
                 continue
-            if by_sfv:
-                want = [n for n, c in sfv_expected(sib).items() if c == crc]
-                cands = [p for p in sib.iterdir() if p.name.lower() in want]
-            else:
-                other = _release_name(sib)
-                if (other.rsplit("-", 1)[-1].lower() != grp
-                        or re.sub(r"^\d{4}-\d{2}-\d{2}-", "", other)
-                        .split("_")[0].lower() != word):
-                    continue
-                cands = [p for p in sib.iterdir()
-                         if p.suffix.lower() == vol.suffix.lower()]
+            try:
+                if by_sfv:
+                    want = [n for n, c in sfv_expected(sib).items() if c == crc]
+                    cands = [p for p in sib.iterdir() if p.name.lower() in want]
+                else:
+                    other = _release_name(sib)
+                    if (other.rsplit("-", 1)[-1].lower() != grp
+                            or re.sub(r"^\d{4}-\d{2}-\d{2}-", "", other)
+                            .split("_")[0].lower() != word):
+                        continue
+                    cands = [p for p in sib.iterdir()
+                             if p.suffix.lower() == vol.suffix.lower()]
+            except OSError:
+                continue                        # moved away mid-scan
             for p in cands:
                 try:
                     if (p.is_file() and p.stat().st_size == size
