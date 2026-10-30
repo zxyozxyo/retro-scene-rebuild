@@ -13008,7 +13008,7 @@ class RsrToolAPI:
                 produced, verdict, volmeta, deltas, rr_maps =                     alt, v2, m2, d2, r2
                 break
         if verdict == "none":
-            got = self._splice_attempt(produced, vols, st, si)
+            got = self._splice_attempt(produced, vols, st, si, recipe)
             if got:
                 return "delta", got[0], got[1]
             return "none", volmeta, {}
@@ -15102,7 +15102,7 @@ class RsrToolAPI:
                 data += fh.read(size)
         return bytes(data)
 
-    def _splice_attempt(self, produced, vols, st, si):
+    def _splice_attempt(self, produced, vols, st, si, recipe=None):
         """(volume records, {path-in-rsr: bytes}) for a set whose replay is
         right in all but a few DECISIONS of some stream -- or None.
 
@@ -15143,6 +15143,32 @@ class RsrToolAPI:
         # form rar walked its own way) serves just as well.
         names = list(ob)
         pb = self._splice_names(pb, names)
+        # An EMPTY file the original stored (no packed data at all) where the
+        # replay compressed it to a few bytes: Rock_Band_Unplugged_EUR_DLC_
+        # Complete_PSP-PLAYASiA stores 2 of its 51 empty files and compresses
+        # the other 49 to 8 B. The volumes come from the original's own
+        # headers, so the replay's stream for it is simply never used.
+        unused = sorted(set(pb) - set(names))
+        if unused and set(names) <= set(pb):
+            try:
+                rf = _open_rar(vols[0])
+                empty = {(_oem_name(i, int(getattr(i, "flags", 0) or 0))
+                          or i.filename) for i in rf.infolist()
+                         if not i.is_dir() and i.file_size == 0
+                         and i.compress_size == 0}
+                rf.close()
+            except Exception:
+                empty = set()
+            if all(n in empty and sum(sz for _v, _o, sz in pb[n]) <= 64
+                   for n in unused):
+                self._log(f"      {len(unused)} empty file(s) the original "
+                          "stored and the replay compressed — their replay "
+                          "streams go unused.", "dim")
+                pb = {k: v for k, v in pb.items() if k not in unused}
+            else:
+                unused = []
+        else:
+            unused = []
         if not names or set(names) != set(pb):
             both = set(ob) & set(pb)
             self._log(f"      (decisions: the replay holds {len(pb)} "
@@ -15196,6 +15222,29 @@ class RsrToolAPI:
                     why = f"cannot be read as decisions ({e})"
             else:
                 why = "is not a RAR 3 stream"
+            if patch is not None:
+                # Proved here, so a patch that does not write back falls to
+                # the same fallbacks as one never found: flags/al.gif of
+                # Time_Crisis_Project_Titan_PAL_PSXPSP-iPSP (719 B) breaks a
+                # rule of the writer and is simply carried.
+                out = bytearray()
+                try:
+                    rar3_splice.apply(b, patch, out)
+                    if bytes(out) != a:
+                        why = ("written back from its decisions is not the "
+                               "original (a rule of the writer does not hold "
+                               "here)")
+                        patch = None
+                except Exception as e:
+                    why = f"has decisions that do not write back ({e})"
+                    patch = None
+                del out
+            if patch is None:
+                sol = self._splice_solid_try(produced[0], names, name, a,
+                                             recipe)
+                if sol:
+                    patches[name] = sol
+                    continue
             if patch is None:
                 # A stream small enough is simply carried whole: the first
                 # file of Sega_Germany_..._Press_Disc-s1xty is 765 KB the
@@ -15212,21 +15261,9 @@ class RsrToolAPI:
                 self._log(f"      {name.split('/')[-1]}: its stream {why} — "
                           f"carried whole ({len(a):,} B).", "dim")
                 continue
-            out = bytearray()
-            try:
-                rar3_splice.apply(b, patch, out)
-            except Exception as e:
-                self._log(f"      {name.split('/')[-1]}: the decisions do not "
-                          f"write back ({e}).", "dim")
-                return None
-            if bytes(out) != a:
-                self._log(f"      {name.split('/')[-1]}: the stream written "
-                          "back from its decisions is not the original — "
-                          "a rule of the writer does not hold here.", "warn")
-                return None
             patches[name] = patch
             carried += rar3_splice.info(patch)["carried"]
-            del a, b, out
+            del a, b
         if not patches:
             return None
         # every original volume as literal header bytes + stream runs
@@ -15304,6 +15341,8 @@ class RsrToolAPI:
                             "head_sha": _sha256(v.read_bytes()[:4096]),
                             "delta": None, "splice": key})
         index = {"names": names, "patches": {}}
+        if unused:
+            index["unused"] = unused
         for i, (name, patch) in enumerate(patches.items()):
             key = f"splice/{si}_stream{i:03d}.bin"
             deltas[key] = patch
@@ -15355,6 +15394,8 @@ class RsrToolAPI:
         except Exception:
             return None
         pb = self._splice_names(pb, index["names"])
+        for n in index.get("unused", ()):
+            pb.pop(n, None)
         if set(pb) != set(index["names"]):
             return None
         out = []
@@ -15367,6 +15408,11 @@ class RsrToolAPI:
                     b = blob[4:]               # carried whole
                 elif blob.startswith(b"STO0"):
                     b = self._splice_unpack(produced[0], name)
+                    if b is None:
+                        return None
+                elif blob.startswith(b"SOL0"):
+                    b = self._splice_solid(produced[0], name,
+                                           json.loads(blob[4:]))
                     if b is None:
                         return None
                 else:
@@ -15388,6 +15434,81 @@ class RsrToolAPI:
         except Exception:
             pass
         return out
+
+    def _splice_solid_try(self, head, names, name, a, recipe) -> bytes | None:
+        """An "SOL0" patch for `name` when packing it solid behind the one or
+        two files before it gives the original's stream `a` (see
+        _splice_solid), else None."""
+        mc = [str(x) for x in ((recipe or {}).get("mc") or [])]
+        if (not recipe or not recipe.get("solid") or recipe.get("groups")
+                or any(x.startswith("@") for x in mc)
+                or name not in names):
+            return None
+        i = names.index(name)
+        for k in (1, 2):
+            prev = names[max(0, i - k):i]
+            if len(prev) < k:
+                break
+            if len({Path(n).name.casefold() for n in prev + [name]}) != k + 1:
+                break
+            spec = {"exe": recipe["exe"], "level": recipe["level"],
+                    "dict_kb": recipe["dict_kb"],
+                    "mt": int(recipe.get("mt") or 0), "mc": mc,
+                    "prev": prev}
+            if self._splice_solid(head, name, spec) == a:
+                self._log(f"      {name.split('/')[-1]}: the original goes "
+                          f"on from {Path(prev[-1]).name}'s solid stream "
+                          "where the replay starts a new one — packed "
+                          "behind it, it is the original.", "dim")
+                return b"SOL0" + json.dumps(spec).encode("utf-8")
+        return None
+
+    def _splice_solid(self, head, name, spec) -> bytes | None:
+        """The stream of `name` packed solid BEHIND the files spec["prev"]
+        names (an "SOL0" patch), with the recipe's own build and switches.
+
+        For a -sv set whose packer carried the solid stream on across a
+        volume start where the replay restarts it: TC02A.DA of Time_Crisis_
+        Project_Titan_PAL_PSXPSP-iPSP is the first file to begin in r02, the
+        original goes on from TC01.DA (its audio filter is not even defined
+        again) and 3.61 -mt2 writes a fresh one. Packed solid after TC01.DA
+        it is the original byte for byte, run after run; carried as
+        decisions it is 37.8 MB. The files come out of the replay itself."""
+        ex = self._app_dir / "apps" / "winrar_pack-4.20" / spec["exe"]
+        unrar = self._app_dir / "apps" / "UnRAR.exe"
+        files = list(spec["prev"]) + [name]
+        tmp = None
+        try:
+            # Our own fresh folder beside the replay's, never one that was
+            # there before (the replay is the work dir's own "replay").
+            tmp = Path(tempfile.mkdtemp(prefix="sol0_",
+                                        dir=str(Path(head).parent.parent)))
+            (tmp / "f").mkdir()
+            r = subprocess.run([str(unrar), "e", "-y", "-inul", str(head)]
+                               + [n.replace("/", "\\") for n in files]
+                               + [str(tmp / "f") + "\\"],
+                               timeout=3600, **_no_window())
+            srcs = [tmp / "f" / Path(n).name for n in files]
+            if r.returncode != 0 or not all(q.is_file() for q in srcs):
+                return None
+            pre = self._pack_args(ex, "RAR4", int(spec["level"]),
+                                  int(spec["dict_kb"]), int(spec["mt"]))
+            if pre is None or not ex.is_file():
+                return None
+            r = subprocess.run(pre + list(spec.get("mc") or []) +
+                               ["-s", "-ep", "-o+", "-y", "-idq",
+                                str(tmp / "o.rar")] + [str(q) for q in srcs],
+                               timeout=3600, **_no_window())
+            if r.returncode != 0:
+                return None
+            pb = packed_blocks(tmp / "o.rar")
+            got = pb.get(Path(name).name)
+            return self._stream_of(got) if got else None
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
+        finally:
+            if tmp is not None and tmp.exists():
+                _rmtree(tmp)
 
     def _splice_unpack(self, head, name) -> bytes | None:
         """One file of the replay, unpacked: the stream of a file the
