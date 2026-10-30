@@ -15166,10 +15166,22 @@ class RsrToolAPI:
                       "miss.)", "dim")
             return None
         patches, carried, raw_bytes = {}, 0, 0
+        plain = self._splice_plain_crcs(produced[0])
         for name in odd:
             a = self._stream_of(ob[name])
             b = self._stream_of(pb[name])
             if a == b:
+                continue
+            # The original STORED this file where the replay compressed it:
+            # its stream is the file's own bytes, which the replay holds
+            # anyway. Rock_Band_Unplugged_EUR_DLC_Complete_PSP-PLAYASiA
+            # stores AFTERLIFE.ATM (15.7 MB) and compresses everything else;
+            # no switch reproduces that per-file store fallback.
+            if plain.get(name) == (len(a), zlib.crc32(a)):
+                patches[name] = b"STO0"
+                self._log(f"      {name.split('/')[-1]}: the original stored "
+                          f"it ({len(a):,} B) — taken from the file itself.",
+                          "dim")
                 continue
             why = ""
             patch = None
@@ -15353,12 +15365,43 @@ class RsrToolAPI:
                 blob = read(key)
                 if blob.startswith(b"RAW0"):
                     b = blob[4:]               # carried whole
+                elif blob.startswith(b"STO0"):
+                    b = self._splice_unpack(produced[0], name)
+                    if b is None:
+                        return None
                 else:
                     sink = bytearray()
                     rar3_splice.apply(b, blob, sink)
                     b = bytes(sink)
             out.append(b)
         return out
+
+    @staticmethod
+    def _splice_plain_crcs(head) -> dict:
+        """{name: (unpacked size, CRC32)} of every file in an archive."""
+        out = {}
+        try:
+            for fi in _open_rar(head).infolist():
+                if not fi.is_dir():
+                    out[_oem_name(fi, int(getattr(fi, "flags", 0) or 0))
+                        or fi.filename] = (int(fi.file_size), int(fi.CRC))
+        except Exception:
+            pass
+        return out
+
+    def _splice_unpack(self, head, name) -> bytes | None:
+        """One file of the replay, unpacked: the stream of a file the
+        original stored (an "STO0" patch)."""
+        unrar = self._app_dir / "apps" / "UnRAR.exe"
+        try:
+            r = subprocess.run([str(unrar), "p", "-inul", str(head),
+                                name.replace("/", "\\")],
+                               capture_output=True, timeout=3600,
+                               creationflags=getattr(subprocess,
+                                                     "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return r.stdout if r.returncode == 0 else None
 
     @staticmethod
     def _splice_volume(blob: bytes, streams) -> bytes | None:
