@@ -15239,6 +15239,16 @@ class RsrToolAPI:
                     why = f"has decisions that do not write back ({e})"
                     patch = None
                 del out
+            if patch is not None and len(patch) > 65536:
+                # Decisions that found their way through but at length: a
+                # file that only needs packing behind its predecessor is a
+                # hundred bytes that way (Time_Crisis_PAL_PSXPSP-iPSP carried
+                # two such files as 9.9 and 5.8 MB of decisions).
+                sol = self._splice_solid_try(produced[0], names, name, a,
+                                             recipe)
+                if sol:
+                    patches[name] = sol
+                    continue
             if patch is None:
                 sol = self._splice_solid_try(produced[0], names, name, a,
                                              recipe)
