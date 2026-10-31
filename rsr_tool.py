@@ -1529,6 +1529,32 @@ def group_archive_sets(base: Path) -> list[dict]:
                     shutil.copyfileobj(fi, fo, 1 << 20)
             sfx = {"orig": str(paths[0]), "offset": off}
             paths = [stripped] + paths[1:]
+        # Bytes AFTER the end block (rar4_trailing): handed on the same way,
+        # as a copy cut at the archive's end; the capture carries the rest and
+        # the rebuild appends it again (_restore_outer).
+        tails = []
+        if fmt == "RAR4" and not split:
+            import hashlib
+            for i, p in enumerate(paths):
+                end = rar4_trailing(p)
+                if not end:
+                    continue
+                st0 = p.stat()
+                tag = hashlib.sha1(f"{p}|{st0.st_size}|{st0.st_mtime_ns}"
+                                   .encode()).hexdigest()[:16]
+                cut = _temp_base() / "rsr-tail" / tag / p.name
+                if not (cut.is_file() and cut.stat().st_size == end):
+                    cut.parent.mkdir(parents=True, exist_ok=True)
+                    with open(p, "rb") as fi, open(cut, "wb") as fo:
+                        left = end
+                        while left:
+                            buf = fi.read(min(left, 1 << 20))
+                            if not buf:
+                                break
+                            fo.write(buf)
+                            left -= len(buf)
+                tails.append({"idx": i, "orig": str(p), "offset": end})
+                paths[i] = cut
         sets.append({
             "stem": stem,
             "dir": parent,
@@ -1537,6 +1563,7 @@ def group_archive_sets(base: Path) -> list[dict]:
             "volumes": paths,
             "byte_split": split,
             **({"sfx": sfx} if sfx else {}),
+            **({"tail": tails} if tails else {}),
         })
     # Deterministic order, and a part-style set must not also surface as its
     # own `.rar` family (part01.rar matches the old-style `.rar` rule too).
@@ -1666,6 +1693,57 @@ def _short_path(p: Path) -> str | None:
         return buf.value if n else None
     except Exception:
         return None
+
+
+_DEEPEST: dict[str, int] = {}
+_DEEPEST_LOCK = threading.Lock()
+
+
+def _deepest_path(root) -> int:
+    """The length of the longest path under `root`, measured once a folder:
+    the sweep runs hundreds of packs from the same sources."""
+    key = str(root)
+    with _DEEPEST_LOCK:
+        if key in _DEEPEST:
+            return _DEEPEST[key]
+    n = len(key)
+    try:
+        for dp, dns, fns in os.walk(key):
+            for x in fns + dns:
+                n = max(n, len(dp) + 1 + len(x))
+    except OSError:
+        pass
+    with _DEEPEST_LOCK:
+        _DEEPEST[key] = n
+    return n
+
+
+def _junction_alias(target) -> Path | None:
+    """A short junction (<drive>\\rsrj\\<8 hex>) to `target`, or None.
+
+    A junction needs no privilege, unlike a symlink. _drop_junction removes
+    only the link, never what it points at."""
+    try:
+        import _winapi
+        import uuid
+        root = Path(Path(str(target)).resolve().anchor) / "rsrj"
+        root.mkdir(exist_ok=True)
+        j = root / uuid.uuid4().hex[:8]
+        _winapi.CreateJunction(str(Path(str(target)).resolve()), str(j))
+        return j
+    except Exception:
+        return None
+
+
+def _drop_junction(j) -> None:
+    """Remove a link made by _junction_alias. os.rmdir on a junction deletes
+    the link itself; nothing is ever walked or deleted through it."""
+    if not j:
+        return
+    try:
+        os.rmdir(j)
+    except OSError:
+        pass
 
 
 def _names_or_listfile(names: list, lst: Path, used: int, base=None,
@@ -2913,6 +2991,56 @@ def rar4_end_block(path) -> bytes | None:
         if typ == 0x7B:
             last = b[off:off + size + add]
     return last
+
+
+def _rar_complaints(out: str) -> str:
+    """The lines of rar's console output that say what went wrong, joined."""
+    out = re.sub(r"[\b]+|\s*\d{1,3}%", " ", out or "")
+    seen: list[str] = []
+    for ln in out.splitlines():
+        ln = ln.strip()
+        if (ln and ln not in seen
+                and re.search(r"cannot|can't|error|warning|not found|denied|"
+                              r"no files|failed", ln, re.I)):
+            seen.append(ln)
+    return " | ".join(seen[:6])[:600]
+
+
+def rar4_trailing(path) -> int | None:
+    """Where a RAR4 volume's archive ENDS, when bytes follow its end block.
+
+    Sega_Smash_Pack_Volume_2_ALL_DC-IND is a complete archive of 119,173,681 B
+    -- rar 3.00 reproduces every byte of it -- inside a 181,993,472 B file:
+    5.2 MB of zeros and 57 MB of junk follow the end block, and the .sfv was
+    made over all of it. Every combo was refused at the end-block check,
+    which read the junk. Only a CRC-valid end block counts, so an archive
+    with no end block (or a damaged one) is never trimmed."""
+    try:
+        with open(path, "rb") as fh:
+            size = fh.seek(0, 2)
+            i = 7
+            while i + 7 <= size:
+                fh.seek(i)
+                h = fh.read(11)
+                if len(h) < 7:
+                    return None
+                crc, typ, flags, hsz = struct.unpack_from("<HBHH", h)
+                if hsz < 7:
+                    return None
+                add = (struct.unpack_from("<I", h, 7)[0]
+                       if flags & 0x8000 and len(h) >= 11 else 0)
+                if typ == 0x7B:
+                    fh.seek(i)
+                    hd = fh.read(hsz)
+                    end = i + hsz + add
+                    if (len(hd) == hsz and zlib.crc32(hd[2:]) & 0xFFFF == crc
+                            and end < size):
+                        return end
+                    return None
+                i += hsz + add
+    except OSError:
+        pass
+    return None
 
 
 def rar2_insert_av(vol: bytes, av: bytes, end: bytes | None = None) -> bytes:
@@ -4635,7 +4763,7 @@ class RsrToolAPI:
                 self._proc_rel.pop(p, None)
 
     def _run(self, cmd: list, timeout: int, heartbeat: str = "",
-             cwd=None, env=None) -> bool:
+             cwd=None, env=None, keep_output: bool = False) -> bool:
         """Run a pack/extract command so that stop and skip can interrupt it.
 
         subprocess.run() is unkillable from another thread, so a skip pressed
@@ -4655,13 +4783,30 @@ class RsrToolAPI:
         # 512 MB extract prints plenty, so it hung until the 3600 s timeout
         # killed it — an hour per release, and it consumed the whole search
         # budget before a single combo had been tried.
+        #
+        # `keep_output`: into a temporary FILE, which never blocks the way a
+        # pipe does, with its last 2 MB kept in self._tl.last_out -- when a
+        # replay exits 1, rar's own words say WHICH source it could not open.
+        sink = tempfile.TemporaryFile() if keep_output else subprocess.DEVNULL
+        self._tl.last_out = ""
+        # A pack names its sources relative to `cwd`, and a build before 4.x
+        # cannot open a path past MAX_PATH. Dreamcast_Scene_Folder_Names_NFO_
+        # SFV has 200-character names; under the work folder five of them
+        # crossed 260, so rar 3.60 packed without them ("WARNING: Cannot open
+        # 5 files", exit 1) on every replay, and the hand pack from a short
+        # folder exited 0. Run such a pack from a short junction to the same
+        # folder instead.
+        alias = (_junction_alias(cwd) if cwd and os.name == "nt"
+                 and _deepest_path(cwd) > 240 else None)
         try:
             p = subprocess.Popen(_runnable(cmd), env=env,
-                                 stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL,
-                                 cwd=(str(cwd) if cwd else None),
+                                 stdout=sink, stderr=sink,
+                                 cwd=(str(alias or cwd) if cwd else None),
                                  **_no_window())
         except Exception:
+            if keep_output:
+                sink.close()
+            _drop_junction(alias)
             return False
         if ONE_CORE in cmd:
             _pin_one_core(p)
@@ -4679,6 +4824,13 @@ class RsrToolAPI:
                     # ran to completion; whether rar was happy is a separate
                     # question, which _replay asks (see there)
                     self._tl.last_rc = p.returncode
+                    if keep_output:
+                        try:
+                            sink.seek(max(0, sink.seek(0, 2) - (2 << 20)))
+                            self._tl.last_out = sink.read().decode(
+                                "latin-1", "replace")
+                        except OSError:
+                            pass
                     return True
                 except subprocess.TimeoutExpired:
                     pass
@@ -4695,6 +4847,9 @@ class RsrToolAPI:
                         pass
                     return False
         finally:
+            if keep_output:
+                sink.close()
+            _drop_junction(alias)
             with self._proc_lock:
                 self._procs.discard(p)
                 self._proc_rel.pop(p, None)
@@ -6298,7 +6453,8 @@ class RsrToolAPI:
         # that set is not a release we failed to capture, it is a broken copy of
         # one, and the correct bytes are in the fix.
         vol_paths = [Path(st["sfx"]["orig"]) if (st.get("sfx") and i == 0)
-                     else Path(v)
+                     else Path(next((t["orig"] for t in st.get("tail") or ()
+                                     if t["idx"] == i), v))
                      for st in sets for i, v in enumerate(st["volumes"])]
         broken_keep: list = []          # (path, sfv record) kept verbatim
         pair_seed = None                # (this folder, partner, joined volumes)
@@ -8974,9 +9130,34 @@ class RsrToolAPI:
                 "verify": verify,
                 "order": order,
                 "files": meta,
-                "volumes": self._sfx_carry(st, si, volmeta, embedded),
+                "volumes": self._sfx_carry(
+                    st, si, self._tail_carry(st, si, volmeta, embedded),
+                    embedded),
             },
         }
+
+    def _tail_carry(self, st: dict, si: int, volmeta: list,
+                    embedded: dict) -> list:
+        """Bytes after the end block (rar4_trailing): the set was captured
+        from copies cut at the archive's end, so carry what follows and the
+        whole file's hash. Deflated in the .rsr like everything else --
+        Smash Pack 2's 62.8 MB of padding is ~31.5 MB there."""
+        for t in st.get("tail") or ():
+            idx = t["idx"]
+            if idx >= len(volmeta):
+                continue
+            orig = Path(t["orig"])
+            with open(orig, "rb") as fh:
+                fh.seek(int(t["offset"]))
+                rest = fh.read()
+            key = f"tail/{si}_{idx:04d}.bin"
+            embedded[key] = rest
+            volmeta[idx] = dict(volmeta[idx], tail=key,
+                                tail_sha256=_file_sha256(orig),
+                                tail_size=orig.stat().st_size)
+            self._log(f"    {orig.name}: {len(rest):,} B after the archive's "
+                      "end block carried as-is (the .sfv covers them).", "dim")
+        return volmeta
 
     @staticmethod
     def _sfx_carry(st: dict, si: int, volmeta: list, embedded: dict) -> list:
@@ -12588,17 +12769,23 @@ class RsrToolAPI:
                 # that archive instead of writing a fresh one. The second pack
                 # of Civilization.2.USA.PSXPSP-MiRiBS exited 0 and still lacked
                 # its KEYS.BIN.
+                # The list files the command names (_names_or_listfile) live
+                # here too and must stay: deleting them made the next attempt
+                # exit 6 on "Cannot open ...\_names0.lst".
+                def _left():
+                    return [q for q in out.iterdir()
+                            if not q.name.startswith("_names")]
                 for _wait in range(10):
-                    for q in list(out.iterdir()):
+                    for q in _left():
                         try:
                             q.unlink()
                         except OSError:
                             pass
-                    if not any(out.iterdir()):
+                    if not _left():
                         break
                     time.sleep(2)
-                if any(out.iterdir()):
-                    left = ", ".join(q.name for q in list(out.iterdir())[:3])
+                if _left():
+                    left = ", ".join(q.name for q in _left()[:3])
                     self._log(f"    ✗ the short pack's volumes ({left}) cannot "
                               "be removed — not packing over them.", "err")
                     if getattr(self._tl, "in_verify", False):
@@ -12612,8 +12799,12 @@ class RsrToolAPI:
                                  heartbeat=f"replaying {recipe['version']} "
                                            f"{_mt_label(recipe.get('exe', ''), recipe['mt'])}"
                                            f" over {mb:,.0f} MB",
-                                 cwd=base):
+                                 cwd=base, keep_output=True):
                     return None
+                if getattr(self._tl, "last_rc", 0) and not rc:
+                    said = _rar_complaints(getattr(self._tl, "last_out", ""))
+                    if said:
+                        self._log(f"    rar said: {said}", "dim")
                 rc = rc or getattr(self._tl, "last_rc", 0) or 0
             if not rc:
                 break
@@ -14414,9 +14605,12 @@ class RsrToolAPI:
                              st.get("sha256"), None))
                 continue
             for v in st.get("volumes", []):
+                # On disk the volume is whole again: stub and tail restored.
+                size = v.get("sfx_size") or v.get("tail_size") or v.get("size")
+                head = None if v.get("sfx_stub") else v.get("head_sha")
                 for c in [v] + list(v.get("copies") or []):
                     want.append((dest / c.get("folder", "") / c["name"],
-                                 v.get("size"), None, v.get("head_sha")))
+                                 size, None, head))
         for f in manifest.get("sidecars", []):
             if f.get("stored"):
                 want.append((dest / f.get("folder", "") / f["name"],
@@ -15206,11 +15400,9 @@ class RsrToolAPI:
                     more = f"got {_sha256(data)[:12]}"
                 return (f"    ✗ {v['name']}: hash mismatch after replay "
                         f"({why})." + (f" [{more}]" if more else ""))
-            if v.get("sfx_stub"):
-                data = z.read(v["sfx_stub"]) + data
-                if _sha256(data) != v["sfx_sha256"]:
-                    return (f"    ✗ {v['name']}: the self-extractor stub does "
-                            "not restore the original head.")
+            data, err = self._restore_outer(data, v, z)
+            if err:
+                return err
             dst = out / v.get("folder", "") / v["name"]
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(data)
@@ -15219,6 +15411,22 @@ class RsrToolAPI:
                 cp.parent.mkdir(parents=True, exist_ok=True)
                 cp.write_bytes(data)
         return None
+
+    @staticmethod
+    def _restore_outer(data: bytes, v: dict, z) -> tuple[bytes, str | None]:
+        """Put back what the capture cut off around the archive: bytes after
+        its end block (_tail_carry), then a self-extractor stub in front."""
+        if v.get("tail"):
+            data = data + z.read(v["tail"])
+            if _sha256(data) != v["tail_sha256"]:
+                return data, (f"    ✗ {v['name']}: the bytes carried after "
+                              "the end block do not restore the original.")
+        if v.get("sfx_stub"):
+            data = z.read(v["sfx_stub"]) + data
+            if _sha256(data) != v["sfx_sha256"]:
+                return data, (f"    ✗ {v['name']}: the self-extractor stub "
+                              "does not restore the original head.")
+        return data, None
 
     # ── RAR 3 streams carried as decisions (rar3_splice) ─────────────────────
 
@@ -15729,6 +15937,9 @@ class RsrToolAPI:
             if data is None or _sha256(data) != v["sha256"]:
                 return (f"    ✗ {v['name']}: hash mismatch after writing the "
                         "streams back from their decisions.")
+            data, err = self._restore_outer(data, v, z)
+            if err:
+                return err
             dst = out / v.get("folder", "") / v["name"]
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(data)
