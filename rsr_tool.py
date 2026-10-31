@@ -837,6 +837,31 @@ def _supports_ms(fname: str) -> bool:
     return _exe_number(fname) >= 300 or _dos32_number(fname) >= 300
 
 
+def _supports_ts(fname: str) -> bool:
+    """Does this build take -ts<m|c|a>? It came with the high-precision
+    header times in 3.20 (see header_exttime); older builds reject it."""
+    return _exe_number(fname) >= 320 or _dos32_number(fname) >= 320
+
+
+def _set_ctime_ns(path: Path, ns: int) -> bool:
+    """Set a file's CREATION time (Windows), which os.utime cannot reach."""
+    if os.name != "nt" or not ns:
+        return False
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.windll.kernel32
+    k32.CreateFileW.restype = wintypes.HANDLE
+    h = k32.CreateFileW(str(path), 0x100, 0x7, None, 3, 0x02000000, None)
+    if h in (None, wintypes.HANDLE(-1).value):
+        return False
+    try:
+        ft = ns // 100 + 116444736000000000         # 100 ns since 1601
+        c = wintypes.FILETIME(ft & 0xFFFFFFFF, ft >> 32)
+        return bool(k32.SetFileTime(h, ctypes.byref(c), None, None))
+    finally:
+        k32.CloseHandle(h)
+
+
 def _supports_mt(fname: str) -> bool:
     """Does this build understand -mt at all?
 
@@ -3554,6 +3579,42 @@ def header_exttime(vol: Path) -> bool | None:
     simply too old. Balls_Of_Fury-Micronauts is exactly that."""
     heads = _rar4_file_headers(vol, limit=1)
     return bool(heads[0]["flags"] & 0x1000) if heads else None
+
+
+def header_ts_switch(vol: Path) -> str:
+    """'-tsc' when the volume's first file header stores the CREATION time
+    in its high-precision time field, else ''.
+
+    No build writes a creation time by default; the packer asked for it.
+    Battalion_Wars_PAL-x24b is 3.51 -m4 with -tsc: the field holds ctime
+    and nothing for mtime, so without the switch every build's header is
+    shorter and the sweep rejected all of them on "the header timestamp".
+    The time itself comes back from the original with `x -tsc`, and the
+    rebuild sets it on the content again (_set_ctime_ns)."""
+    try:
+        with open(vol, "rb") as fh:
+            raw = fh.read(1 << 16)
+        if raw[:7] != RAR4_SIG:
+            return ""
+        pos = 7
+        while pos + 32 <= len(raw):
+            typ = raw[pos + 2]
+            flags, size = struct.unpack_from("<HH", raw, pos + 3)
+            if size < 7:
+                return ""
+            if typ == 0x74:
+                if not flags & 0x1000:
+                    return ""
+                nlen = struct.unpack_from("<H", raw, pos + 26)[0]
+                p = pos + 32 + (8 if flags & 0x100 else 0) + nlen \
+                    + (8 if flags & 0x400 else 0)
+                ef = struct.unpack_from("<H", raw, p)[0]
+                return "-tsc" if (ef >> 8) & 8 else ""
+            add = struct.unpack_from("<I", raw, pos + 7)[0] if flags & 0x8000 else 0
+            pos += size + add
+    except (OSError, struct.error):
+        pass
+    return ""
 
 
 def unicode_named_ascii(vol: Path) -> list[str]:
@@ -8067,7 +8128,11 @@ class RsrToolAPI:
         self._progress(f"extracting {total_src / (1 << 20):,.0f} MB — "
                        f"{st['stem']}")
         t_x = time.monotonic()
-        ok_x = self._run([str(self._extractor(exes)), "x", "-y", "-o+", str(head),
+        # A creation time the original stored has to come back out with the
+        # sources, or no pack can write it again. See header_ts_switch.
+        ts_sw = header_ts_switch(head) if st["format"] == "RAR4" else ""
+        ok_x = self._run([str(self._extractor(exes)), "x", "-y", "-o+"]
+                         + ([ts_sw] if ts_sw else []) + [str(head),
                           str(srcdir) + os.sep], timeout=3600,
                          heartbeat=f"extracting {total_src / (1 << 20):,.0f} MB "
                                    f"· {st['stem']}")
@@ -8234,6 +8299,12 @@ class RsrToolAPI:
             stt = sp.stat()
             f["mtime_ns"] = stt.st_mtime_ns
             f["win_attrs"] = _win_attrs(sp)
+            if ts_sw and getattr(stt, "st_birthtime_ns", None):
+                f["ctime_ns"] = stt.st_birthtime_ns
+        if ts_sw:
+            self._log("    the original stores each file's creation time "
+                      "(rar -tsc) — restored from it, and the sweep packs "
+                      "with -tsc.", "dim")
 
         # Which files must travel INSIDE the .rsr?
         #
@@ -8666,7 +8737,8 @@ class RsrToolAPI:
                                         host=rar4_host(vols)
                                         if st["format"] == "RAR4" else -1,
                                         solid_vols=solid_vols,
-                                        store_ms=_wants_ms(meta))
+                                        store_ms=_wants_ms(meta),
+                                        ts_sw=ts_sw)
             if recipe:
                 if rr_pass != sweep_rr:
                     recipe["rr_exact"] = True
@@ -10974,7 +11046,7 @@ class RsrToolAPI:
                       year_before=0, year_after=0,
                       dirs=(), dirs_first=True, mm_ev=None,
                       head_vol=0, orig_stream=None,
-                      solid_vols=False, store_ms="") -> dict | None:
+                      solid_vols=False, store_ms="", ts_sw="") -> dict | None:
         """Pack every file TOGETHER at each (build, -mt) and keep the combo
         whose streams match byte for byte.
 
@@ -11586,6 +11658,14 @@ class RsrToolAPI:
             self._log("    an already-compressed file is STORED beside "
                       f"compressed ones — sweeping with {store_ms} (store "
                       "those types).", "dim")
+        if ts_sw:
+            # See header_ts_switch. Older builds cannot write the field, so
+            # they keep their combos unchanged and fail on the header as before.
+            combos = [(c[0], c[1], tuple(c[2] if len(c) > 2 else ())
+                       + ((ts_sw,) if _supports_ts(c[0].name)
+                          and ts_sw not in (c[2] if len(c) > 2 else ())
+                          else ()))
+                      for c in combos]
         sig = self._order_sig(combos)
         start, when = self._resume_point(rel, sig)
         if start >= len(combos):
@@ -14886,6 +14966,10 @@ class RsrToolAPI:
                     if recipe.get("ftimes") == "now_bias":
                         mt += _now_bias_shift_ns(mt)
                     os.utime(dst, ns=(mt, mt))
+                    # A -tsc recipe writes the creation time into the
+                    # header too; the copy just got today's.
+                    if f.get("ctime_ns"):
+                        _set_ctime_ns(dst, f["ctime_ns"])
                 elif f.get("mtime"):
                     ts = datetime.fromisoformat(f["mtime"]).timestamp()
                     os.utime(dst, (ts, ts))
