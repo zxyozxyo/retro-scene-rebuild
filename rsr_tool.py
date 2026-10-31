@@ -5722,6 +5722,22 @@ class RsrToolAPI:
                     rsr, content if sets or zips else folder, out)
                 ok = bool(res.get("ok")) and any(p.is_file()
                                                  for p in out.rglob("*"))
+                # A Stop inside the rebuild breaks out of its set loop with
+                # the verdict still True, and a set the capture never saw is
+                # not in the .rsr to fail. So the last word is the release
+                # itself: every file in it must come back, byte for byte.
+                if self._stop.is_set():
+                    ok = False
+                if ok:
+                    missing = self._proven_missing(folder, out)
+                    if missing:
+                        ok = False
+                        self._log(f"  Proven sets: {len(missing)} file(s) of "
+                                  f"the release did not come back from the "
+                                  f"rebuild identical — "
+                                  f"{', '.join(missing[:5])}"
+                                  + (" …" if len(missing) > 5 else "") + ".",
+                                  "err")
         except Exception as e:
             self._log(f"  Proven sets: rebuild test error: {e}", "err")
             ok = False
@@ -5740,6 +5756,45 @@ class RsrToolAPI:
                   "the release stays where it is; rebuild it by hand to see "
                   "why.", "ok" if ok else "err")
         return ok
+
+    def _proven_missing(self, folder: Path, out: Path) -> list[str]:
+        """Files of `folder` with no byte-identical copy (size + SHA-1)
+        anywhere in the rebuild output `out`. Empty means it all came back."""
+        def _sha1(p: Path) -> str:
+            h = hashlib.sha1()
+            with open(p, "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+        have: dict[int, list[Path]] = {}
+        for p in out.rglob("*"):
+            if p.is_file():
+                have.setdefault(p.stat().st_size, []).append(p)
+        got: dict[Path, str] = {}
+        missing = []
+        for p in sorted(folder.rglob("*")):
+            if not p.is_file():
+                continue
+            if self._stop.is_set():
+                return [p.name]               # unchecked counts as missing
+            size = p.stat().st_size
+            cands = have.get(size, [])
+            # The same relative path first; the name alone next: cheap and
+            # almost always right, and the hash decides either way.
+            rel = p.relative_to(folder)
+            cands = sorted(cands, key=lambda q: (q.relative_to(out) != rel,
+                                                 q.name.lower() != p.name.lower()))
+            want = None
+            for q in cands:
+                if want is None:
+                    want = _sha1(p)
+                if q not in got:
+                    got[q] = _sha1(q)
+                if got[q] == want:
+                    break
+            else:
+                missing.append(str(rel))
+        return missing
 
     @staticmethod
     def _fix_mate(folder: Path):
