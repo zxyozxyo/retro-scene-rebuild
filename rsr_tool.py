@@ -8670,13 +8670,19 @@ class RsrToolAPI:
         # Unicode-aware build then reads the files by their real names, the
         # streams reproduce, and only the OEM half of each name differs --
         # header bytes, which the verify's delta carries like any other.
+        # Compared with one separator: dir_names are in os.sep and rarfile's
+        # names in "/", so a foreign FOLDER never matched and the set was
+        # refused -- EMU_MONSTER_PACK_V2_FULL_PSP-R3Ds, whose 56 names under
+        # "新しいフォルダ" are all stored as Unicode.
+        def _key(n):
+            return str(n).replace("\\", "/").rstrip("/")
         try:
             import rarfile as _rf
-            _uni = {i.filename.rstrip("/\\") for i in _rf.RarFile(str(head)).infolist()
+            _uni = {_key(i.filename) for i in _rf.RarFile(str(head)).infolist()
                     if i.flags & 0x200}
         except Exception:
             _uni = set()
-        if foreign and all(str(n).rstrip("/\\") in _uni for n in foreign):
+        if foreign and all(_key(n) in _uni for n in foreign):
             st["unicode_names"] = True
             self._log(f"    {len(foreign)} name(s) are not in this system's "
                       f"code page but the archive stores them as Unicode — "
