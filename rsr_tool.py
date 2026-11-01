@@ -15281,6 +15281,37 @@ class RsrToolAPI:
                               "dim")
                     fail = None
                     break
+        if fail:
+            # The header's attributes come from the FIRST volume, but capture
+            # replayed (and built its deltas against) the file rar extracted,
+            # which takes them from the LAST. They differ when the last volume
+            # was repacked: X-Men_Origins_Wolverine_EUR_PSP-ACCiDENT's .r31
+            # comes from the RARFiX release, packed from a read-only file
+            # (0x21) where .r00-.r30 say 0x20; staged 0x20, .r31 failed. Stage
+            # what the capture recorded instead; the hash check is the same.
+            files_ord = sorted(st["files"], key=lambda x: x["order"])
+            redo = [(sp, f) for sp, f in zip(srcs, files_ord)
+                    if f.get("win_attrs") is not None
+                    and str(f.get("host_os", "")).lower().startswith("win")
+                    and f.get("attrs")
+                    and (int(f["win_attrs"]) & _SETTABLE_ATTRS)
+                    != (int(f["attrs"]) & _SETTABLE_ATTRS)]
+            if redo:
+                for sp, f in redo:
+                    _set_win_attrs(sp, f["win_attrs"])
+                alt = self._replay(recipe, srcs, setwork, comment,
+                                   st["format"],
+                                   base=srcdir if keep_paths else None)
+                if alt and not self._write_replayed(alt, vols, z, out):
+                    got = ", ".join("0x%x" % int(f["win_attrs"])
+                                    for _, f in redo[:3])
+                    self._log(f"    · packed from the attributes the capture "
+                              f"verified ({got}), not the first volume's.",
+                              "dim")
+                    fail = None
+                else:
+                    for sp, f in redo:
+                        _set_win_attrs(sp, f["attrs"])
         mcs = [str(x) for x in (recipe.get("mc") or [])]
         if fail and int(recipe.get("mt") or 0) >= 2 and self.DOS_MARK not in mcs:
             # A multithreaded rar 3.x pack is a race (see ONE_CORE): the
