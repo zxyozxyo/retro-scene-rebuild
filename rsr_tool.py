@@ -15666,7 +15666,9 @@ class RsrToolAPI:
                 # XBOX-ProjectX: stock DOS RAR 2.50 -m1 writes all 578 MB but
                 # six spots in volume 4, 17,469 B.
                 import rar_bitpatch
-                bp = rar_bitpatch.diff(a, b, SPLICE_RAW_CEIL - raw_bytes)
+                bp_why: list = []
+                bp = rar_bitpatch.diff(a, b, SPLICE_RAW_CEIL - raw_bytes,
+                                       notes=bp_why)
                 if bp is not None:
                     raw_bytes += rar_bitpatch.carried(bp)
                     patches[name] = bp
@@ -15677,7 +15679,8 @@ class RsrToolAPI:
                               "the two streams agree again.", "dim")
                     del a, b
                     continue
-                why = "is not a RAR 3 stream, and differs in more than a few blocks"
+                why = ("is not a RAR 3 stream, and differs in more than a few "
+                       "blocks" + (f" ({bp_why[0]})" if bp_why else ""))
             if patch is not None:
                 # Proved here, so a patch that does not write back falls to
                 # the same fallbacks as one never found: flags/al.gif of

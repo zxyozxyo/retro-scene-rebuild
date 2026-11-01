@@ -95,10 +95,14 @@ def _resync(a, b, i, d, reach, win=256):
 
 
 def diff(original: bytes, ours: bytes, max_carry: int,
-         reach: int = 4 << 20) -> bytes | None:
+         reach: int = 4 << 20, notes: list | None = None) -> bytes | None:
     """The patch that turns `ours` into `original`, or None when the streams
     do not agree again within `reach` bytes of a difference or the original's
-    bytes it would carry pass `max_carry`."""
+    bytes it would carry pass `max_carry` -- and then, given `notes`, why."""
+    def _no(msg):
+        if notes is not None:
+            notes.append(msg)
+        return None
     edits, i, d, carried = [], 0, 0, 0
     while True:
         i = _first_diff(original, ours, i, d)
@@ -112,7 +116,10 @@ def diff(original: bytes, ours: bytes, max_carry: int,
             j, d2 = r
         carried += j - i
         if carried > max_carry:
-            return None
+            return _no(f"no agreement again within {reach:,} B of byte "
+                       f"{i:,}" if r is None else
+                       f"{len(edits) + 1} spots by byte {j:,} carry "
+                       f"{carried:,} B, past the {max_carry:,} B allowed")
         edits.append((i, 8 * i + d, 8 * j + d2, original[i:j]))
         i, d = j, d2
         if r is None:
@@ -121,7 +128,9 @@ def diff(original: bytes, ours: bytes, max_carry: int,
     for s, bs, be, data in edits:
         out += struct.pack("<QQQI", s, bs, be, len(data)) + data
     patch = bytes(out)
-    return patch if apply(ours, patch) == original else None
+    if apply(ours, patch) != original:
+        return _no("the patch does not write the original back")
+    return patch
 
 
 def carried(patch: bytes) -> int:
