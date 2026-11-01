@@ -1652,6 +1652,11 @@ NEAR_MISS_BYTES = 64 << 10
 # wall over 0.13% of it.
 NEAR_MISS_SHARE = 50
 NEAR_MISS_CEIL = 1_500_000
+# Streams the splice carries WHOLE (no decisions to start from) may add up to
+# this. The same Sega press disc needs 2.44 MB over ten .eps/.tif/.psd files
+# whose text blocks the decoder cannot measure (which ten varies with the -mt2
+# run), on a release whose 2,391 extras the .rsr embeds whole anyway.
+SPLICE_RAW_CEIL = 4_000_000
 
 
 def _near_miss_allowance(total_packed: int) -> int:
@@ -15645,7 +15650,7 @@ class RsrToolAPI:
                 # replay STORES (its -msjpg) where the original compressed
                 # it, so there are no decisions on the replay's side to
                 # start from.
-                if raw_bytes + len(a) > NEAR_MISS_CEIL:
+                if raw_bytes + len(a) > SPLICE_RAW_CEIL:
                     self._log(f"      {name.split('/')[-1]}: its stream {why} "
                               f"and at {len(a):,} B is too big to carry "
                               "whole — not carried.", "dim")
