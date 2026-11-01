@@ -1657,6 +1657,13 @@ NEAR_MISS_CEIL = 1_500_000
 # whose text blocks the decoder cannot measure (which ten varies with the -mt2
 # run), on a release whose 2,391 extras the .rsr embeds whole anyway.
 SPLICE_RAW_CEIL = 4_000_000
+# A DOS combo that writes this much of the stream exactly goes to the splice at
+# once (see _sweep_recipe). Stock DOS RAR 2.00-2.50 agree over the first look,
+# so the line used to give each of them a full DOSBox pack to the same parting
+# byte before the splice ran: Chase_Hollywood_Stunt_Driver-CSiSO (0.44 GB) spent
+# two hours there, then verified on the first build's near miss with a 64 KB
+# bit patch. If the splice does not verify, the whole sweep runs after all.
+DOS_EARLY_SPLICE = 32 << 20
 
 
 def _near_miss_allowance(total_packed: int) -> int:
@@ -6577,8 +6584,9 @@ class RsrToolAPI:
                     return {"ok": False,
                             "error": "skipped" if self._skip.is_set()
                             else "stopped"}
-                res = self._capture_set(st, si, folder, work / f"set{si}",
-                                        s, exes, embedded)
+                res = self._capture_set_or_sweep(st, si, folder,
+                                                 work / f"set{si}", s, exes,
+                                                 embedded)
                 if res.get("partial"):
                     # Not a failure and not a wall: a fix release ships the
                     # repaired volume alone, so there is nothing here that could
@@ -6663,9 +6671,9 @@ class RsrToolAPI:
                     manifest["tag"] = _release_tag(base.name)
                     manifest["pair"] = sorted({folder.name, sib.name})
                     manifest["source_folder"] = str(base)
-                    res = self._capture_set(dict(st, volumes=union), si, base,
-                                            work / f"set{si}pair", s, exes,
-                                            embedded)
+                    res = self._capture_set_or_sweep(
+                        dict(st, volumes=union), si, base,
+                        work / f"set{si}pair", s, exes, embedded)
                     for v in res.get("set", {}).get("volumes", []):
                         src = pair_origin.get(v.get("name"))
                         if src is not None and src != base:
@@ -8049,6 +8057,26 @@ class RsrToolAPI:
 
     # ── one archive set ───────────────────────────────────────────────────
 
+    def _capture_set_or_sweep(self, st, si, folder, work, s, exes, embedded):
+        """_capture_set -- and again with the whole sweep when the DOS line's
+        early splice (DOS_EARLY_SPLICE) did not verify. The first try's
+        deltas are dropped, so none of them can reach the second."""
+        keep = dict(embedded)
+        self._tl.early_splice = False
+        res = self._capture_set(st, si, folder, work, s, exes, embedded)
+        if (res.get("ok") or not self._tl.early_splice
+                or self._stop.is_set() or self._skip.is_set()):
+            return res
+        self._log("    ◐ the early splice did not verify — sweeping the rest "
+                  "of the builds as usual.", "warn")
+        embedded.clear()
+        embedded.update(keep)
+        self._tl.no_early = True
+        try:
+            return self._capture_set(st, si, folder, work, s, exes, embedded)
+        finally:
+            self._tl.no_early = False
+
     def _capture_set(self, st: dict, si: int, folder: Path, work: Path,
                      s: dict, exes: list[Path], embedded: dict) -> dict:
         import rarfile
@@ -8854,6 +8882,13 @@ class RsrToolAPI:
                 passes.insert(0, (cands[0], rr_sectors))
             else:
                 passes.append((cands[0], rr_sectors))
+        # Only where _decisions_recipe can take the near miss; anywhere else an
+        # early stop would only leave the rest of the sweep unrun.
+        self._tl.early_ok = (not getattr(self._tl, "no_early", False)
+                             and st["format"] == "RAR4"
+                             and not (solid and len(targets) > 1)
+                             and len(mgroups) == 1 and not st.get("sfx")
+                             and not head_vol)
         for di, (dkb, rr_pass) in enumerate(passes):
             if self._stop.is_set() or self._skip.is_set():
                 return {"ok": False,
@@ -8910,7 +8945,7 @@ class RsrToolAPI:
                 if rr_pass != sweep_rr:
                     recipe["rr_exact"] = True
                 break
-            if self._budget_hit:
+            if self._budget_hit or getattr(self._tl, "early_splice", False):
                 break
         # Before the near miss, and even when the budget stopped the sweep:
         # every wall this fixes parks on the budget, because no build can
@@ -12026,6 +12061,20 @@ class RsrToolAPI:
                 if idx >= len(combos):
                     break
                 cur = combos[idx]
+            # The DOS line's own near miss, handed to the splice now rather
+            # than after every other build has packed to the same byte (see
+            # DOS_EARLY_SPLICE). _capture_set_or_sweep runs the whole sweep
+            # again if it does not verify.
+            if (bd_ and bd_[0] >= DOS_EARLY_SPLICE and bd_[3]
+                    and bd_[3][0] == self.DOS_MARK and idx
+                    and getattr(self._tl, "early_ok", False)):
+                self._tl.early_splice = True
+                self._log(f"    ◐ {_exe_label(bd_[1])} wrote {bd_[0]:,} B of "
+                          "the stream exactly before parting — trying the "
+                          f"splice on it now; {len(combos) - idx:,} combo(s) "
+                          "are left, and they run if it does not verify.",
+                          "info")
+                return None
             if not said_dos and len(cur) > 2 and cur[2] and \
                     cur[2][0] == self.DOS_MARK:
                 said_dos = True
