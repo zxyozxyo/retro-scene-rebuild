@@ -9724,15 +9724,15 @@ class RsrToolAPI:
     def _decisions_recipe(self, st, targets, level, solid, groups,
                           vol_bytes, head_vol, newnum, dirs, dirs_first,
                           rr_bytes) -> dict | None:
-        """The combo that ran deepest into a RAR 3 stream, handed to the
-        verifying replay to be carried as DECISIONS (_splice_attempt) -- or
-        None.
+        """The combo that ran deepest into a stream, handed to the verifying
+        replay to be carried as DECISIONS (RAR 3) or as a bit patch (RAR 2.0,
+        rar_bitpatch) by _splice_attempt -- or None.
 
-        Only where that can work: RAR 3.x, not solid, no recovery record,
-        and a build that wrote megabytes of the stream exactly before it
-        parted -- one that parts in the first megabyte is the wrong packer,
-        not a near miss. Nothing is packed here; the replay is the cost, and
-        it declines by itself when the decisions are not few."""
+        Only where that can work: not solid, and a build that wrote megabytes
+        of the stream exactly before it parted -- one that parts in the first
+        megabyte is the wrong packer, not a near miss. Nothing is packed here;
+        the replay is the cost, and it declines by itself when the decisions
+        are not few."""
         bd = (getattr(self._tl, "depth_box", None) or {}).get("best")
         # Solid only matters BETWEEN files: an archive of one file is one
         # stream either way (BreakQuest_Extra_Evolution_PSN_PSP-ABSTRAKT, one
@@ -9741,7 +9741,7 @@ class RsrToolAPI:
         # data (marker R in _splice_attempt).
         if (not bd or st["format"] != "RAR4" or (solid and len(targets) > 1)
                 or len(groups) != 1 or st.get("sfx") or head_vol
-                or rar4_unp_max(st["volumes"]) < 29 or bd[0] < 4 << 20):
+                or bd[0] < 4 << 20):
             return None
         depth, exe, mt_, sw_, dkb = bd[0], bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
         # A DOS build is replayed through DOSBox like any DOS recipe: the
@@ -15610,7 +15610,25 @@ class RsrToolAPI:
                 except (ValueError, IndexError, KeyError) as e:
                     why = f"cannot be read as decisions ({e})"
             else:
-                why = "is not a RAR 3 stream"
+                # RAR 2.0 has no decision writer, but it needs none: where a
+                # packer decided otherwise the stream parts for a block and
+                # then agrees again a few bits along, so the original's bytes
+                # in between are all it takes (rar_bitpatch). Ghost_Recon_
+                # XBOX-ProjectX: stock DOS RAR 2.50 -m1 writes all 578 MB but
+                # six spots in volume 4, 17,469 B.
+                import rar_bitpatch
+                bp = rar_bitpatch.diff(a, b, SPLICE_RAW_CEIL - raw_bytes)
+                if bp is not None:
+                    raw_bytes += rar_bitpatch.carried(bp)
+                    patches[name] = bp
+                    self._log(f"      {name.split('/')[-1]}: parts from the "
+                              f"replay in a few blocks — "
+                              f"{rar_bitpatch.carried(bp):,} B of the "
+                              "original carried between the points where "
+                              "the two streams agree again.", "dim")
+                    del a, b
+                    continue
+                why = "is not a RAR 3 stream, and differs in more than a few blocks"
             if patch is not None:
                 # Proved here, so a patch that does not write back falls to
                 # the same fallbacks as one never found: flags/al.gif of
@@ -15763,7 +15781,8 @@ class RsrToolAPI:
                 return None
         self._log(f"    ✓ {len(patches)} stream(s) differ from the replay: "
                   f"{carried:,} decision(s)"
-                  + (f" and {raw_bytes:,} B of whole stream" if raw_bytes
+                  + (f" and {raw_bytes:,} B of the original's own stream"
+                     if raw_bytes
                      else "")
                   + f" carried, with {literal:,} B of volume headers; every "
                   f"volume rebuilt and hash-checked "
@@ -15813,6 +15832,12 @@ class RsrToolAPI:
                     b = self._splice_solid(produced[0], name,
                                            json.loads(blob[4:]))
                     if b is None:
+                        return None
+                elif blob.startswith(b"BIT0"):
+                    import rar_bitpatch
+                    try:
+                        b = rar_bitpatch.apply(b, blob)
+                    except ValueError:
                         return None
                 else:
                     sink = bytearray()
