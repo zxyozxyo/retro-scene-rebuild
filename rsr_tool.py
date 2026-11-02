@@ -2358,6 +2358,10 @@ def zip_truncated(path: Path) -> str:
             "was never finished")
 
 
+_ZIP_METHOD_NAME = {1: "shrink", 6: "implode", 9: "deflate64", 12: "bzip2",
+                    14: "LZMA", 93: "zstd", 95: "xz", 98: "PPMd", 99: "AES"}
+
+
 def zip_payload(raw: bytes, ent: dict) -> bytes:
     """One entry's expanded bytes, taken from where its local header says they
     are.
@@ -7618,6 +7622,23 @@ class RsrToolAPI:
                 self._log(f"  {zp.name}  ·  ZIP  ·  {len(ents)} entr(y/ies)  ·  "
                           f"{len(skel):,} B of header carried verbatim", "dim")
                 deadline = (time.monotonic() + budget * 60) if budget else None
+                # Neither stored nor deflate: no zlib setting and no preflate
+                # can make it, and inflating it raised a bare zlib.error
+                # (Old_Towers_v1.1_NES-MiRAGE: the rom is method 14, LZMA).
+                odd = sorted({e["method"] for e in ents
+                              if e["method"] not in (0, 8)})
+                if odd:
+                    why = (f"member(s) use zip method "
+                           f"{', '.join(map(str, odd))} ("
+                           + ", ".join(_ZIP_METHOD_NAME.get(m, "unknown")
+                                       for m in odd)
+                           + "), not deflate")
+                    if self._zip_carry(zp, zi_no, raw, ents, embedded,
+                                       manifest, why, cap):
+                        self._log(f"    {zp.name}: {why} — carried whole.",
+                                  "dim")
+                        continue
+                    return {"ok": False, "error": f"{zp.name}: {why}"}
                 files = []
                 streams = {}
                 ok = True
