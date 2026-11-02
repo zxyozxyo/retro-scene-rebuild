@@ -5379,6 +5379,52 @@ class RsrToolAPI:
         p = self._app_dir / "apps" / "dosbox" / "dosbox.exe"
         return p if p.is_file() else None
 
+    # DOSBox Staging hides a host file of 2 GiB or more from DOS: `dir` does
+    # not list it and rar says "Cannot open D:\X.ISO" / "No files". Measured
+    # 2026-11-01 with sparse 1.9/2.2/3.1/4.4 GB files: Staging 0.83 showed
+    # only the first. Every XBOX 2003 single-ISO release over 2 GiB "walled"
+    # in five minutes that way -- 274 DOS combos and not one archive. DOSBox-X
+    # lists all four on the same plain folder mount, so a pack whose source is
+    # that big goes there instead.
+    DOS_BIG_SOURCE = 1 << 31
+
+    def _dosboxx_exe(self) -> Path | None:
+        p = self._app_dir / "apps" / "dosbox-x" / "dosbox-x.exe"
+        return p if p.is_file() else None
+
+    @staticmethod
+    def _dosboxx_free(loadfix_kb: int) -> str:
+        """DOSBox-X's 'minimum mcb free' that loads RAR.EXE where Staging
+        does. The 16-bit line's output can depend on the memory it finds (see
+        @LOADFIX64), so the two boxes must agree on it. Measured with a .COM
+        printing its PSP: Staging 0x0193 (0x11E0 behind LOADFIX -64);
+        DOSBox-X with its kernel in UMB puts the PSP at the value + 0x114, and
+        its own LOADFIX lands 0x3F paragraphs higher than Staging's, so the
+        LOADFIX is taken here instead of in the batch. Same packs, both boxes,
+        byte-identical (dosrar155/200/250 -m1/-m5/-mm, LOADFIX 64, DOS32 2.90)."""
+        para = 0x7F
+        if loadfix_kb:
+            para += loadfix_kb * 64 + 0x4D
+        return f"{para:X}"
+
+    def _mark_dos_blind(self) -> None:
+        h = getattr(self._tl, "dos_blind", None)
+        if isinstance(h, dict):
+            h["hit"] = True
+
+    def _dos_blind(self, wdir: Path) -> bool:
+        """True when DOS rar could not see its source -- a pack that says
+        nothing about the archive. Remembered on the release (see _tl) so its
+        verdict is a gap to fill, not a wall."""
+        try:
+            raw = (wdir / "RARLOG.TXT").read_bytes().upper()
+        except OSError:
+            return False
+        if b"CANNOT OPEN D:\\" in raw or b"NO FILES" in raw:
+            self._mark_dos_blind()
+            return True
+        return False
+
     @staticmethod
     def _is_83(name: str) -> bool:
         """A name DOS sees unchanged. Anything else is mangled to ~1 form on
@@ -5713,6 +5759,21 @@ class RsrToolAPI:
                 self._log(f"  ERROR: {e}", "err")
                 self._log(traceback.format_exc(), "dim")
                 res = {"ok": False, "error": str(e)}
+            else:
+                # A sweep whose DOS packs never saw the source did not search
+                # the DOS line at all, so its "recipe not found" is no verdict.
+                # Kept off kind='wall' -- an error is re-tried on every scan.
+                if (not res.get("ok")
+                        and res.get("error") == "recipe not found"
+                        and (getattr(self._tl, "dos_blind", None)
+                             or {}).get("hit")):
+                    res = dict(res, error="DOS rar could not see the source "
+                                          "— the DOS line never ran; a gap, "
+                                          "not a wall")
+                    self._log(f"  ⚠ {rel}: DOS rar could not open the source "
+                              "(\"Cannot open\" / \"No files\" — a source of "
+                              "2 GiB or more needs apps\\dosbox-x) — recorded "
+                              "as a gap to re-run, not a wall.", "warn")
             finally:
                 # The grant was for this release, once. Forget it here rather
                 # than at the next release's start: with several in flight,
@@ -6344,6 +6405,9 @@ class RsrToolAPI:
                          exes: list[Path]) -> dict:
         rel = _release_name(folder)
         self._tl.system = _release_system(rel, folder)
+        # A holder, not a flag: DOS combos run in slot threads, which copy
+        # it in (see _slot), and must report back to this one.
+        self._tl.dos_blind = {"hit": False}
         sets = group_archive_sets(folder)
         if not sets:
             # Say WHICH kind of nothing. A third of the NDS corpus is ZIP
@@ -10580,8 +10644,22 @@ class RsrToolAPI:
         measured: -m0..-m5, -ep, -y and -v<N>b work; -md and -mt do not, and
         -vn breaks -v exactly as it does on 2.x Windows builds."""
         box = self._dosbox_exe()
+        try:
+            big = max((Path(s).stat().st_size for s in srcs), default=0)
+        except OSError:
+            big = 0
+        if big >= self.DOS_BIG_SOURCE:
+            if big >= 1 << 32:
+                # Past what a DOS file size can hold: no DOS rar ever packed
+                # it, so the line has nothing to say here.
+                return False
+            box = self._dosboxx_exe()
+            if box is None:
+                self._mark_dos_blind()
+                return False
         if box is None:
             return False
+        bigbox = big >= self.DOS_BIG_SOURCE
         try:
             if wdir.exists():
                 _rmtree(wdir)
@@ -10618,9 +10696,10 @@ class RsrToolAPI:
             # A solid switch in `extra` REPLACES the default one -- rar honours
             # the last it sees, so -s1 beside a trailing -s- is cancelled.
             extra = [str(x) for x in extra if str(x) != self.DOS_MARK]
-            loadfix = ""
+            loadfix, loadfix_kb = "", 0
             for x in [x for x in extra if x.startswith("@LOADFIX")]:
-                loadfix = f"LOADFIX -{int(x[8:])} "
+                loadfix_kb = int(x[8:])
+                loadfix = "" if bigbox else f"LOADFIX -{loadfix_kb} "
                 extra.remove(x)
             # @FILL<n>: the same build with its never-written hash-chain links
             # pre-set to n, standing in for the leftover memory the scene's PC
@@ -10710,8 +10789,16 @@ class RsrToolAPI:
             # misses. The 16-bit line is left alone: its output depends on
             # the memory it finds (see @LOADFIX64).
             mem = "[dosbox]\nmemsize=63\n" if self._is_dos32_exe(ex) else ""
-            conf = (f"[sdl]\noutput=texture\n{mem}[cpu]\ncore=auto\ncycles=max\n"
-                    f"[autoexec]\n{mounts}c:\ncall GO.BAT\nexit\n")
+            if bigbox:
+                conf = (f"[sdl]\noutput=surface\n{mem}[cpu]\ncore=auto\n"
+                        f"cycles=max\n[dos]\nminimum mcb free="
+                        f"{self._dosboxx_free(loadfix_kb)}\n"
+                        f"kernel allocation in umb=true\n"
+                        f"[autoexec]\n{mounts}c:\ncall GO.BAT\nexit\n")
+            else:
+                conf = (f"[sdl]\noutput=texture\n{mem}[cpu]\ncore=auto\n"
+                        f"cycles=max\n"
+                        f"[autoexec]\n{mounts}c:\ncall GO.BAT\nexit\n")
             cfg = wdir / "dosbox.conf"
             cfg.write_text(conf, encoding="utf-8")
             # Headless. Without this DOSBox opens a window for every
@@ -10721,6 +10808,10 @@ class RsrToolAPI:
             # nothing about the output.
             env = dict(os.environ, SDL_VIDEODRIVER="dummy")
             argv = [str(box), "-conf", str(cfg), "-noconsole"]
+            if bigbox:
+                # Its built-in defaults under our conf -- no dosbox-x.conf
+                # beside the exe or in the profile -- and no folder prompt.
+                argv[1:1] = ["-nopromptfolder", "-defaultconf"]
             if stop_after:
                 # Enough DATA to disprove a build, and no more. Verified that
                 # bytes rar has written are already on the host even though it
@@ -10738,7 +10829,10 @@ class RsrToolAPI:
                                 heartbeat=f"DOS first look "
                                           f"{_exe_label(ex.name)}",
                                 cwd=None, env=env)
-                return _enough()
+                if _enough():
+                    return True
+                self._dos_blind(wdir)
+                return False
             if first_volume_only and vol_bytes:
                 # Same bargain the Windows sweep makes in _run_until: a wrong
                 # build diverges inside volume one, so once volume two opens
@@ -10753,7 +10847,10 @@ class RsrToolAPI:
                 self._run_until(argv, _second_volume, timeout=timeout,
                                 heartbeat=f"DOS probe {_exe_label(ex.name)}",
                                 cwd=None, env=env)
-                return (wdir / "PROBE.RAR").is_file() and _second_volume()
+                if (wdir / "PROBE.RAR").is_file() and _second_volume():
+                    return True
+                self._dos_blind(wdir)
+                return False
             if ready is not None:
                 # Killed the moment `ready` has seen enough (a finished volume
                 # that departs from the original); the caller reads why.
@@ -10771,6 +10868,8 @@ class RsrToolAPI:
                 return False
             raw = log.read_bytes()
             self._log_dos(ex, raw)
+            if self._dos_blind(wdir):
+                return False
             return b"RSRDONE" in raw
         except Exception:
             return False
@@ -12147,12 +12246,14 @@ class RsrToolAPI:
             slot_rel = getattr(self._tl, "rel", None)
             slot_tag = getattr(self._tl, "tag", "")
             slot_box = getattr(self._tl, "depth_box", None)
+            slot_blind = getattr(self._tl, "dos_blind", None)
 
             def _slot(s: int):
                 # A fresh thread has none of the capture thread's locals: the
                 # release name is what a per-release Skip is matched on.
                 self._tl.rel, self._tl.tag = slot_rel, slot_tag
                 self._tl.depth_box = slot_box
+                self._tl.dos_blind = slot_blind
                 ex_, n_, *rest_ = chunk[s]
                 extra_ = rest_[0] if rest_ else ()
                 try:
