@@ -5837,6 +5837,13 @@ class RsrToolAPI:
                 # apart so a later re-run (with better priors) can be pointed
                 # at exactly these, and so the failed count stays meaningful.
                 pos, sig = getattr(self, "_sweep_pos", (0, ""))
+                if (getattr(self._tl, "dos_blind", None) or {}).get("hit"):
+                    # Its DOS combos ran blind, so resuming past them would
+                    # skip the DOS line for good. World_Championship_Pool,
+                    # Indiana_Jones, Rayman_3 and VRally_3 (2.2-3.1 GB) parked
+                    # 2026-11-01 that way, resumed at combo 600-1,700 the next
+                    # day with no DOS pack at all, and were written off.
+                    pos = 0
                 self._db_miss(rel, "parked", "time budget", len(exes),
                               combos=pos, order_sig=sig)
                 # Its own status word, not "skipped". A parked release was
