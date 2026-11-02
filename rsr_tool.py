@@ -1904,6 +1904,15 @@ def _explain_error(reason: str) -> str:
                 "shorter than its header declares, or rar exited badly. Almost "
                 "always a damaged or missing volume in the release folder; "
                 "check the .sfv before re-running.")
+    if "unverified" in r and "near miss" in r:
+        return ("No recipe was found. The closest build wrote the stream "
+                "exactly for a long way and then parted from it, so the rest "
+                "was tried as a splice: the replay plus a small patch "
+                "carrying the original's bytes where they differ. The two "
+                "differ in too many places for that (the log says how many "
+                "and how much they would carry), so nothing was written. "
+                "Usually a DOS pack whose packer PC decided differently all "
+                "the way through, rather than at a few spots. Always re-tried.")
     if "unverified" in r:
         return ("A recipe WAS found — every compressed stream matched byte for "
                 "byte — but replaying the command produced volumes that differ "
@@ -9234,7 +9243,10 @@ class RsrToolAPI:
             "ok": verify in ("exact", "delta"),
             "error": {"exact": "", "delta": "",
                       "failed": "replay could not be run"}.get(
-                          verify, "replay unverified"),
+                          verify, "replay unverified" + (
+                              f" (near miss: {len(targets) - recipe['near_miss']}"
+                              f" of {len(targets)} stream(s) exact)"
+                              if recipe.get("near_miss") else "")),
             "set": {
                 "stem": st["stem"],
                 "format": st["format"],
