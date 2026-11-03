@@ -660,7 +660,11 @@ _JOB = None
 _JOB_LOCK = threading.Lock()
 
 # The settings that can be changed while a scan or rebuild runs -- cores,
-# releases at once, rebuilds at once -- as THIS PROCESS last set them. They
+# releases at once, rebuilds at once -- as each WINDOW last set them
+# (RsrToolAPI._live_d; this dict is no longer used). Per process was not
+# enough: main.py opens every RSR window in the same process, so a zip scan
+# set to 1 job put the XBOX scan beside it on 1 job too (2026-11-03).
+# Originally as THIS PROCESS last set them. They
 # used to live only in rsr_tool.json, which every open copy of the app reads:
 # two scans side by side each re-read it at every free slot, so setting one
 # to 4 and the other to 2 left both on whichever was set last. The file still
@@ -5019,7 +5023,7 @@ class RsrToolAPI:
             # the form this instance just saved is this instance's own
             for key in ("workers", "jobs", "rebuild_jobs"):
                 if key in (s or {}) and key in out:
-                    _LIVE[key] = out[key]
+                    self._live_d()[key] = out[key]
         except Exception as e:
             return {"ok": False, "error": str(e)}
         global _WORK_DIR
@@ -10524,7 +10528,7 @@ class RsrToolAPI:
         except Exception:
             cfg = {}
         cfg["workers"] = n
-        _LIVE["workers"] = n
+        self._live_d()["workers"] = n
         try:
             self._config_path.write_text(json.dumps(cfg, indent=2), "utf-8")
         except Exception as e:
@@ -10548,7 +10552,7 @@ class RsrToolAPI:
         except Exception:
             cfg = {}
         cfg["jobs"] = n
-        _LIVE["jobs"] = n
+        self._live_d()["jobs"] = n
         try:
             self._config_path.write_text(json.dumps(cfg, indent=2), "utf-8")
         except Exception as e:
@@ -10578,7 +10582,7 @@ class RsrToolAPI:
         except Exception:
             cfg = {}
         cfg["rebuild_jobs"] = n
-        _LIVE["rebuild_jobs"] = n
+        self._live_d()["rebuild_jobs"] = n
         try:
             self._config_path.write_text(json.dumps(cfg, indent=2), "utf-8")
         except Exception as e:
@@ -10629,12 +10633,16 @@ class RsrToolAPI:
         frees so it can be changed while a scan runs."""
         return max(1, min(16, self._live("jobs", 1)))
 
+    def _live_d(self) -> dict:
+        """This window's live settings (see _LIVE)."""
+        return self.__dict__.setdefault("_live_vals", {})
+
     def _live(self, key: str, default: int) -> int:
         """A live setting as this process last set it; the saved one the
         first time it is asked, and from then on this process's own."""
-        if key not in _LIVE:
-            _LIVE[key] = _num(self.get_settings().get(key), default, int)
-        return _num(_LIVE[key], default, int)
+        if key not in self._live_d():
+            self._live_d()[key] = _num(self.get_settings().get(key), default, int)
+        return _num(self._live_d()[key], default, int)
 
     def _pin_live(self, s: dict | None = None) -> None:
         """At the start of a run: this instance's own cores / releases at
@@ -10643,7 +10651,7 @@ class RsrToolAPI:
         s = s or self.get_settings()
         for key in ("workers", "jobs", "rebuild_jobs"):
             if key in s:
-                _LIVE[key] = s[key]
+                self._live_d()[key] = s[key]
 
     def _rebuild_slots(self) -> int:
         """How many releases to REBUILD at once, re-read as each one ends.
