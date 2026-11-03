@@ -2127,8 +2127,11 @@ def packed_blocks(head: Path) -> dict[str, list[tuple[str, int, int]]]:
 
 LHA_METHODS = (b"-lh0-", b"-lh1-", b"-lh2-", b"-lh3-", b"-lh4-", b"-lh5-",
                b"-lh6-", b"-lh7-", b"-lzs-", b"-lz4-", b"-lz5-", b"-pm0-",
-               b"-pm2-")
-LHA_STORED = ("-lh0-", "-lz4-", "-pm0-")
+               b"-pm2-", b"-lhd-")
+# -lhd- is a directory entry: no data at all, so stored by definition. Missing
+# from the list, an archive that leads with one (iND's WHDLoad LHAs, level-2
+# headers: I-CV29WH.LHA, I-RDW113.LHA) read as "not a readable LHA archive".
+LHA_STORED = ("-lh0-", "-lz4-", "-pm0-", "-lhd-")
 
 
 def _u16(b: bytes, o: int) -> int:
