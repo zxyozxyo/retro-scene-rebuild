@@ -7217,9 +7217,17 @@ class RsrToolAPI:
             del raw
         except OSError:
             ignore = []
+        # cwd=work: precomp writes its scratch files (~temp00000000.dat,
+        # ~temp000000001.dat, ...) into the CURRENT directory under fixed
+        # names, so two releases in preflate at once overwrote each other's
+        # and both failed -- four N64 zips (Conker, Majora's Mask, both
+        # Pokemon Stadium 2) "preflate could not run" in the same second
+        # 2026-11-03, each fine on its own -- and a stopped one left them in
+        # the app folder.
         if not self._run([str(exe), "-cn", "-t+z", "-d0", *ignore, f"-o{out}",
                           str(zp)],
-                         timeout=3600, heartbeat=f"preflate {zp.name}"):
+                         timeout=3600, heartbeat=f"preflate {zp.name}",
+                         cwd=work):
             return None
         return out.read_bytes() if out.is_file() else None
 
@@ -7235,8 +7243,9 @@ class RsrToolAPI:
             if q.exists():
                 q.unlink()
         src.write_bytes(pcf)
+        # Its own directory, for the reason in _pcf_of.
         if not self._run([str(exe), "-r", f"-o{dst}", str(src)], timeout=3600,
-                         heartbeat="preflate restore"):
+                         heartbeat="preflate restore", cwd=work):
             return None
         return dst.read_bytes() if dst.is_file() else None
 
