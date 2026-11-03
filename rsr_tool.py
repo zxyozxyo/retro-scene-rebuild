@@ -10837,15 +10837,23 @@ class RsrToolAPI:
             # misses. The 16-bit line is left alone: its output depends on
             # the memory it finds (see @LOADFIX64).
             mem = "[dosbox]\nmemsize=63\n" if self._is_dos32_exe(ex) else ""
+            # The dynamic core. core=auto ran the 16-bit line -- real-mode
+            # code -- on the interpreting core, and that was most of the
+            # "DOSBox's 0.5 MB/s". Timed 2026-11-03 on a 16 MB sample, one
+            # pack at a time beside a running scan: dosrar200 -m5 -s 29 s ->
+            # 5.9 s on Staging, 58.8 s -> 10.2 s on DOSBox-X; 155/200/250 with
+            # -m1/-m5/-mm/LOADFIX and DOS32 2.90/3.11 all byte-identical to
+            # core=auto. Staging is flat from 1M fixed cycles up and does best
+            # fixed; DOSBox-X slows as fixed cycles rise and does best at max.
             if bigbox:
-                conf = (f"[sdl]\noutput=surface\n{mem}[cpu]\ncore=auto\n"
+                conf = (f"[sdl]\noutput=surface\n{mem}[cpu]\ncore=dynamic\n"
                         f"cycles=max\n[dos]\nminimum mcb free="
                         f"{self._dosboxx_free(loadfix_kb)}\n"
                         f"kernel allocation in umb=true\n"
                         f"[autoexec]\n{mounts}c:\ncall GO.BAT\nexit\n")
             else:
-                conf = (f"[sdl]\noutput=texture\n{mem}[cpu]\ncore=auto\n"
-                        f"cycles=max\n"
+                conf = (f"[sdl]\noutput=texture\n{mem}[cpu]\ncore=dynamic\n"
+                        f"cycles=fixed 5000000\n"
                         f"[autoexec]\n{mounts}c:\ncall GO.BAT\nexit\n")
             cfg = wdir / "dosbox.conf"
             cfg.write_text(conf, encoding="utf-8")
