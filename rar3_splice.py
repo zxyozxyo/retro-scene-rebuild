@@ -42,6 +42,8 @@ import bisect
 import json
 import zlib
 
+import rar3_ppm
+
 NC, DC, LDC, RC, BC = 299, 60, 17, 28, 20
 LDEC = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56,
         64, 80, 96, 112, 128, 160, 192, 224]
@@ -321,6 +323,7 @@ def parse_iter(data):
     old = [0] * (NC + DC + LDC + RC)
     blocks = []
     st = {"prevlow": 0, "lowrep": 0}
+    ppm = [rar3_ppm.PpmStream()]
     look = {}
 
     def block_ok(q, got):
@@ -395,10 +398,27 @@ def parse_iter(data):
         bf = peek(16)
         if bf & 0x8000:
             s = pos >> 3
-            q = _ppm_end(buf, s, old, nbits, block_ok)
+            # Decoded (rar3_ppm): the block's exact end and how many bytes
+            # of the file it stands for. The model runs on across the
+            # stream's text blocks, so one decoder reads them all in order;
+            # once it cannot, the old guess (_ppm_end, no length) takes over.
+            produced = None
+            q = None
+            if ppm[0] is not None:
+                try:
+                    q, produced, last = ppm[0].block(buf, s)
+                    if last or q > nbits >> 3:
+                        q = None       # the stream ends in text
+                except Exception:
+                    ppm[0] = None
+                    produced = None
+                    q = _ppm_end(buf, s, old, nbits, block_ok)
+            else:
+                q = _ppm_end(buf, s, old, nbits, block_ok)
             end = q if q is not None else nbits >> 3
             blocks.append({"ppm": bytes(buf[s:end]), "keep": True,
-                           "pad": (padv, pad), "end": None, "syms": [], "at": s})
+                           "pad": (padv, pad), "end": None, "syms": [], "at": s,
+                           "out": produced})
             pos = end * 8
             return q is not None
         keep = bool(bf & 0x4000)
@@ -555,6 +575,8 @@ class TokDec:
 
     def block(self, b):
         if "ppm" in b:
+            if b.get("out") is not None:
+                return [("P", b["ppm"], b["out"])]
             return [("P", b["ppm"])]
         olds, last = self.olds, self.last
         toks = []; s = b["syms"]; i = 0; prevlow = 0; lowrep = 0
@@ -776,6 +798,11 @@ def _tok_len(t) -> int:
     return 1 if t[0] == "L" else t[1] if t[0] == "M" else 0
 
 
+def _plen(t):
+    """A decoded text block's output length, or None (see rar3_ppm)."""
+    return t[2] if t is not None and t[0] == "P" and len(t) > 2 else None
+
+
 def _flat(stream):
     for toks, _keep, _end in read_blocks(stream):
         yield from toks
@@ -927,8 +954,12 @@ def diff(original: bytes, replayed: bytes, max_tokens: int = 200_000):
             carried += 1
             cur[1] += 1
             ib += 1
+            la, lb = _plen(ta), _plen(tb)
             tb = next(B, None)
-            if tb is not None:
+            if la is not None and lb is not None:
+                pa += la
+                pb += lb
+            elif tb is not None:
                 pa += _text_len(pa, A, B, pb, tb, signed=True)
             ta = next(A, None)
             if pa == pb and ta == tb:
@@ -942,14 +973,16 @@ def diff(original: bytes, replayed: bytes, max_tokens: int = 200_000):
             if carried > max_tokens:
                 return None
             if ta[0] == "P":
-                pa += _text_len(pa, A, B, pb, tb)
+                pa += (_plen(ta) if _plen(ta) is not None
+                       else _text_len(pa, A, B, pb, tb))
             else:
                 pa += _tok_len(ta)
             ta = next(A, None)
         else:
             cur[1] += 1
             if tb[0] == "P":
-                pb += _text_len(pb, B, A, pa, ta)
+                pb += (_plen(tb) if _plen(tb) is not None
+                       else _text_len(pb, B, A, pa, ta))
             else:
                 pb += _tok_len(tb)
             ib += 1
