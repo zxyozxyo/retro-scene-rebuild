@@ -25,6 +25,7 @@ import struct
 
 MAGIC = b"BIT0"
 _STEP = 1 << 20
+NEAR = 256 << 10      # dense resync window (bytes)
 
 
 def bits_at(buf: bytes, bit: int, n: int) -> bytes:
@@ -94,8 +95,44 @@ def _resync(a, b, i, d, reach, win=256):
     return None
 
 
+def _resync_far(a, b, i, d, near, far, win=256, step=128 << 10):
+    """_resync for a stretch longer than `near`: one 256 B sample of `a` every
+    128 KB from i + near to i + far, looked for in b at all eight bit phases.
+    The first hit is walked back to where the two first agree again.
+
+    F1_Career_Challenge_PAL_REPACK_XBOX-CSiSO: stock DOS RAR 2.00 -mm parts
+    at byte 581,009,151 and agrees again 6.5 MB on, 115,485 bits behind --
+    past the 4 MB the dense search looks through, and that search rescans
+    its whole window per 32 B, so it cannot simply be made wider."""
+    lo = max(0, 8 * i + d - 8 * (far // 2))
+    hi = min(8 * len(b), 8 * (i + far + far // 2) + d)
+    nb = (hi - lo) // 8
+    phases = [bits_at(b, lo + p, nb) for p in range(8)]
+    for j in range(i + near, min(len(a) - win, i + far), step):
+        w = a[j:j + win]
+        best = None
+        for p, ph in enumerate(phases):
+            k = ph.find(w)
+            if k >= 0:
+                at = lo + p + 8 * k
+                if best is None or abs(at - 8 * j - d) < abs(best - 8 * j - d):
+                    best = at
+        if best is None:
+            continue
+        d2 = best - 8 * j
+        # back to the first agreeing byte, a KB at a time and then byte-wise
+        while j - 1024 > i and a[j - 1024:j] == bits_at(b, 8 * (j - 1024) + d2,
+                                                         1024):
+            j -= 1024
+        while j > i + 1 and a[j - 1:j] == bits_at(b, 8 * (j - 1) + d2, 1):
+            j -= 1
+        return j, d2
+    return None
+
+
 def diff(original: bytes, ours: bytes, max_carry: int,
-         reach: int = 4 << 20, notes: list | None = None) -> bytes | None:
+         reach: int = 4 << 20, notes: list | None = None,
+         far: int = 16 << 20) -> bytes | None:
     """The patch that turns `ours` into `original`, or None when the streams
     do not agree again within `reach` bytes of a difference or the original's
     bytes it would carry pass `max_carry` -- and then, given `notes`, why."""
@@ -108,7 +145,13 @@ def diff(original: bytes, ours: bytes, max_carry: int,
         i = _first_diff(original, ours, i, d)
         if i is None:
             break
-        r = _resync(original, ours, i, d, reach)
+        # Dense (every 32 B) only close by: it searches its whole window per
+        # step, so a 4 MB window cost minutes per spot and Frogger_Beyond's
+        # 1,251 spots took an hour. Further out, sampled (_resync_far).
+        near = min(reach, NEAR)
+        r = _resync(original, ours, i, d, near)
+        if r is None and max(reach, far) > near and len(original) - i > near:
+            r = _resync_far(original, ours, i, d, near, max(reach, far))
         if r is None:
             # Different to the end: carry the rest if it is small.
             j, d2 = len(original), 8 * len(ours) - 8 * len(original)
@@ -116,7 +159,7 @@ def diff(original: bytes, ours: bytes, max_carry: int,
             j, d2 = r
         carried += j - i
         if carried > max_carry:
-            return _no(f"no agreement again within {reach:,} B of byte "
+            return _no(f"no agreement again within {max(reach, far):,} B of byte "
                        f"{i:,}" if r is None else
                        f"{len(edits) + 1} spots by byte {j:,} carry "
                        f"{carried:,} B, past the {max_carry:,} B allowed")
