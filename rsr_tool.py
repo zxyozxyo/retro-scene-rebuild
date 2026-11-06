@@ -1661,6 +1661,12 @@ NEAR_MISS_CEIL = 1_500_000
 # whose text blocks the decoder cannot measure (which ten varies with the -mt2
 # run), on a release whose 2,391 extras the .rsr embeds whole anyway.
 SPLICE_RAW_CEIL = 4_000_000
+# A RAR 2.0 bit patch may carry this share of its own stream instead, when that
+# is more. The XBOX 2002/2003 DOS near misses (Red_Card_2003_Rip_XBOX-RIOT,
+# Star_Wars_The_Clone_Wars_XBOX-ProjectX, F1_Career_Challenge_PAL_REPACK_XBOX-
+# CSiSO ...) part in a few hundred scattered spots and all hit the flat 4 MB
+# part-way through a 0.4-1.4 GB stream -- a patch of 1-2% of it.
+BIT_PATCH_SHARE = 40
 # A DOS combo that writes this much of the stream exactly goes to the splice at
 # once (see _sweep_recipe). Stock DOS RAR 2.00-2.50 agree over the first look,
 # so the line used to give each of them a full DOSBox pack to the same parting
@@ -1672,6 +1678,18 @@ DOS_EARLY_SPLICE = 32 << 20
 
 def _near_miss_allowance(total_packed: int) -> int:
     return max(NEAR_MISS_BYTES, min(NEAR_MISS_CEIL, total_packed // NEAR_MISS_SHARE))
+
+
+def _round_vol_sizes(vol: int) -> list:
+    """Round -v sizes a little above a volume's length, nearest first: what a
+    packer typed when its rar keeps the recovery record inside -v (DOS 2.x).
+    Within 1% of the length, at most six."""
+    out = set()
+    for step in (1000, 1024, 10_000, 100_000, 1 << 20, 1_000_000):
+        c = -(-vol // step) * step
+        if vol < c <= vol + vol // 100:
+            out.add(c)
+    return sorted(out)[:6]
 
 
 def _near_miss_streams(count: int) -> int:
@@ -11118,6 +11136,31 @@ class RsrToolAPI:
                             # switches -- and with only the build named that
                             # reads as the tool repeating itself.
                             sw_ = " ".join(str(a) for a in extra[1:])
+                            spot = (self._spotty_look(look / "PROBE.RAR",
+                                                      prefix)
+                                    if fmt == "RAR4" else None)
+                            if spot is not None:
+                                # Scattered spots, as on the XBOX DOS near
+                                # misses but starting early: the full pack
+                                # would part at the same byte, so rank it at
+                                # the least depth the end-of-sweep splice
+                                # takes (_deep_near_miss) rather than by that
+                                # byte. Not the early splice: F1_Career_
+                                # Challenge-CSiSO's LOADFIX variants spot at
+                                # 42 KB, while plain dosrar200 runs 473 MB
+                                # exact and is the base to splice from.
+                                self._log(f"      first look: "
+                                          f"{_exe_label(ex.name)}"
+                                          f"{' ' + sw_ if sw_ else ''} parts "
+                                          f"at byte {spot:,} and agrees again "
+                                          "a little later — a spot, not "
+                                          "another packer; kept for the "
+                                          "splice if nothing runs deeper.",
+                                          "info")
+                                self._note_depth(4 << 20, ex, n, extra,
+                                                 dict_kb)
+                                self._tally_reject(self.PREFIX_DIVERGED)
+                                return False
                             self._log(f"      first look: "
                                       f"{_exe_label(ex.name)}"
                                       f"{' ' + sw_ if sw_ else ''} ruled out "
@@ -12602,6 +12645,47 @@ class RsrToolAPI:
         return None
 
     @staticmethod
+    def _spotty_look(probe_head: Path, prefix: dict, reach: int = 256 << 10):
+        """The byte where a half-written DOS RAR 2.0 archive first parts from
+        the original, when the two agree again within `reach` (at some bit
+        offset) and well before the probe runs out -- a spot, not a different
+        packer. None otherwise.
+
+        Outlaw_Golf_9_Holes_of_Xmas_Usa_XBOX-CSiSO: stock DOS RAR 2.50 -mm
+        parts 710,887 B in, then agrees again; the whole 1.19 GB stream needs
+        13,534 B of bit patch. The first look ruled out every build on that
+        first spot, so the splice never saw one."""
+        import rar_bitpatch
+        try:
+            size = probe_head.stat().st_size
+        except OSError:
+            return None
+        stored = getattr(prefix, "stored", ())
+        for nm, (src_vol, src_off, src_len) in prefix.items():
+            if nm in stored:
+                continue
+            for off in rar4_reserved_data_offsets(probe_head, nm):
+                n = min(size - off, src_len)
+                if n < 64 << 10:
+                    continue
+                try:
+                    with open(probe_head, "rb") as a, open(src_vol, "rb") as b:
+                        a.seek(off)
+                        b.seek(src_off)
+                        ours, orig = a.read(n), b.read(n)
+                except OSError:
+                    continue
+                if ours == orig:
+                    continue
+                i = next(k for k in range(n) if ours[k] != orig[k])
+                if i < 32 << 10:
+                    continue        # parts in its first block: another packer
+                r = rar_bitpatch._resync(orig, ours, i, 0, reach)
+                if r and r[0] + 4096 < n:
+                    return i
+        return None
+
+    @staticmethod
     def _early_verdict(probe_head: Path, prefix: dict, min_bytes: int,
                        depth=None):
         """False only if NO reading of this half-written archive agrees with
@@ -13274,6 +13358,17 @@ class RsrToolAPI:
                             fams[n] = e.name
                     sibs = sibs[:8] + [b for _n, b in sorted(fams.items())]
                 cands = [dict(recipe, exe=name) for name in sibs[:14]]
+                # DOS RAR 2.x keeps room for the record INSIDE -v, so its
+                # volumes come out short of the size it was asked for, and
+                # reading -v off the file's length asks for too little.
+                # Cabelas_Deer_Hunter_2004_Season_USA_XBOXDVD-CSiSO: every
+                # volume is 49,999,222 B; -v49999222b leaves 775 B less data
+                # in each, while -v50000000b gives them byte for byte. So for
+                # a DOS build, the round sizes just above go first.
+                vb = int(recipe.get("volume_bytes") or 0)
+                if vb and "dosrar" in str(recipe.get("exe", "")).lower():
+                    cands = [dict(recipe, volume_bytes=c)
+                             for c in _round_vol_sizes(vb)] + cands
                 # ...and, last, this build asked for the exact recovered
                 # count, for a release that did name a size rather than
                 # taking the default.
@@ -13299,11 +13394,18 @@ class RsrToolAPI:
                         else:
                             _rmtree(cwork)   # a full set per candidate
                         continue
-                    self._log(f"    the recovery record came back wrong "
-                              f"for {_exe_label(recipe['exe'])}; "
-                              f"{_exe_label(name)} makes it exactly — "
-                              "same streams, different -rr default.",
-                              "dim")
+                    if cand.get("volume_bytes") != recipe.get("volume_bytes"):
+                        self._log(f"    the volumes came back short: DOS RAR "
+                                  f"keeps the recovery record inside -v, and "
+                                  f"-v{cand['volume_bytes']}b makes them "
+                                  "exactly.", "dim")
+                        recipe["volume_bytes"] = cand["volume_bytes"]
+                    else:
+                        self._log(f"    the recovery record came back wrong "
+                                  f"for {_exe_label(recipe['exe'])}; "
+                                  f"{_exe_label(name)} makes it exactly — "
+                                  "same streams, different -rr default.",
+                                  "dim")
                     recipe["exe"] = name
                     recipe["version"] = _exe_label(name)
                     recipe["rr_exact"] = cand.get("rr_exact", False)
@@ -15836,8 +15938,10 @@ class RsrToolAPI:
                 # six spots in volume 4, 17,469 B.
                 import rar_bitpatch
                 bp_why: list = []
-                bp = rar_bitpatch.diff(a, b, SPLICE_RAW_CEIL - raw_bytes,
-                                       notes=bp_why)
+                bp = rar_bitpatch.diff(
+                    a, b, max(SPLICE_RAW_CEIL - raw_bytes,
+                              len(a) // BIT_PATCH_SHARE),
+                    notes=bp_why)
                 if bp is not None:
                     raw_bytes += rar_bitpatch.carried(bp)
                     patches[name] = bp
