@@ -3380,6 +3380,86 @@ def _reorder_rar4_blocks(data: bytes, want: list) -> bytes | None:
     return out if len(out) == len(data) else None
 
 
+def rar4_unix_layout(vols) -> dict | None:
+    """What RAR for Unix wrote that no Windows build does, read off the
+    original -- or None when it is not a Unix pack (or one this cannot say).
+
+    The streams are Windows-identical (see the -s1 axis), but every header
+    differs: host OS 3, a Unix mode in place of the DOS attributes, the main
+    header's solid flag left clear under -s1, and the order -- the Linux
+    directory listing, each folder's entry AFTER its contents. On a set of
+    hundreds of files that is far past any header residual:
+    XBOX_Media_Center_2004-01-15_build-IND, 934 entries, every one of them
+    different. Every entry named in a list file in this order makes rar 3.20
+    write exactly this order, folders and all, and the rest is rewritten in
+    place (rar4_unix_rewrite) -- byte-exact, no patch.
+
+        {"order": [stored name, ...], "attrs": [mode, ...],
+         "main_solid": bool}       # one per entry, the first header of each"""
+    order, attrs, seen, main_solid = [], [], set(), None
+    for vol in vols:
+        try:
+            data = Path(vol).read_bytes()
+        except OSError:
+            return None
+        if not data.startswith(RAR4_SIG):
+            return None
+        for o, t, f, sz, _ad in _rar4_walk(data):
+            if t == 0x73 and main_solid is None:
+                main_solid = bool(f & 0x08)
+            if t != 0x74:
+                continue
+            if sz < 32 or data[o + 15] != 3 or f & 0x200:
+                return None            # not Unix, or a Unicode name
+            nl = int.from_bytes(data[o + 26:o + 28], "little")
+            hi = 8 if f & 0x100 else 0
+            nm = data[o + 32 + hi:o + 32 + hi + nl].split(b"\0")[0]
+            try:
+                name = nm.decode("ascii")
+            except UnicodeDecodeError:
+                return None            # the list file's code page would decide
+            if name in seen:
+                continue               # a continuation header (split file)
+            seen.add(name)
+            order.append(name)
+            attrs.append(int.from_bytes(data[o + 28:o + 32], "little"))
+    if not order:
+        return None
+    return {"order": order, "attrs": attrs, "main_solid": bool(main_solid)}
+
+
+def rar4_unix_rewrite(data: bytes, unix: dict) -> bytes | None:
+    """A Windows-packed RAR4 volume with the headers RAR for Unix wrote: host
+    OS 3, each entry's recorded mode, the main header's solid flag as the
+    original had it, every changed header's CRC recomputed, and the recovery
+    record (if any) recomputed over them. Sizes never change, so the volume
+    split points stay where rar put them. None when an entry is not in the
+    layout -- the caller then leaves the volume alone."""
+    if not data.startswith(RAR4_SIG):
+        return None
+    mode = dict(zip(unix.get("order") or (), unix.get("attrs") or ()))
+    b = bytearray(data)
+    for o, t, f, sz, _ad in _rar4_walk(data):
+        if t == 0x73:
+            fl = (f | 0x08) if unix.get("main_solid") else (f & ~0x08)
+            struct.pack_into("<H", b, o + 3, fl)
+        elif t == 0x74:
+            if sz < 32 or f & 0x200:
+                return None
+            nl = int.from_bytes(data[o + 26:o + 28], "little")
+            hi = 8 if f & 0x100 else 0
+            nm = data[o + 32 + hi:o + 32 + hi + nl].split(b"\0")[0]
+            m = mode.get(nm.decode("ascii", "replace"))
+            if m is None:
+                return None
+            b[o + 15] = 3
+            struct.pack_into("<I", b, o + 28, m)
+        else:
+            continue
+        struct.pack_into("<H", b, o, zlib.crc32(bytes(b[o + 2:o + sz])) & 0xFFFF)
+    return rar4_rewrite_rr(bytes(b))
+
+
 def rar4_reserved_data_offset(path: Path, name: str):
     """Where the packed data starts in an archive rar is STILL WRITING.
 
@@ -10186,7 +10266,8 @@ class RsrToolAPI:
                    groups, srcs: list, target: Path, tail=(),
                    vol_args=(), base=None, dirs=(),
                    dirs_first=True, dirs_inline=False,
-                   dirs_form=None, short_names=False) -> list[list[str]] | None:
+                   dirs_form=None, short_names=False,
+                   exact_names=None) -> list[list[str]] | None:
         """The command SEQUENCE that builds this archive — usually one command.
 
         `groups` is [(level, count)] over `srcs` in archive order. One entry is
@@ -10245,13 +10326,19 @@ class RsrToolAPI:
             # (see the note where dir_names is read). Named relative to the
             # base for the same reason the files are: -ep is dropped, so rar
             # stores exactly the name it is given.
-            if dirs and not dirs_form and not dirs_inline:
+            exact = bool(exact_names and base and len(groups) == 1)
+            if exact:
+                # Every entry, folders included, in the original's order
+                # (rar4_unix_layout): rar 3.x writes exactly this order, each
+                # folder's entry where it is named.
+                names = list(exact_names)
+            elif dirs and not dirs_form and not dirs_inline:
                 # No recorded form: this build's default (_default_dirs_form).
                 # MSX_Emu-MAZNFXP: folders named first came out 844 of 845
                 # streams at every 2.x build, so the sweep could never reach
                 # the verify-time retry; named last, 845 of 845.
                 dirs_form = _default_dirs_form(ex.name)
-            if dirs_form == "omit":
+            if exact or dirs_form == "omit":
                 # 2.00-2.50 write no folder entry at all, and naming the
                 # folder only makes them recurse into it in their own order.
                 pass
@@ -10308,7 +10395,7 @@ class RsrToolAPI:
             # "listed": every file named, in a listfile, whatever its length
             # -- for a set whose file order is not rar's own (see
             # _solo_recipe).
-            if (dirs and len(groups) == 1
+            if (dirs and len(groups) == 1 and not exact
                     and dirs_form not in ("omit", "listed")
                     and not (nested and 0 < _exe_number(ex.name) < 280)
                     and used + sum(len(str(n)) + 3 for n in names)
@@ -12977,7 +13064,8 @@ class RsrToolAPI:
                                dirs_form=recipe.get("dirs_form")
                                or ("given" if recipe.get("dirs")
                                    and not recipe.get("dirs_inline") else None),
-                               short_names=bool(recipe.get("short_names")))
+                               short_names=bool(recipe.get("short_names")),
+                               exact_names=(recipe.get("unix") or {}).get("order"))
         cmds = self._pack_cmds_extra(
             cmds, [x for x in (recipe.get("mc") or ())
                    if not str(x).startswith(("@MMV", "@LZV", "@ADJ"))])
@@ -13173,6 +13261,21 @@ class RsrToolAPI:
                               "order the original holds them.", "dim")
             except OSError:
                 pass
+        if recipe.get("unix"):
+            # Packed by RAR for Unix: put its headers back (rar4_unix_layout).
+            n = 0
+            for p in out_vols:
+                try:
+                    raw = p.read_bytes()
+                    fixed = rar4_unix_rewrite(raw, recipe["unix"])
+                    if fixed is not None and fixed != raw:
+                        p.write_bytes(fixed)
+                        n += 1
+                except OSError:
+                    pass
+            if n:
+                self._log(f"    RAR for Unix headers (host, modes) written "
+                          f"into {n} volume(s).", "dim")
         return out_vols
 
     def _graft_attempt(self, recipe, src_files, vols, work, comment, st, base,
@@ -13509,6 +13612,31 @@ class RsrToolAPI:
             return verdict_, vm, dl, rm
 
         verdict, volmeta, deltas, rr_maps = _compare(produced)
+        if (verdict == "none" and st["format"] == "RAR4"
+                and not recipe.get("unix")
+                and len(recipe.get("groups") or [1]) == 1):
+            # Packed by RAR for Unix: same streams, but every header differs
+            # (rar4_unix_layout). Named in its order and given its headers
+            # back, the replay can come out byte for byte.
+            lay = rar4_unix_layout(vols)
+            if lay:
+                alt = self._replay(dict(recipe, unix=lay), src_files,
+                                   work / "unix", comment, st["format"],
+                                   base=base)
+                if alt:
+                    v2, m2, d2, r2 = _compare(alt)
+                    if v2 != "none":
+                        self._log(f"    packed by RAR for Unix: with its "
+                                  f"{len(lay['order']):,} entries named in "
+                                  f"its order and its headers (host, modes) "
+                                  f"written back, the replay is {v2}.", "ok")
+                        recipe["unix"] = lay
+                        produced, verdict, volmeta, deltas, rr_maps = \
+                            alt, v2, m2, d2, r2
+                    else:
+                        self._log("    packed by RAR for Unix, but even in "
+                                  "its order and with its headers the "
+                                  "replay differs.", "dim")
         if (verdict == "none" and recipe.get("dirs") and base is not None
                 and len(recipe.get("groups") or [1]) == 1):
             # Every stream matched, so what differs is the ORDER the files
