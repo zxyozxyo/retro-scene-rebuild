@@ -6620,7 +6620,12 @@ class RsrToolAPI:
                     res = self._capture_nested(folder, store, s, rel, zips,
                                                exes)
                     if (res.get("ok") or res.get("damaged")
-                            or self._stop.is_set() or self._skip.is_set()):
+                            or self._stop.is_set() or self._skip.is_set()
+                            or self._budget_hit):
+                        # A budget stop is a park, not a verdict: carrying
+                        # the zips now would file the release as done and
+                        # the RAR would never be searched again
+                        # (Dongwu_Senlin_CHN_iQP-SUXXORS, 30 min short).
                         return res
                     tried = str(res.get("error") or "unverified")
                     self._log(f"  ◐ the RAR inside the zips did not capture "
