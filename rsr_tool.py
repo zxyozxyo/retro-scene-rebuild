@@ -1665,8 +1665,9 @@ SPLICE_RAW_CEIL = 4_000_000
 # is more. The XBOX 2002/2003 DOS near misses (Red_Card_2003_Rip_XBOX-RIOT,
 # Star_Wars_The_Clone_Wars_XBOX-ProjectX, F1_Career_Challenge_PAL_REPACK_XBOX-
 # CSiSO ...) part in a few hundred scattered spots and all hit the flat 4 MB
-# part-way through a 0.4-1.4 GB stream -- a patch of 1-2% of it.
-BIT_PATCH_SHARE = 40
+# part-way through a 0.4-1.4 GB stream. Red Card verified at 9.0 MB (2.1%);
+# Frogger_Beyond needs ~2.6% and Gun_Metal CD2 ~3.5%, so 5%: still 95% saved.
+BIT_PATCH_SHARE = 20
 # A DOS combo that writes this much of the stream exactly goes to the splice at
 # once (see _sweep_recipe). Stock DOS RAR 2.00-2.50 agree over the first look,
 # so the line used to give each of them a full DOSBox pack to the same parting
