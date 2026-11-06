@@ -294,10 +294,12 @@ def _ppm_end(buf, s, old, nbits, first_block_ok):
     return None
 
 
-def parse_iter(data):
+def parse_iter(data, decode_text=True):
     """Yield each block dict as soon as it is complete (see rar3enc.parse).
-    A text (PPM) block is yielded as {"ppm": its bytes} -- carried whole,
-    never decoded."""
+    A text (PPM) block is yielded as {"ppm": its bytes} -- carried whole.
+    With `decode_text` it is also decoded (rar3_ppm) for its exact end and
+    output length; without, its end is guessed (_ppm_end) as patches made
+    before the decoder (e1a3279) were."""
     buf = bytes(data) + b"\0" * 8
     nbits = len(data) * 8
     pos = 0
@@ -323,7 +325,7 @@ def parse_iter(data):
     old = [0] * (NC + DC + LDC + RC)
     blocks = []
     st = {"prevlow": 0, "lowrep": 0}
-    ppm = [rar3_ppm.PpmStream()]
+    ppm = [rar3_ppm.PpmStream() if decode_text else None]
     look = {}
 
     def block_ok(q, got):
@@ -700,11 +702,11 @@ class SymEnc:
 
 
 
-def read_blocks(stream):
+def read_blocks(stream, decode_text=True):
     """Yield (tokens, keep, end) for every block of one file's stream.
     tokens: ("L", byte) | ("M", length, distance) | ("F", raw filter code)."""
     td = TokDec()
-    for b in parse_iter(stream):
+    for b in parse_iter(stream, decode_text):
         yield td.block(b), b["keep"], b["end"]
 
 
@@ -803,8 +805,8 @@ def _plen(t):
     return t[2] if t is not None and t[0] == "P" and len(t) > 2 else None
 
 
-def _flat(stream):
-    for toks, _keep, _end in read_blocks(stream):
+def _flat(stream, decode_text=True):
+    for toks, _keep, _end in read_blocks(stream, decode_text):
         yield from toks
 
 
@@ -999,7 +1001,7 @@ def diff(original: bytes, replayed: bytes, max_tokens: int = 200_000):
         else:
             runs.append([n, 1])
     end = last_end[0]
-    doc = {"v": 1, "blocks": runs,
+    doc = {"v": 1, "ppm": 1, "blocks": runs,
            "nokeep": [i for i, k in enumerate(keeps) if not k],
            "end": list(end) if end else [0, 2],
            "spans": [[s[0], s[1], _pack_tokens(s[2])] for s in spans],
@@ -1013,9 +1015,36 @@ def info(patch: bytes) -> dict:
             "blocks": sum(n for _c, n in doc["blocks"])}
 
 
-def apply(replayed: bytes, patch: bytes, sink) -> int:
-    """Write the original stream to `sink`; returns its length."""
+def apply(replayed: bytes, patch: bytes, sink, decode_text=None) -> int:
+    """Write the original stream to `sink`; returns its length.
+
+    The replay is read the way the patch was made: "ppm" marks a patch whose
+    text blocks were decoded. One without it is older and read with the
+    guessed text-block ends first -- the block layout it counts is theirs
+    (Burnout_USA_NGC_WORKING_iNTERNAL_For_Wii-OneUp, 10-28: read the new
+    way, a text token landed inside an LZ block). It is then tried the new
+    way too, for the few made between the decoder and the mark. A caller
+    whose result does not hash right can name the reader (`decode_text`)."""
     doc = json.loads(zlib.decompress(patch))
+    if decode_text is not None or doc.get("ppm"):
+        return _apply(replayed, doc, sink,
+                      True if decode_text is None else decode_text)
+    for decode in (False, True):
+        out = bytearray()
+        try:
+            _apply(replayed, doc, out, decode)
+        except Exception:
+            if decode:
+                raise
+            continue
+        if hasattr(sink, "extend"):
+            sink.extend(out)
+        else:
+            sink.write(bytes(out))
+        return len(out)
+
+
+def _apply(replayed: bytes, doc: dict, sink, decode_text: bool) -> int:
     spans = [(s[0], s[1], _unpack_tokens(s[2])) for s in doc["spans"]]
     nokeep = set(doc["nokeep"])
     end = tuple(doc["end"])
@@ -1024,7 +1053,7 @@ def apply(replayed: bytes, patch: bytes, sink) -> int:
         si = 0
         drop = 0
         ib = 0
-        for t in _flat(replayed):
+        for t in _flat(replayed, decode_text):
             while si < len(spans) and spans[si][0] == ib and not drop:
                 yield from spans[si][2]
                 drop = spans[si][1]

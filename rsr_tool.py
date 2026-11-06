@@ -1130,6 +1130,9 @@ _PLAT_FALLBACK = {
     "PSONE": "PS1", "PLAYSTATION2": "PS2", "PSCD": "PSX",
     "GG": "GG", "GAMEGEAR": "GG", "ATARI7800": "ATARI7800", "AGB": "GBA",
     "MAME": "MAME",
+    # The old handheld 0day shelves (zips holding a RAR, see _capture_nested).
+    "GIZMONDO": "GIZ", "GIZ": "GIZ", "GP32": "GP32", "IQP": "IQP",
+    "IQUE": "IQP", "NGAGE": "NGAGE",
 }
 # Folder words that name a system (the operator's own sorting: "PSX Scene
 # 2000", "PSX 2000 - KALISTO", "INT", "MCD Scene 2018"), checked nearest first.
@@ -2256,6 +2259,34 @@ ZIP_LEVELS = (9, 6, 5, 7, 8, 4, 3, 2, 1)
 ZIP_MEMS = (8, 9, 7, 6, 5, 4, 3, 2, 1)
 ZIP_STRATS = ((0, ""), (1, " filtered"), (3, " rle"), (2, " huffman"),
               (4, " fixed"))
+
+
+def zip_rar_members(path: Path) -> list[str]:
+    """Members of a zip that are RAR volumes -- by their first bytes, not
+    their names. The old 0day shape: every zip of the release holds one
+    volume of a RAR set (shz-bb01.zip -> shz-bb.rar, shz-bb02.zip -> .r00 ...)
+    beside file_id.diz and the nfo (GIZ, GP32, IQP, N-Gage BBS releases)."""
+    out = []
+    try:
+        with zipfile.ZipFile(path) as zf:
+            for i in zf.infolist():
+                if i.is_dir() or i.flag_bits & 1 or i.file_size < 20:
+                    continue
+                try:
+                    with zf.open(i) as fh:
+                        head = fh.read(8)
+                except Exception:
+                    continue
+                if head.startswith(RAR4_SIG) or head.startswith(RAR5_SIG):
+                    out.append(i.filename)
+    except Exception:
+        return []
+    return out
+
+
+def _member_base(name: str) -> str:
+    """A zip member's file name without its folder."""
+    return name.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 def zip_entries(path: Path) -> list[dict] | None:
@@ -5847,7 +5878,13 @@ class RsrToolAPI:
                                "kind": "running"})
             self._log("", "")
             self._log(f"══ [{i}/{len(folders)}] {rel} ══", "info")
-            if s["skip_done"] and self._existing_rsr(store, folder, rel):
+            done = s["skip_done"] and self._existing_rsr(store, folder, rel)
+            if done and self._nested_upgrade_due(done, folder, s):
+                self._log("  Captured before with its zips carried whole — "
+                          "the zips hold a RAR set, so capturing again with "
+                          "the RAR made from its unpacked files.", "info")
+                done = None
+            if done:
                 self._log(f"  Already captured — skipping "
                           f"(untick '{UI_SKIP_DONE}' to redo).", "dim")
                 # Say WHY it was skipped in the row itself. A resumed run is
@@ -6131,6 +6168,28 @@ class RsrToolAPI:
                 self._run([sz, "x", "-y", f"-o{content / zp.stem}", str(zp)],
                           timeout=3600,
                           heartbeat=f"rebuild test: extracting {zp.name}")
+            # Zips that hold the volumes of a RAR set (see _capture_nested):
+            # its unpacked files are what a rebuild is given, so gather the
+            # volumes and unpack them as well.
+            if zips and any(zip_rar_members(zp) for zp in zips):
+                vols = content / "_inner_volumes"
+                vols.mkdir(exist_ok=True)
+                for p in list(content.rglob("*")):
+                    if p.is_file() and p.parent != vols:
+                        try:
+                            with open(p, "rb") as fh:
+                                head = fh.read(8)
+                        except OSError:
+                            continue
+                        if head.startswith(RAR4_SIG) or head.startswith(RAR5_SIG):
+                            shutil.move(str(p), str(vols / p.name))
+                for st in group_archive_sets(vols):
+                    head = Path(st["volumes"][0])
+                    self._run([str(self._extractor(exes)), "x", "-y", "-o+",
+                               str(head), str(content / "_inner") + os.sep],
+                              timeout=3600,
+                              heartbeat=f"rebuild test: extracting {head.name}")
+                _rmtree(vols)
             if not self._stop.is_set():
                 # A release with no archive keeps its content loose in itself.
                 res = self._rebuild_run(
@@ -6556,7 +6615,20 @@ class RsrToolAPI:
                                or (p.suffix.lower() not in _SIDECAR_EXT
                                    and _pk(p))))
             if zips:
-                res = self._capture_zip(folder, store, s, rel, zips)
+                tried = ""
+                if any(zip_rar_members(z) for z in zips):
+                    res = self._capture_nested(folder, store, s, rel, zips,
+                                               exes)
+                    if (res.get("ok") or res.get("damaged")
+                            or self._stop.is_set() or self._skip.is_set()):
+                        return res
+                    tried = str(res.get("error") or "unverified")
+                    self._log(f"  ◐ the RAR inside the zips did not capture "
+                              f"({tried}) — capturing the zips as they are "
+                              "instead.", "warn")
+                res = self._capture_zip(folder, store, s, rel, zips,
+                                        note=({"nested_tried": tried}
+                                              if tried else None))
                 if not res.get("ok") and not res.get("damaged"):
                     res = self._small_wall_carry(
                         folder, store, s, rel, str(res.get("error", ""))) or res
@@ -7673,13 +7745,107 @@ class RsrToolAPI:
                   "container, not a recipe.", "warn")
         return True
 
+    def _nested_upgrade_due(self, rsr: Path, folder: Path, s: dict) -> bool:
+        """A .rsr of plain zips for a release whose zips hold a RAR set --
+        captured before _capture_nested, or after it fell back (then only
+        when walls are re-tried)."""
+        try:
+            with zipfile.ZipFile(rsr) as zf:
+                man = json.loads(zf.read("manifest.json"))
+        except Exception:
+            return False
+        if man.get("kind") != "zip":
+            return False
+        if man.get("nested_tried") and not s.get("retry_walls"):
+            return False
+        try:
+            zips = [p for p in folder.rglob("*") if p.is_file()
+                    and p.suffix.lower() == ".zip"]
+        except OSError:
+            return False
+        return any(zip_rar_members(z) for z in zips)
+
+    def _capture_nested(self, folder: Path, store: Path, s: dict, rel: str,
+                        zips: list[Path], exes) -> dict:
+        """A release of zips that each hold a volume of one RAR set: the RAR
+        set is captured from its unpacked files like any other, then the zips
+        with those volumes as their content (see _capture_zip `nested`). A
+        rebuild needs only the files inside the RAR -- the double pack the
+        old 0day scene used for small apps and handheld games."""
+        work = Path(tempfile.mkdtemp(prefix="rsr-nest-",
+                                     dir=self._work_root()))
+        try:
+            inner = work / "inner"
+            inner.mkdir()
+            names: dict[str, str] = {}
+            for zp in zips:
+                members = zip_rar_members(zp)
+                if not members:
+                    continue
+                with zipfile.ZipFile(zp) as zf:
+                    for m in members:
+                        nm = _member_base(m)
+                        if nm.lower() in {k.lower() for k in names}:
+                            return {"ok": False,
+                                    "error": f"two zips hold a volume named "
+                                             f"{nm}"}
+                        names[nm] = zp.name
+                        info = zf.getinfo(m)
+                        dst = inner / nm
+                        with zf.open(m) as src, open(dst, "wb") as out:
+                            shutil.copyfileobj(src, out, 1 << 20)
+                        t = time.mktime(info.date_time + (0, 0, -1))
+                        os.utime(dst, (t, t))
+            sets = group_archive_sets(inner)
+            self._log(f"  The zips hold {len(names)} RAR volume(s) in "
+                      f"{len(sets)} set(s) — capturing the RAR from its "
+                      "unpacked files first, then the zips around it.", "info")
+            if not sets:
+                return {"ok": False, "error": "no RAR set in the zips"}
+            self._budget_min = max(0, _num(s.get("budget_min"), 0, int))
+            self._deadline = None
+            self._budget_hit = False
+            embedded: dict[str, bytes] = {}
+            inner_sets = []
+            self._tl.all_content = True
+            for si, st in enumerate(sets):
+                if self._stop.is_set() or self._skip.is_set():
+                    return {"ok": False, "error": "stopped"}
+                res = self._capture_set_or_sweep(st, si, inner,
+                                                 work / f"set{si}", s, exes,
+                                                 embedded)
+                got = res.get("set") or {}
+                if not res.get("ok") or got.get("verify") not in ("exact",
+                                                                  "delta"):
+                    err = res.get("error") or "unverified"
+                    if got.get("wall"):
+                        err = "recipe not found"
+                    return {"ok": False, "error": f"inner RAR: {err}"}
+                got["inner"] = True
+                inner_sets.append(got)
+            self._tl.all_content = False
+            return self._capture_zip(folder, store, s, rel, zips,
+                                     nested={"sets": inner_sets,
+                                             "embedded": embedded,
+                                             "names": list(names)})
+        finally:
+            self._tl.all_content = False
+            _rmtree(work)
+
     def _capture_zip(self, folder: Path, store: Path, s: dict, rel: str,
-                     zips: list[Path]) -> dict:
+                     zips: list[Path], nested: dict | None = None,
+                     note: dict | None = None) -> dict:
         """Capture a ZIP release: headers verbatim, streams by recipe.
 
         The same rule as everywhere else — the .rsr is written only after it
         has been reassembled here and compared byte for byte with the original
-        archive."""
+        archive.
+
+        `nested` (from _capture_nested): the zips hold the volumes of a RAR
+        set already captured from its unpacked files. Those volumes become
+        this layer's content with source "inner" -- the rebuild makes them
+        from the RAR sets first -- and the RAR sets lead the manifest.
+        `note` is merged into the manifest (why a nested try fell back)."""
         work = Path(tempfile.mkdtemp(prefix="rsr-zip-", dir=self._work_root()))
         manifest = {
             "rsr_version": RSR_VERSION, "magic": RSR_MAGIC,
@@ -7689,9 +7855,14 @@ class RsrToolAPI:
                      "python": platform.python_version()},
             "release": rel, "system": _release_system(rel, folder),
             "year": _release_year(folder, rel), "tag": _release_tag(folder.name),
-            "kind": "zip", "source_folder": str(folder), "sets": [],
+            "kind": "zip>rar" if nested else "zip",
+            "source_folder": str(folder),
+            "sets": list(nested["sets"]) if nested else [],
         }
-        embedded: dict[str, bytes] = {}
+        if note:
+            manifest.update(note)
+        embedded: dict[str, bytes] = dict(nested["embedded"]) if nested else {}
+        inner_names = {n.lower() for n in nested["names"]} if nested else set()
         cap = max(0, int(s.get("embed_max_mb", 16))) * 1024 * 1024
         budget = max(0, _num(s.get("budget_min"), 0, int))
         # One BIG zip release at a time, process-wide.
@@ -7765,6 +7936,11 @@ class RsrToolAPI:
                 # describes.
                 bigs = content_flags([(e["name"], e["size"]) for e in ents],
                                      cap)
+                # A RAR volume the inner sets rebuild is content whatever its
+                # size: carrying it would carry the game.
+                inner = [_member_base(e["name"]).lower() in inner_names
+                         for e in ents]
+                bigs = [b or i for b, i in zip(bigs, inner)]
                 prefer_pf = self._zip_prefers_preflate(_release_group(rel))
                 for e in ents:
                     with open(zp, "rb") as fh:
@@ -7772,7 +7948,8 @@ class RsrToolAPI:
                         rawe = fh.read(e["packed_size"])
                     rec = dict(e)
                     big = bigs[ents.index(e)]
-                    rec["source"] = "content" if big else "extra"
+                    rec["source"] = ("inner" if inner[ents.index(e)] else
+                                     "content" if big else "extra")
                     # A rom is matched back to its release on size+CRC32, and a
                     # collision is settled on SHA-256. A RAR capture records
                     # one per file and a ZIP capture recorded none, so on the
@@ -7958,7 +8135,8 @@ class RsrToolAPI:
                     for idx, e in enumerate(ents):
                         rec = dict(e)
                         big = bigs[idx]
-                        rec["source"] = "content" if big else "extra"
+                        rec["source"] = ("inner" if inner[idx] else
+                                         "content" if big else "extra")
                         rec["recipe"] = {"impl": "preflate", "label": "preflate"}
                         if big:
                             rec["sha256"] = _sha256(payloads[idx][1])
@@ -8060,6 +8238,12 @@ class RsrToolAPI:
             self._db_forget(rel)
             self._log(f"  ✓ {rsr_path.name} written "
                       f"({rsr_path.stat().st_size:,} B) — VERIFIED", "ok")
+            if nested:
+                r = next((x["recipe"] for x in nested["sets"]
+                          if x.get("recipe")), {})
+                return {"ok": True, "error": "",
+                        "recipe": f"zip > {r.get('version', '?')} "
+                                  f"{_mt_label(r.get('exe', ''), r.get('mt', '?'))}"}
             return {"ok": True, "recipe": "zip", "error": ""}
         finally:
             _rmtree(work)
@@ -8742,6 +8926,14 @@ class RsrToolAPI:
         cap = max(0, int(s.get("embed_max_mb", 16))) * 1024 * 1024
         is_content = content_flags([(f["name"], f["size"]) for f in meta],
                                    cap)
+        if getattr(self._tl, "all_content", False):
+            # The RAR inside a zip>rar release (see _capture_nested): its
+            # unpacked files ARE what a rebuild is given, small or not -- a
+            # Gizmondo game is hundreds of small files, and carrying them
+            # would carry the game. Only the scene's own text stays carried.
+            is_content = [Path(f["name"]).suffix.lower()
+                          not in (".nfo", ".diz", ".sfv")
+                          for f in meta]
         extras = []
         content_only = []
         for (f, sp), want in zip(zip(meta, src_files), is_content):
@@ -15252,7 +15444,7 @@ class RsrToolAPI:
             if impl == "verbatim":
                 streams[off] = z.read(f["stored"])
                 continue
-            src = self._source_by_hash(content, f)
+            src = self._zip_source(content, f)
             if src is None:
                 self._log(f"    ✗ missing source: {f['name']} "
                           f"({f['size']:,} B, CRC {f['crc32']:08X})", "err")
@@ -15261,7 +15453,8 @@ class RsrToolAPI:
             # path that resolves a source and forgets it is a source that can
             # never be deleted. Only the RAR path recorded them, which quietly
             # made the option a no-op for every ZIP release.
-            self._consumed.append(src)
+            if f.get("source") != "inner":
+                self._consumed.append(src)
             data = src.read_bytes()
             if impl == "stored":
                 streams[off] = data
@@ -15282,6 +15475,16 @@ class RsrToolAPI:
         dst.write_bytes(rebuilt)
         self._log(f"    ✓ {name}  {len(rebuilt):,} B — hash-exact.", "ok")
         return True
+
+    def _zip_source(self, content: Path, f: dict) -> Path | None:
+        """A zip member's bytes on disk: a RAR volume the inner sets just
+        made (source "inner", see _capture_nested), else the content."""
+        if f.get("source") == "inner":
+            inner = getattr(self._tl, "inner_dir", None)
+            if inner is None or not Path(inner).is_dir():
+                return None
+            return self._source_by_hash(Path(inner), f)
+        return self._source_by_hash(content, f)
 
     def _rebuild_preflate(self, st: dict, z, content: Path, out: Path,
                           work: Path, name: str) -> bool:
@@ -15324,12 +15527,13 @@ class RsrToolAPI:
                     return False
                 streams[off] = data
                 continue
-            src = self._source_by_hash(content, f)
+            src = self._zip_source(content, f)
             if src is None:
                 self._log(f"    ✗ missing source: {nm} ({f['size']:,} B, "
                           f"CRC {f['crc32']:08X})", "err")
                 return False
-            self._consumed.append(src)          # see _rebuild_zip
+            if f.get("source") != "inner":
+                self._consumed.append(src)      # see _rebuild_zip
             data = src.read_bytes()
             if len(data) != ln:
                 self._log(f"    ✗ {nm}: {len(data):,} B, expected {ln:,}.",
@@ -15483,11 +15687,21 @@ class RsrToolAPI:
             work = Path(tempfile.mkdtemp(prefix="rsr-", dir=self._work_root()))
             ok_all = True
             self._infer_set_folders(manifest, z)
+            # A zip>rar release (see _capture_nested): its RAR sets are put
+            # together here, out of sight, and only the zips made from them
+            # go to the output.
+            self._tl.inner_dir = work / "inner"
             try:
                 for st in manifest.get("sets", []):
                     if self._stop.is_set():
                         self._log("Stopped.", "warn")
                         break
+                    if st.get("inner"):
+                        self._log(f"  {st.get('stem')}: the RAR set inside "
+                                  "the zips, from its unpacked files…", "dim")
+                        ok_all &= self._rebuild_set(st, manifest, z, content,
+                                                    work / "inner", work)
+                        continue
                     if st.get("format") == "ZIP":
                         ok_all &= self._rebuild_zip(st, z, content, out, work)
                         continue
@@ -15506,6 +15720,7 @@ class RsrToolAPI:
                 self._restore_sidecars(manifest, z, out)
                 self._restore_damaged(manifest, z, out)
             finally:
+                self._tl.inner_dir = None
                 _rmtree(work)
             self._log("", "")
             self._log("✓ Rebuild complete — every volume verified."
@@ -16257,7 +16472,7 @@ class RsrToolAPI:
             return pb
         return {fold[k.casefold()]: v for k, v in pb.items()}
 
-    def _splice_streams(self, produced, index, read):
+    def _splice_streams(self, produced, index, read, decode_text=None):
         """The ORIGINAL's stream of every file, in order: the replay's own
         where nothing differs, written back from decisions where it does."""
         import rar3_splice
@@ -16295,7 +16510,7 @@ class RsrToolAPI:
                         return None
                 else:
                     sink = bytearray()
-                    rar3_splice.apply(b, blob, sink)
+                    rar3_splice.apply(b, blob, sink, decode_text)
                     b = bytes(sink)
             out.append(b)
         return out
@@ -16441,13 +16656,30 @@ class RsrToolAPI:
         return bytes(out)
 
     def _write_spliced(self, produced, vols, z, out: Path) -> str | None:
-        """The rebuild side of _splice_attempt."""
+        """The rebuild side of _splice_attempt.
+
+        A RAR 3 patch made between the text-block decoder (e1a3279) and the
+        mark it now carries says nothing of how its replay was read, and the
+        older reading may write the wrong stream without failing; so when
+        the volumes do not hash right, the streams are written once more
+        with the text blocks decoded."""
+        err = self._write_spliced_try(produced, vols, z, out, None)
+        if err and not err.startswith("    ✗ the replay does not hold"):
+            self._log("    the streams did not write back -- once more with "
+                      "the text blocks decoded…", "dim")
+            if self._write_spliced_try(produced, vols, z, out, True) is None:
+                return None
+        return err
+
+    def _write_spliced_try(self, produced, vols, z, out: Path,
+                           decode_text) -> str | None:
         t0 = time.monotonic()
         try:
             index = json.loads(z.read(vols[0]["splice_index"]))
             self._log("    writing the streams back from their decisions "
                       "(slow: a few minutes per 100 MB)…", "dim")
-            streams = self._splice_streams(produced, index, z.read)
+            streams = self._splice_streams(produced, index, z.read,
+                                           decode_text)
         except Exception as e:
             return f"    ✗ the carried decisions could not be applied ({e})."
         if streams is None:
@@ -16701,7 +16933,7 @@ class RsrToolAPI:
         if manifest.get("pair"):
             return
         sets = [st for st in manifest.get("sets", [])
-                if st.get("volumes")
+                if st.get("volumes") and not st.get("inner")
                 and not any(v.get("folder") for v in st["volumes"])]
         if not sets:
             return
