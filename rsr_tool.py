@@ -12145,13 +12145,19 @@ class RsrToolAPI:
         # blocks of the same pack, so every thread count is paired.
         if ppm_sw and fmt == "RAR4":
             head, rest = combos[:hot], combos[hot:]
-            lead_p = [(e, n, tuple(x) + tuple(sw)) for sw in ppm_sw
-                      for e, n, x in rest
-                      if _exe_number(e.name) >= 300
-                      and not any(str(y).startswith("-mc") for y in x)]
-            combos = head + lead_p + rest
-            self._log(f"    {len(lead_p):,} combo(s) with the original's "
-                      f"PPM switch lead the sweep.", "dim")
+
+            def _with(cs):
+                return [(e, n, tuple(x) + tuple(sw)) for sw in ppm_sw
+                        for e, n, x in cs
+                        if _exe_number(e.name) >= 300
+                        and not any(str(y).startswith("-mc") for y in x)]
+            # The known recipes WITH the switch first: a group's earlier
+            # winner is the likeliest build, and plain it cannot match.
+            hp, rp = _with(head), _with(rest)
+            combos = hp + head + rp + rest
+            hot = len(hp) + len(head)
+            self._log(f"    {len(hp) + len(rp):,} combo(s) with the "
+                      f"original's PPM switch lead the sweep.", "dim")
         # The PPM tail. -m5 can compress with LZSS or PPMd and rar chooses per
         # file; ask for the default only and an archive whose packer forced PPM
         # is unreachable at every build and thread count. These go LAST so a
