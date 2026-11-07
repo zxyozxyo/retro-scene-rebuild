@@ -1482,6 +1482,39 @@ def group_archive_sets(base: Path) -> list[dict]:
         spelling[(parent, base.lower(), "part")] = (nums[0], stem0[:len(base)])
         families[(parent, base.lower(), "part")] = merged
 
+    # The same with LETTERS: SSX.Out.Of.Bounds.REPACK-BiNPDA ships
+    # BiN-SSXa.rar .. BiN-SSXe.rar (one per zip), a 5-volume set renamed
+    # after packing. Rejoined only when the run starts at "a", has no gap,
+    # its head is a RAR volume and no later member is itself a first volume.
+    lruns: dict[tuple, list[tuple[int, tuple]]] = {}
+    for key, vols in families.items():
+        parent, stem, scheme = key
+        m = re.match(r"^(?P<base>.+)(?P<c>[A-Za-z])$", stem)
+        if scheme == "old" and len(vols) == 1 and vols[0][0] == -1 and m:
+            lruns.setdefault((parent, m.group("base")), []).append(
+                (ord(m.group("c").lower()) - ord("a"), key))
+    for (parent, base), members in lruns.items():
+        members.sort()
+        nums = [n for n, _ in members]
+        if len(members) < 2 or nums != list(range(len(nums))):
+            continue
+        heads = []
+        for _, key in members:
+            try:
+                with open(families[key][0][1], "rb") as fh:
+                    heads.append(fh.read(12))
+            except OSError:
+                heads.append(b"")
+        flags = [int.from_bytes(h[10:12], "little") for h in heads]
+        if (any(h[:7] != RAR4_SIG for h in heads)
+                or not all(f & 0x0001 for f in flags)
+                or any(f & 0x0100 for f in flags[1:])):
+            continue                       # separate archives, not one set
+        merged = [(n, families.pop(key)[0][1]) for n, key in members]
+        stem0 = spelling.get(members[0][1], (0, base + "a"))[1]
+        spelling[(parent, base.lower(), "part")] = (0, stem0[:len(base)])
+        families[(parent, base.lower(), "part")] = merged
+
     # A self-extracting HEAD that names itself .exe (gt-tomb4.exe beside
     # gt-tomb4.r00..., codewarrior.part01.exe beside .part02.rar...) landed in
     # the lone pass above; give it back to the family it heads.
@@ -4120,6 +4153,45 @@ FILTER_OFF_SWITCHES = (("-mcD-",), ("-mcE-",), ("-mcA-",), ("-mcC-",),
                        ("-mcI-",), ("-mcA-", "-mcC-", "-mcD-", "-mcE-", "-mcI-"))
 
 
+def ppm_explicit_switches(meta: list, blocks: dict, solid: bool) -> list[tuple]:
+    """The -mc<order>:<mem>t+ a RAR 3.x stream's own PPM headers name, when
+    no stock pack could have written them.
+
+    A PPM block opens with a flags byte (bit 7 PPM, bit 5 memory follows,
+    bits 0-4 the model order) and the model's memory in MB minus one. When
+    rar chooses PPM by itself it always writes order 8 (measured, 3.00-3.80
+    at -m5); any other order was asked for. SUXXORS packed its 2018 iQue
+    sets with rar 5.x -ma4 -m5 -mc64:128t+ -mt8: every text stream opens
+    with order 64 / 128 MB, and no default pack ever writes one -- the
+    plain sweep and its one-thread PPM tail could never meet it."""
+    found = []
+    comp = [f for f in meta if int(f.get("method") or 0) != 0
+            and blocks.get(f["name"])]
+    if solid:
+        comp = comp[:1]
+    for f in comp[:64]:
+        vol, off, size = blocks[f["name"]][0]
+        if size < 2:
+            continue
+        try:
+            with open(vol, "rb") as fh:
+                fh.seek(off)
+                two = fh.read(2)
+        except OSError:
+            continue
+        if len(two) < 2 or two[0] & 0xA0 != 0xA0:
+            continue
+        order = (two[0] & 0x1F) + 1
+        if order > 16:
+            order = 16 + (order - 16) * 3
+        if order == 8:
+            continue
+        sw = (f"-mc{order}:{two[1] + 1}t+",)
+        if sw not in found:
+            found.append(sw)
+    return found
+
+
 def _ppm_switches() -> list[tuple]:
     """Every -mc variant to try, cheapest and likeliest first."""
     out = [("-mct+",)]
@@ -6183,8 +6255,13 @@ class RsrToolAPI:
                             continue
                         if head.startswith(RAR4_SIG) or head.startswith(RAR5_SIG):
                             shutil.move(str(p), str(vols / p.name))
-                for st in group_archive_sets(vols):
-                    head = Path(st["volumes"][0])
+                for si, st in enumerate(group_archive_sets(vols)):
+                    # Under rar's own volume names (BiN-SSXa.rar .. e.rar
+                    # would never lead the extractor on to the next one).
+                    vl = [Path(v) for v in st["volumes"]]
+                    head = shadow_set(vl, vols / f"_shadow{si}",
+                                      st.get("byte_split", False),
+                                      new_numbering(vl[0]))
                     self._run([str(self._extractor(exes)), "x", "-y", "-o+",
                                str(head), str(content / "_inner") + os.sep],
                               timeout=3600,
@@ -9237,6 +9314,17 @@ class RsrToolAPI:
 
         mm_ev = None
         unp_here = rar4_unp_max(vols) if st["format"] == "RAR4" else 0
+        ppm_sw = []
+        if unp_here >= 29:
+            try:
+                ppm_sw = ppm_explicit_switches(meta, blocks or {}, solid)
+            except Exception:
+                ppm_sw = []
+            if ppm_sw:
+                self._log(f"    the original's text (PPM) blocks were asked "
+                          f"for — {', '.join(x[0] for x in ppm_sw)}; no "
+                          "default pack writes that model, so every build "
+                          "and thread count is tried with it first.", "info")
         if unp_here and unp_here < 29:
             t_mm = time.monotonic()
             mm_ev = self._mm_evidence(meta, blocks, solid)
@@ -9333,7 +9421,7 @@ class RsrToolAPI:
                                         prefix=prefix,
                                         probe_vol=probe_vol,
                                         rr_sectors=rr_pass,
-                                        mm_ev=mm_ev,
+                                        mm_ev=mm_ev, ppm_sw=ppm_sw,
                                         want_vols=len(vols),
                                         unp_max=rar4_unp_max(vols)
                                         if st["format"] == "RAR4" else 0,
@@ -11766,7 +11854,7 @@ class RsrToolAPI:
                       want_vols=0, unp_max=0, expanded=False,
                       host=-1, rr_sectors=-1, dos_only=False,
                       year_before=0, year_after=0,
-                      dirs=(), dirs_first=True, mm_ev=None,
+                      dirs=(), dirs_first=True, mm_ev=None, ppm_sw=(),
                       head_vol=0, orig_stream=None,
                       solid_vols=False, store_ms="", ts_sw="") -> dict | None:
         """Pack every file TOGETHER at each (build, -mt) and keep the combo
@@ -12051,6 +12139,19 @@ class RsrToolAPI:
                           f"write {'2.0' if unp_max < 29 else '3.x'} format; "
                           f"{len(inc):,} from builds that cannot are skipped.",
                           "dim")
+        # The original's own PPM switch (ppm_explicit_switches): a plain
+        # combo cannot match, so these lead, right behind the prior-led head;
+        # the plain sweep stays as a backstop. -mt still decides the LZ
+        # blocks of the same pack, so every thread count is paired.
+        if ppm_sw and fmt == "RAR4":
+            head, rest = combos[:hot], combos[hot:]
+            lead_p = [(e, n, tuple(x) + tuple(sw)) for sw in ppm_sw
+                      for e, n, x in rest
+                      if _exe_number(e.name) >= 300
+                      and not any(str(y).startswith("-mc") for y in x)]
+            combos = head + lead_p + rest
+            self._log(f"    {len(lead_p):,} combo(s) with the original's "
+                      f"PPM switch lead the sweep.", "dim")
         # The PPM tail. -m5 can compress with LZSS or PPMd and rar chooses per
         # file; ask for the default only and an archive whose packer forced PPM
         # is unreachable at every build and thread count. These go LAST so a
