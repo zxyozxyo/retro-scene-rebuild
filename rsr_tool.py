@@ -2729,6 +2729,42 @@ def _rar4_file_headers(vol: Path, limit: int = 8) -> list[dict]:
     return out
 
 
+def rar_hidden_pairs(sets: list[dict]) -> dict[int, int]:
+    """{outer set index: inner set index} for a set whose files are the
+    LAST VOLUMES of another set in the release.
+
+    Ninja_Gaiden_USA_READNFO_DVD9_XBOX-CSiSO: PART1 holds cs-ninga.rar ..
+    .r99, and the rest of that set -- CS-NINGA.S00 .. .S04 -- is packed in
+    a second set, cs-ningb, in PART2 (the GP PAL release does the same).
+    The first set alone continues into volumes that are nowhere on disk."""
+    out: dict[int, int] = {}
+    stems = {st["stem"].lower(): i for i, st in enumerate(sets)}
+    for oi, st in enumerate(sets):
+        if st.get("format") != "RAR4" or st.get("byte_split"):
+            continue
+        names = set()
+        for v in st["volumes"]:
+            hs = _rar4_file_headers(Path(v), limit=64)
+            names.update(h["name"].replace("\\", "/").rsplit("/", 1)[-1]
+                         for h in hs)
+        if not names:
+            continue
+        bases = {re.sub(r"\.[s-z]\d\d$", "", n, flags=re.I).lower()
+                 for n in names}
+        if len(bases) != 1 or any(not re.search(r"\.[s-z]\d\d$", n, re.I)
+                                  for n in names):
+            continue
+        ii = stems.get(bases.pop())
+        if ii is None or ii == oi or ii in out or ii in out.values():
+            continue
+        # The inner set really ran past .r99 (an .s00 needs 101 before it);
+        # a rom named .z64 inside an archive is not a volume.
+        if sets[ii].get("scheme") != "old" or len(sets[ii]["volumes"]) < 101:
+            continue
+        out[oi] = ii
+    return out
+
+
 def rar4_vol_blocks(vol: Path) -> dict[str, tuple[int, int]]:
     """{packed name: (data offset, bytes IN THIS VOLUME)} for one RAR4 volume.
 
@@ -6285,14 +6321,31 @@ class RsrToolAPI:
             zips = [p for p in folder.rglob("*") if p.is_file()
                     and p.suffix.lower() in (".zip", ".7z", ".lha", ".lzh")]
             sz = str(self._app_dir / "apps" / "7z.exe")
+            hidden = rar_hidden_pairs(sets)
+            hid_vols: dict[int, list] = {}
+            for oi, ii in hidden.items():
+                # Its files are volumes of the inner set, not content: a
+                # rebuild makes them from that set, so keep them out of sight.
+                hd = work / f"_hid{oi}"
+                hd.mkdir()
+                self._run([str(self._extractor(exes)), "x", "-y", "-o+",
+                           str(sets[oi]["volumes"][0]), str(hd) + os.sep],
+                          timeout=3600,
+                          heartbeat="rebuild test: extracting "
+                                    f"{Path(sets[oi]['volumes'][0]).name}")
+                hid_vols[ii] = sorted((q for q in hd.iterdir() if q.is_file()),
+                                      key=lambda q: q.name.lower())
             for si, st in enumerate(sets):
+                if si in hidden:
+                    continue
                 head = Path(st["volumes"][0])
                 # A set split across subfolders (PART1/PART2, see
                 # group_archive_sets): rar looks for the next volume beside
                 # the current one, so gather them in one folder first.
-                vl = [Path(v) for v in st["volumes"]]
+                vl = [Path(v) for v in st["volumes"]] + hid_vols.get(si, [])
                 shadow = None
-                if not st.get("byte_split") and len({v.parent for v in vl}) > 1:
+                if not st.get("byte_split") and (
+                        len({v.parent for v in vl}) > 1 or si in hid_vols):
                     shadow = work / f"_shadow{si}"
                     head = shadow_set(vl, shadow, False, new_numbering(vl[0]))
                 # A byte-split set is one archive chopped up afterwards; 7z
@@ -6305,6 +6358,8 @@ class RsrToolAPI:
                           heartbeat=f"rebuild test: extracting {head.name}")
                 if shadow is not None:
                     _rmtree(shadow)
+            for oi in hidden:
+                _rmtree(work / f"_hid{oi}")
             for zp in zips:
                 self._run([sz, "x", "-y", f"-o{content / zp.stem}", str(zp)],
                           timeout=3600,
@@ -6991,15 +7046,75 @@ class RsrToolAPI:
         if twin_seed:
             pair_used = (folder, twin_seed[0], folder)
             manifest["pair"] = sorted({folder.name, twin_seed[0].name})
+        # A set whose last volumes are packed in another set (see
+        # rar_hidden_pairs): the inner set goes first, captured with those
+        # volumes unpacked beside it; the outer one then takes them as
+        # content made by the inner set at rebuild (source "inner").
+        hidden = rar_hidden_pairs(sets)
+        if hidden:
+            for oi, ii in list(hidden.items()):
+                if ii > oi:
+                    sets[oi], sets[ii] = sets[ii], sets[oi]
+            hidden = rar_hidden_pairs(sets)
+        hid_names: dict[int, set] = {}      # outer index -> its member names
         try:
             for si, st in enumerate(sets):
                 if self._stop.is_set() or self._skip.is_set():
                     return {"ok": False,
                             "error": "skipped" if self._skip.is_set()
                             else "stopped"}
-                res = self._capture_set_or_sweep(st, si, folder,
-                                                 work / f"set{si}", s, exes,
-                                                 embedded)
+                oi = next((o for o, i in hidden.items() if i == si), None)
+                if oi is not None:
+                    ost = sets[oi]
+                    hid = work / f"hid{si}"
+                    hid.mkdir(parents=True, exist_ok=True)
+                    self._log(f"  {st['stem']}: its last volumes are packed "
+                              f"in {ost['stem']} — unpacking them to capture "
+                              "the whole set, then the set around them.",
+                              "info")
+                    self._run([str(self._extractor(exes)), "x", "-y", "-o+",
+                               str(ost["volumes"][0]), str(hid) + os.sep],
+                              timeout=3600,
+                              heartbeat=f"unpacking {Path(ost['volumes'][0]).name}")
+                    hv = sorted((q for q in hid.iterdir() if q.is_file()),
+                                key=lambda q: q.name.lower())
+                    if not hv:
+                        return {"ok": False, "error": f"{ost['stem']}: the "
+                                "volumes inside did not unpack"}
+                    hid_names[oi] = {q.name.lower() for q in hv}
+                    tv = work / f"tv{si}"
+                    tv.mkdir(parents=True, exist_ok=True)
+                    vols = []
+                    for q in [Path(v) for v in st["volumes"]] + hv:
+                        dst = tv / q.name
+                        try:
+                            os.link(q, dst)
+                        except OSError:
+                            shutil.copy2(q, dst)
+                        vols.append(dst)
+                    res = self._capture_set_or_sweep(dict(st, volumes=vols),
+                                                     si, folder,
+                                                     work / f"set{si}", s,
+                                                     exes, embedded)
+                    _rmtree(tv)
+                    for v in res.get("set", {}).get("volumes", []):
+                        if v.get("name", "").lower() in hid_names[oi]:
+                            v["hidden"] = True
+                else:
+                    # The outer set's files are the inner set's volumes:
+                    # made at rebuild, so never carried, whatever their size.
+                    self._tl.all_content = si in hid_names
+                    try:
+                        res = self._capture_set_or_sweep(st, si, folder,
+                                                         work / f"set{si}", s,
+                                                         exes, embedded)
+                    finally:
+                        self._tl.all_content = False
+                if si in hid_names:
+                    for f in res.get("set", {}).get("files", []):
+                        if (Path(f.get("name", "")).name.lower()
+                                in hid_names[si] and not f.get("stored")):
+                            f["source"] = "inner"
                 if res.get("partial"):
                     # Not a failure and not a wall: a fix release ships the
                     # repaired volume alone, so there is nothing here that could
@@ -15984,7 +16099,11 @@ class RsrToolAPI:
                     return self._content_is(Path(p), f)
 
                 found = content / base
-                if not (found.is_file() and _fits(found)):
+                if f.get("source") == "inner":
+                    # A volume of another set, rebuilt a moment ago
+                    # (see rar_hidden_pairs).
+                    found = self._zip_source(content, f)
+                elif not (found.is_file() and _fits(found)):
                     found = next((h for h in content.rglob(base)
                                   if h.is_file() and _fits(h)), None)
                 if not found or not Path(found).is_file():
@@ -16074,7 +16193,7 @@ class RsrToolAPI:
                 if _sha256(chunk) != v["sha256"]:
                     self._log(f"    ✗ {v['name']}: hash mismatch.", "err")
                     return False
-                dst = out / v.get("folder", "") / v["name"]
+                dst = self._vol_dst(out, v)
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 dst.write_bytes(chunk)
                 self._log(f"    ✓ {v.get('folder', '')}{'/' if v.get('folder') else ''}"
@@ -16261,6 +16380,16 @@ class RsrToolAPI:
             self._log(f"    ✓ {f['name']}  {f['size']:,} B — hash-exact.", "ok")
         return True
 
+    def _vol_dst(self, out: Path, v: dict) -> Path:
+        """Where a rebuilt volume goes: the output, or -- for a volume packed
+        inside another set (see rar_hidden_pairs) -- the inner folder the
+        outer set takes it from."""
+        inner = getattr(self._tl, "inner_dir", None)
+        if v.get("hidden") and inner is not None:
+            Path(inner).mkdir(parents=True, exist_ok=True)
+            return Path(inner) / v["name"]
+        return out / v.get("folder", "") / v["name"]
+
     def _write_replayed(self, produced, vols, z, out: Path) -> str | None:
         """Patch, hash-check and write each replayed volume. None when every
         one is exact, else the first failure's log line."""
@@ -16299,7 +16428,7 @@ class RsrToolAPI:
             data, err = self._restore_outer(data, v, z)
             if err:
                 return err
-            dst = out / v.get("folder", "") / v["name"]
+            dst = self._vol_dst(out, v)
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(data)
             for c in v.get("copies") or []:      # a fix volume's other name
@@ -16883,7 +17012,7 @@ class RsrToolAPI:
             data, err = self._restore_outer(data, v, z)
             if err:
                 return err
-            dst = out / v.get("folder", "") / v["name"]
+            dst = self._vol_dst(out, v)
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(data)
         self._log(f"    · streams written back from decisions in "
