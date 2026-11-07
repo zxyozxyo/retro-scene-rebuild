@@ -1400,6 +1400,31 @@ def group_archive_sets(base: Path) -> list[dict]:
         if key not in spelling or idx < spelling[key][0]:
             spelling[key] = (idx, stem)
 
+    # One set split across SUBFOLDERS: The_Guy_Game_USA_DVD9_XBOX-WoD keeps
+    # wod-guy.part001-063 in PART1\ and part064-127 in PART2\. Keyed by
+    # folder, each half was a partial set. Joined only when the halves'
+    # numbers do not overlap and run on without a gap -- two complete sets
+    # in CD1\ and CD2\ both start at the first volume, so they never join.
+    by_name: dict[tuple, list[tuple]] = {}
+    for key in families:
+        by_name.setdefault((key[1], key[2]), []).append(key)
+    for (stem_l, scheme), keys in by_name.items():
+        if len(keys) < 2 or scheme not in ("part", "old"):
+            continue
+        allv = sorted(v for k in keys for v in families[k])
+        nums = [i for i, _ in allv]
+        if len(set(nums)) != len(nums):
+            continue
+        if nums != list(range(nums[0], nums[0] + len(nums))):
+            continue
+        if nums[0] not in (-1, 0, 1):
+            continue
+        first = min(keys, key=lambda k: min(i for i, _ in families[k]))
+        for k in keys:
+            if k != first:
+                del families[k]
+        families[first] = allv
+
     # A file whose name says nothing and whose first bytes say RAR. SCZ shipped
     # the Unou_no_Tatsujin repack as SCZ-TSMMr.zip holding a RAR archive, so
     # the release routed to the ZIP path and died there as "unreadable zip" —
