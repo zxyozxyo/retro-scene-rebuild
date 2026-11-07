@@ -10692,6 +10692,15 @@ class RsrToolAPI:
                 # order, folder entries and all, from rar 3.30 given only
                 # the top folder.
                 names = _inline_dirs(list(plain), dirs)
+            if gi > 0 and dirs and not exact and any(
+                    str(d) in names for d in dirs):
+                # A folder named on a LATER command is added recursively, so
+                # every file under it that an earlier command packed is packed
+                # AGAIN at this command's method: Pathway_To_Glory_Arena_
+                # PATCH-PSYGAGE (93 files -m5, then one -m3 with the folders)
+                # came back with 88 streams at -m3 and a 1.4 MB delta. -u
+                # adds only what is not there yet (-r- does not stop it).
+                cmd.append("-u")
             cmd += [str(target)] + _names_or_listfile(
                 names, Path(target).parent / f"_names{gi}.lst", used,
                 base=base, short=short_names)
