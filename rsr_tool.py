@@ -1540,6 +1540,40 @@ def group_archive_sets(base: Path) -> list[dict]:
         spelling[(parent, base.lower(), "part")] = (0, stem0[:len(base)])
         families[(parent, base.lower(), "part")] = merged
 
+    # A two-digit HEAD in front of a .000 run: Spiderman_2_PAL_ITALIAN_XBOX-BLG
+    # ships blg-spd2.00 (the first volume) then blg-spd2.000 .. .021. The head
+    # matches no volume rule and sat alone, so the run was refused as a set
+    # whose first volume is missing. Joined only when the head is a RAR first
+    # volume and the run's first member is a volume that is not one.
+    for key in [k for k in families if k[2] == "numeric"]:
+        parent, stem_l, _ = key
+        run = families.get(key)
+        cands = [k for k in families
+                 if k[0] == parent and k[2] == "lone" and len(families[k]) == 1
+                 and re.fullmatch(r"\.\d\d", families[k][0][1].suffix)
+                 and families[k][0][1].stem.lower() == stem_l]
+        if not run or len(cands) != 1:
+            continue
+        run.sort()
+        heads = []
+        for p in (families[cands[0]][0][1], run[0][1]):
+            try:
+                with open(p, "rb") as fh:
+                    heads.append(fh.read(12))
+            except OSError:
+                heads.append(b"")
+        flags = [int.from_bytes(h[10:12], "little") for h in heads]
+        if (any(h[:7] != RAR4_SIG for h in heads)
+                or flags[0] & 0x0101 != 0x0101
+                or not flags[1] & 0x0001 or flags[1] & 0x0100):
+            continue
+        hp = families.pop(cands[0])[0][1]
+        del families[key]
+        newk = (parent, hp.stem, "lone")
+        families[newk] = [(0, hp)] + [(i + 1, p) for i, (_, p)
+                                       in enumerate(run)]
+        spelling[newk] = (0, hp.stem)
+
     # A self-extracting HEAD that names itself .exe (gt-tomb4.exe beside
     # gt-tomb4.r00..., codewarrior.part01.exe beside .part02.rar...) landed in
     # the lone pass above; give it back to the family it heads.
@@ -6251,8 +6285,16 @@ class RsrToolAPI:
             zips = [p for p in folder.rglob("*") if p.is_file()
                     and p.suffix.lower() in (".zip", ".7z", ".lha", ".lzh")]
             sz = str(self._app_dir / "apps" / "7z.exe")
-            for st in sets:
+            for si, st in enumerate(sets):
                 head = Path(st["volumes"][0])
+                # A set split across subfolders (PART1/PART2, see
+                # group_archive_sets): rar looks for the next volume beside
+                # the current one, so gather them in one folder first.
+                vl = [Path(v) for v in st["volumes"]]
+                shadow = None
+                if not st.get("byte_split") and len({v.parent for v in vl}) > 1:
+                    shadow = work / f"_shadow{si}"
+                    head = shadow_set(vl, shadow, False, new_numbering(vl[0]))
                 # A byte-split set is one archive chopped up afterwards; 7z
                 # reads .001 chunks as one, rar does not.
                 cmd = ([sz, "x", "-y", f"-o{content}", str(head)]
@@ -6261,6 +6303,8 @@ class RsrToolAPI:
                         str(head), str(content) + os.sep])
                 self._run(cmd, timeout=3600,
                           heartbeat=f"rebuild test: extracting {head.name}")
+                if shadow is not None:
+                    _rmtree(shadow)
             for zp in zips:
                 self._run([sz, "x", "-y", f"-o{content / zp.stem}", str(zp)],
                           timeout=3600,
