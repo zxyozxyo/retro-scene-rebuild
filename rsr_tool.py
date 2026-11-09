@@ -1320,19 +1320,31 @@ CONTENT_EXT = frozenset((
     ".ws", ".wsc", ".vb", ".32x", ".gcm", ".rvz", ".xex", ".pocket"))
 
 
-def content_flags(items, cap: int) -> list[bool]:
+# What "Store only scene text" still carries: the group's own text.
+SCENE_TEXT_EXT = frozenset((".nfo", ".diz", ".sfv"))
+
+
+def content_flags(items, cap: int, text_only: bool = False) -> list[bool]:
     """Which of [(name, size)] are CONTENT -- supplied at rebuild -- rather
     than carried in the .rsr.
 
     It used to be "the largest file, plus anything over the cap". Right for a
     game, wrong for a release with no game in it: of four cover jpgs the
     biggest was demanded at rebuild, a file no DAT and no content folder will
-    ever hold, so the release could not come back. Now:
+    ever hold, so the release could not come back.
+
+    text_only ("Store only scene text"): every file but the group's nfo /
+    diz / sfv is content, whatever its size or type -- the .rsr then holds
+    no game bytes at all, and a rebuild takes the rest from the collection.
+    Otherwise:
       * anything at or over the embed cap is content, as before;
       * a rom / disc image (CONTENT_EXT) is content whatever its size;
       * with neither, a set that fits under the cap is carried WHOLE;
       * a bigger set of no-game files keeps the old rule (largest is
         content), so a 400 MB cover collection is not stuffed into a .rsr."""
+    if text_only:
+        return [Path(str(n)).suffix.lower() not in SCENE_TEXT_EXT
+                for n, _sz in items]
     sizes = [int(sz or 0) for _n, sz in items]
     big = [bool(cap) and sz >= cap for sz in sizes]
     game = [Path(str(n)).suffix.lower() in CONTENT_EXT for n, _sz in items]
@@ -5210,6 +5222,9 @@ class RsrToolAPI:
             "max_mt": _num(cfg.get("max_mt"), 16, int),
             "embed_extras": bool(cfg.get("embed_extras", True)),
             "embed_max_mb": _num(cfg.get("embed_max_mb"), 16, int),
+            # Store only scene text: every packed file but nfo/diz/sfv is
+            # content, supplied at rebuild -- no game bytes in the .rsr.
+            "content_all": bool(cfg.get("content_all", False)),
             # A loose file over the embed cap that is no set's content (a .ppf
             # patch beside the rars) is carried up to this size.
             "big_sidecar_max_mb": _num(cfg.get("big_sidecar_max_mb"), 128, int),
@@ -5281,6 +5296,7 @@ class RsrToolAPI:
             "embed_extras": bool(s.get("embed_extras", cur["embed_extras"])),
             "embed_max_mb": max(0, min(4096, _num(s.get("embed_max_mb"),
                                                   cur["embed_max_mb"], int))),
+            "content_all": bool(s.get("content_all", cur["content_all"])),
             "big_sidecar_max_mb": max(0, min(4096, _num(s.get("big_sidecar_max_mb"),
                                                         cur["big_sidecar_max_mb"], int))),
             "wall_carry_mb": max(0, min(65536, _num(s.get("wall_carry_mb"),
@@ -8201,7 +8217,7 @@ class RsrToolAPI:
                 # made the first .rsr TWICE the size of the archive it
                 # describes.
                 bigs = content_flags([(e["name"], e["size"]) for e in ents],
-                                     cap)
+                                     cap, bool(s.get("content_all")))
                 # A RAR volume the inner sets rebuild is content whatever its
                 # size: carrying it would carry the game.
                 inner = [_member_base(e["name"]).lower() in inner_names
@@ -8592,7 +8608,8 @@ class RsrToolAPI:
         rebuild finds it by hash and copies it back), everything else carried
         as sidecars exactly as beside a RAR set."""
         cap = max(0, int(s.get("embed_max_mb", 16))) * 1024 * 1024
-        flags = content_flags([(p.name, p.stat().st_size) for p in files], cap)
+        flags = content_flags([(p.name, p.stat().st_size) for p in files], cap,
+                              bool(s.get("content_all")))
         content = [p for p, w in zip(files, flags) if w]
         self._log(f"  Unpacked release — {len(content)} content file(s) "
                   f"loose with no archive: recorded by hash and supplied at "
@@ -9191,7 +9208,7 @@ class RsrToolAPI:
         # it costs kilobytes.
         cap = max(0, int(s.get("embed_max_mb", 16))) * 1024 * 1024
         is_content = content_flags([(f["name"], f["size"]) for f in meta],
-                                   cap)
+                                   cap, bool(s.get("content_all")))
         if getattr(self._tl, "all_content", False):
             # The RAR inside a zip>rar release (see _capture_nested): its
             # unpacked files ARE what a rebuild is given, small or not -- a
