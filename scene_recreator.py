@@ -2438,11 +2438,15 @@ def _rebuild_with_changes(data: bytes, records: list, changes: dict):
             entry = _extract_local_entry_verbatim(data, rec)
         else:
             name = rec.name_bytes
+            # The local header keeps its OWN extra field: Info-ZIP on
+            # Windows writes a 126-byte NT security + 3-time block there
+            # and only 17 bytes in the central record (Unleashed)
+            lx = _local_extra(data, rec)
             entry = (LOCAL_SIG + struct.pack('<HHHI', rec.version_needed, ch['flags'],
                                              rec.compress_method, ch['stamp'])
                      + struct.pack('<IIIHH', ch['crc'], len(ch['comp']), ch['usize'],
-                                   len(name), len(rec.extra))
-                     + name + rec.extra + ch['comp'])
+                                   len(name), len(lx))
+                     + name + lx + ch['comp'])
         new_off[rec.local_offset] = off
         local.append(entry)
         off += len(entry)
@@ -2464,6 +2468,292 @@ def _rebuild_with_changes(data: bytes, records: list, changes: dict):
     comment = data[eocd_idx + 22:] if eocd_idx is not None else b''
     cd_blob = b''.join(cd)
     return b''.join(local) + cd_blob + build_eocd(len(records), len(cd_blob), cd_off, comment), where
+
+
+def _local_extra(data: bytes, rec) -> bytes:
+    """The extra field of rec's LOCAL header (it can differ from the
+    central record's)."""
+    pos = rec.local_offset
+    if data[pos:pos + 4] != LOCAL_SIG:
+        return rec.extra
+    nl, xl = struct.unpack('<HH', data[pos + 26:pos + 30])
+    return data[pos + 30 + nl:pos + 30 + nl + xl]
+
+
+def _ut_times(extra: bytes):
+    """[(offset of each 4-byte time in extra)] of an extended-timestamp
+    (0x5455) block, mtime first; [] if there is none."""
+    i = 0
+    while i + 4 <= len(extra):
+        hid, ln = struct.unpack('<HH', extra[i:i + 4])
+        if hid == 0x5455 and ln >= 5:
+            return [i + 5 + 4 * k for k in range((ln - 1) // 4)]
+        i += 4 + ln
+    return []
+
+
+# ── MISSING SIDECARS ─────────────────────────────────────────────────────
+# Some groups pack the release .nfo INSIDE every zip (Unleashed: the
+# volume, file_id.diz, then unleashed.nfo, all stored). A tidy-up that
+# moves sidecars out (RomVault, a cleaner) takes the nfo out of the zip
+# too, so the zip is short by exactly one entry and no re-compression
+# can ever match it. The fix is to put the release's own nfo back: its
+# bytes are checked against the DAT entry for it first, its headers are
+# copied from the zip's last entry, and its save time is searched
+# around that entry's (the nfo is one file for the whole release while
+# the diz is written fresh for each zip, so the two drift apart).
+
+def technique_sidecar_insert(data: bytes, cand: dict, sources: dict) -> RepairAttempt:
+    """Add back a release sidecar the DAT lists for this release but the
+    zip no longer holds. sources: lower basename -> [(label, bytes)]."""
+    tech = 'sidecar_insert'
+    target_crc = int(cand.get('crc') or '0', 16)
+    try:
+        target_size = int(cand.get('size') or 0)
+    except (TypeError, ValueError):
+        target_size = 0
+    want_md5, want_sha1 = cand.get('md5') or '', cand.get('sha1') or ''
+    if not target_size or target_size <= len(data):
+        return RepairAttempt(tech, False, detail='zip is not smaller than the DAT says')
+    try:
+        records = parse_central_directory(data)
+    except Exception as e:
+        return RepairAttempt(tech, False, detail=f'parse error: {e}')
+    files = [r for r in records if not r.name.endswith('/')]
+    if not files:
+        return RepairAttempt(tech, False, detail='no entries')
+    have = {Path(r.name).name.lower() for r in records}
+
+    # Sidecars the DAT lists for the release that the zip lacks, with
+    # bytes that match the DAT's own hash for them
+    missing = []
+    for rom in cand.get('sibling_roms') or []:
+        rn = (rom.get('name') or '').strip()
+        if Path(rn).suffix.lower() not in _SIDECAR_ONLY_EXTENSIONS or rn.lower() in have:
+            continue
+        want = (rom.get('crc') or '').lower()
+        for label, text in sources.get(rn.lower(), []):
+            forms = list(_text_forms(text)) if Path(rn).suffix.lower() in _EDITABLE_TEXT_EXTS else [text]
+            ok = next((f for f in forms if f'{zlib.crc32(f) & 0xFFFFFFFF:08x}' == want), None)
+            if ok is not None:
+                missing.append((rn, ok, label))
+                break
+    if not missing:
+        return RepairAttempt(tech, False, detail='no DAT-verified copy of a missing sidecar')
+
+    eocd_idx = find_eocd(data)
+    comment = data[eocd_idx + 22:]
+    cd_off = struct.unpack('<I', data[eocd_idx + 16:eocd_idx + 20])[0]
+    body = data[:cd_off]
+    cd_old = b''.join(r.raw for r in records)
+    newest = max(r.dos_date for r in records)
+
+    # How this zip deflates, for a sidecar the group compressed
+    job = current_job()
+    deadline = time.monotonic() + 60
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    encs = []
+    for r in sorted(files, key=lambda r: r.uncomp_size):
+        if r.compress_method == 8 and r.uncomp_size < 4 << 20:
+            try:
+                encs += [e for e in identify_encoders(zf.read(r.name), _read_local_comp_data(data, r),
+                                                      r.name, candidates=job.encoders,
+                                                      deadline=deadline, limit=4) if e not in encs]
+            except Exception:
+                pass
+    encs += [e for e in job.encoders if e.impl != 'store' and e not in encs]
+    deflated = [r for r in files if r.compress_method == 8]
+    dflags = sorted({r.flag_bits & ~0x08 for r in deflated}) or [0, 2, 4, 6]
+    dvn = deflated[0].version_needed if deflated else 20
+
+    tpl = files[-1]
+    tstamp = tpl.dos_time | tpl.dos_date << 16
+    # Two header styles: a copy of the zip's last entry (the group zipped
+    # the sidecar with everything else), or a plain one with no extra
+    # field (a later step added it with another zipper — Unleashed's
+    # deflated nfo: made by FAT 2.0, text bit set, DOS time only)
+    styles = [dict(name='copied from ' + Path(tpl.name).name, made=tpl.version_made_by,
+                   lx=_local_extra(data, tpl), cx=tpl.extra, ia=tpl.internal_attr,
+                   ea=tpl.external_attr, keep_vn=True)]
+    for ia in (1, 0):
+        styles.append(dict(name='added later, no extra field', made=0x14, lx=b'', cx=b'',
+                           ia=ia, ea=0x20, keep_vn=False))
+    gap = target_size - len(data)
+    plain_need = {id(st): gap - sum(76 + 2 * len(rn.encode()) + len(st['lx']) + len(st['cx'])
+                                   for rn, _, _ in missing) for st in styles}
+    if max(plain_need.values()) <= 0:
+        return RepairAttempt(tech, False, detail=f'the DAT size leaves no room for '
+                             f'{", ".join(rn for rn, _, _ in missing)} with this zip\'s headers')
+
+    # Each sidecar as stored, or deflated by any encoder (cached per file)
+    packed = []
+    for rn, plain, label in missing:
+        opts = [(0, plain, 'stored')]
+        if any(len(plain) != need for need in plain_need.values()):
+            for enc in encs:
+                if time.monotonic() > deadline or job.should_stop():
+                    break
+                got = job.encode(plain, enc, rn)
+                if got and got[0] == 8 and all(got[1] != o[1] for o in opts):
+                    opts.append((8, got[1], f'deflated with {enc.label}'))
+        packed.append(opts)
+
+    import itertools
+    tried = 0
+    combos = []
+    for st in styles:
+        for pk in itertools.product(*packed):
+            if sum(len(o[1]) for o in pk) != plain_need[id(st)]:
+                continue
+            fls = [tpl.flag_bits & ~0x08] if all(o[0] == 0 for o in pk) else                 (dflags if st['keep_vn'] else [2, 0, 4, 6])
+            for fl in fls:
+                combos.append((st, pk, fl))
+    for st, combo, fl0 in combos:
+        tried += 1
+        lx, cx = st['lx'], st['cx']
+        lut, cut = _ut_times(lx), _ut_times(cx)
+        # Build the tail: new local entries + central directory + EOCD,
+        # keeping where each time field sits so it can be searched
+        tail, cd_new, spots = bytearray(), bytearray(), []
+        off = cd_off
+        for (rn, plain, label), (meth, comp, how) in zip(missing, combo):
+            if st['keep_vn']:
+                vn = tpl.version_needed if meth == tpl.compress_method or meth == 0 else dvn
+            else:
+                vn = 20 if meth == 8 else 10
+            fl = fl0 if meth == 8 else (tpl.flag_bits & ~0x08 if st['keep_vn'] else 0)
+            nb = rn.encode()
+            crc = zlib.crc32(plain) & 0xFFFFFFFF
+            loc = len(tail)
+            tail += LOCAL_SIG + struct.pack('<HHHI', vn, fl, meth, tstamp)
+            tail += struct.pack('<IIIHH', crc, len(comp), len(plain), len(nb), len(lx)) + nb + lx + comp
+            cpos = len(cd_new)
+            cd_new += CD_SIG + struct.pack('<HHHHI', st['made'], vn, fl, meth, tstamp)
+            cd_new += struct.pack('<IIIHHHHHI', crc, len(comp), len(plain), len(nb), len(cx), 0,
+                                  0, st['ia'], st['ea'])
+            cd_new += struct.pack('<I', off) + nb + cx
+            spots.append((loc, cpos, len(nb)))
+            off = cd_off + len(tail)
+        n = len(records) + len(missing)
+        cd_blob = cd_old + bytes(cd_new)
+        pre = len(tail)
+        tail += cd_blob + build_eocd(n, len(cd_blob), cd_off + pre, comment)
+        cd_base = pre + len(cd_old)
+        base_crc = zlib.crc32(body)
+
+        def _accept(t, extra=''):
+            if zlib.crc32(t, base_crc) & 0xFFFFFFFF != target_crc:
+                return None
+            blob = body + bytes(t)
+            if (want_md5 and md5_of(blob) != want_md5) or (want_sha1 and sha1_of(blob) != want_sha1):
+                return None
+            if extra and not (want_md5 or want_sha1):
+                return None     # a solved time needs a second hash to trust
+            what = '; '.join(f'{rn} from {label} ({how}, header {st["name"]})'
+                             for (rn, _, label), (_, _, how) in zip(missing, combo))
+            return RepairAttempt(tech, True, blob,
+                                 f'put back {what}{extra}; every other entry carried over byte-for-byte')
+
+        hit = _accept(tail)
+        if hit:
+            return hit
+
+        if lut and cut:
+            # Extended timestamps: search the sidecar's save time around the
+            # template entry's, nearest first, keeping its DOS-vs-UTC offset
+            t0 = struct.unpack('<I', lx[lut[0]:lut[0] + 4])[0]
+            import datetime as _dt
+            d, t = tpl.dos_date, tpl.dos_time
+            try:
+                local = _dt.datetime(1980 + (d >> 9), (d >> 5) & 15, d & 31,
+                                     t >> 11, (t >> 5) & 63, (t & 31) * 2)
+                utc = _dt.datetime(1970, 1, 1) + _dt.timedelta(seconds=t0)
+                shift = round((local - utc).total_seconds() / 900) * 900
+            except ValueError:
+                shift = None
+            if shift is not None:
+                # The local block holds modified, accessed, created. A
+                # sidecar zipped from a folder keeps ITS OWN modified and
+                # created times, while accessed is the moment the zipper
+                # read it — the template's accessed time. Its own times
+                # are often the template's created time (the folder's
+                # files were all made together), so that leads, then the
+                # nearest seconds around it and the template's mtime.
+                tpl_t = [struct.unpack('<I', lx[p:p + 4])[0] for p in lut]
+                seeds = [tpl_t[-1]] + ([t0] if t0 != tpl_t[-1] else [])
+                order, seen_t = [], set()
+                for k in range(0, 1800):
+                    for s in seeds:
+                        T = s - (k + 1) // 2 if k % 2 else s + k // 2
+                        if T > 0 and T not in seen_t:
+                            seen_t.add(T)
+                            order.append(T)
+                layouts = [lambda T: [T] * len(tpl_t)]
+                if len(tpl_t) >= 2:
+                    layouts.insert(0, lambda T: [T, tpl_t[1]] + [T] * (len(tpl_t) - 2))
+                    layouts.append(lambda T: [T] + tpl_t[1:])
+                def _stamp(secs):
+                    t = _dt.datetime(1970, 1, 1) + _dt.timedelta(seconds=secs)
+                    dos_t = (t.hour << 11) | (t.minute << 5) | (t.second // 2)
+                    dos_d = ((t.year - 1980) << 9) | (t.month << 5) | t.day
+                    return dos_t | dos_d << 16, t
+                # An odd second has no DOS form: Info-ZIP rounds it UP,
+                # others down. The template shows which when its own
+                # second is odd; otherwise both are tried, up first
+                tstamp = tpl.dos_time | tpl.dos_date << 16
+                ups = [1, 0]
+                if (t0 + shift) & 1:
+                    ups = [0] if _stamp(t0 + shift)[0] == tstamp else [1]
+                for T in order:
+                    if (_dt.datetime(1970, 1, 1) + _dt.timedelta(seconds=T + shift)).year < 1980:
+                        continue
+                    for up in (ups if (T + shift) & 1 else [0]):
+                        stamp, lt = _stamp(T + shift + up)
+                        for lay in layouts:
+                            vals = lay(T)
+                            for loc, cpos, nl in spots:
+                                struct.pack_into('<I', tail, loc + 10, stamp)
+                                struct.pack_into('<I', tail, cd_base + cpos + 12, stamp)
+                                for p, v in zip(lut, vals):
+                                    struct.pack_into('<I', tail, loc + 30 + nl + p, v)
+                                for p in cut:
+                                    struct.pack_into('<I', tail, cd_base + cpos + 46 + nl + p, T)
+                            hit = _accept(tail, f'; saved at {_dt.datetime(1970, 1, 1) + _dt.timedelta(seconds=T + shift):%Y-%m-%d %H:%M:%S}')
+                            if hit:
+                                return hit
+        else:
+            # DOS time only: solve the one shared stamp from the CRC
+            blob = bytearray(tail)
+            cols = [0] * 32
+            for loc, cpos, nl in spots:
+                for p in (loc + 10, cd_base + cpos + 12):
+                    for k, e in enumerate(_crc_bit_effects(len(blob), p)):
+                        cols[k] ^= e
+            stamp0 = tpl.dos_time | tpl.dos_date << 16
+            # The tail's CRC alone is what the stamp bits move (the body is
+            # fixed), so solve against the CRC the tail must end on
+            want_tail = _crc_tail_target(base_crc, len(blob), target_crc)
+            delta = None if want_tail is None else _solve_gf2(cols, zlib.crc32(bytes(blob)) ^ want_tail)
+            if delta is not None and _dos_stamp_ok(stamp0 ^ delta, newest):
+                for loc, cpos, nl in spots:
+                    struct.pack_into('<I', blob, loc + 10, stamp0 ^ delta)
+                    struct.pack_into('<I', blob, cd_base + cpos + 12, stamp0 ^ delta)
+                hit = _accept(blob, f'; saved at {_dos_stamp_text(stamp0 ^ delta)}')
+                if hit:
+                    return hit
+    names = ', '.join(rn for rn, _, _ in missing)
+    return RepairAttempt(tech, False,
+                         detail=f'{tried} way(s) of putting back {names} reached the DAT size, none its hashes'
+                         if tried else f'putting back {names} does not reach the DAT size '
+                                       f'(stored or deflated)')
+
+
+def _crc_tail_target(prefix_crc: int, tail_len: int, final_crc: int):
+    """The CRC a tail would have on its own (crc32(tail)) for
+    crc32(tail, prefix_crc) to equal final_crc. CRC32 is affine, so
+    crc32(tail, p) = crc32(tail) ^ crc32(zeros(tail_len), p) ^ crc32(zeros(tail_len))."""
+    z = bytes(tail_len)
+    return final_crc ^ zlib.crc32(z, prefix_crc) ^ zlib.crc32(z)
 
 
 def _text_forms(b: bytes):
@@ -4662,6 +4952,29 @@ class SceneRecreatorAPI:
                             fixed = True
                             break
 
+                    # A sidecar the release packs inside its zips, taken out
+                    # by a tidy-up (technique_sidecar_insert) — loose copy
+                    # beside the zip first, then the sidecar folders
+                    if not fixed and len(data) < int(cand.get('size') or 0):
+                        ins = technique_sidecar_insert(
+                            data, cand, self._revision_sources(cand, zpath, loose_sidecar_index, config))
+                        attempt_log.append(f"{ins.technique}: "
+                                           f"{'MATCH' if ins.success else 'no match'} — {ins.detail}")
+                        self._log(f'    [{ins.technique}] {"✓ MATCH" if ins.success else "no match"} '
+                                  f'— {ins.detail}', 'ok' if ins.success else 'dim')
+                        if ins.success:
+                            self._log(f'  ✓✓ {zpath.name}: FIXED via {ins.technique} '
+                                      f'(matched {cand["game_name"]} in {cand["source_dat"]})', 'ok')
+                            stats['fixed'][ins.technique] = stats['fixed'].get(ins.technique, 0) + 1
+                            details['fixed'].append({'file': zpath.name, 'technique': ins.technique,
+                                                     'game_name': cand['game_name']})
+                            confirmed_candidate = cand
+                            confirmed_bytes = ins.data
+                            if not dry_run:
+                                self._place_file(zpath, ins.data, cand, dst_dir, move_mode)
+                            fixed = True
+                            break
+
                     # Fast path: if we have learned packer fingerprints for
                     # this release group from verified reference zips, try
                     # those first — usually 1-4 attempts instead of dozens
@@ -5305,6 +5618,16 @@ class SceneRecreatorAPI:
                 for n in names:
                     pat = os.path.join(glob.escape(root), *(['*'] * depth), glob.escape(n))
                     found += [Path(p) for p in glob.glob(pat) if os.path.isdir(p)]
+            if not found:
+                # Numbered folders: 2025-04-06-202732-Gnomes-Unleashed —
+                # any prefix of digits and dashes only, so a different
+                # release ending in the same words never matches
+                bare = {strip_date_prefix(n) for n in names}
+                for depth in range(0, 4):
+                    for n in bare:
+                        pat = os.path.join(glob.escape(root), *(['*'] * depth), '*-' + glob.escape(n))
+                        found += [Path(p) for p in glob.glob(pat) if os.path.isdir(p)
+                                  and re.fullmatch(r'[\d-]+-', os.path.basename(p)[:-len(n)])]
             if found:
                 break
         return list(dict.fromkeys(found))
