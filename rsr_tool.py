@@ -8914,7 +8914,37 @@ class RsrToolAPI:
         solid_vols = bool(solid and st["format"] == "RAR4" and len(vols) > 1
                           and len(meta) > 1
                           and any(not f["solid"] for f in meta[1:]))
-        if solid_vols:
+        if solid_vols and st["format"] == "RAR4":
+            # RAR 3.x restarts the stream at a new volume BY ITSELF once a few
+            # MB have gone by since the last restart (rar.txt: "-sv- ... by
+            # default RAR tries to reset solid statistics as soon as
+            # possible"), so a restart is not proof of -sv there.
+            # The_Adventures_of_Lomax_PAL_PS1-SCHiMANSKi (rar 3.60 -s, no
+            # -sv): Track02/10/17/23 restart, Track04 -- begins in volume 3,
+            # 2.9 MB after a restart -- does not. Sweeping with -sv only left
+            # it at "25 of 26". 2.x never restarts unasked, so -sv alone
+            # stays right there (LUCID, rar 2.50).
+            unp = max((int(getattr(i, "extract_version", 0) or 0)
+                       for i in infos), default=0)
+            starts, prev = [], None
+            for i, f in zip(infos, meta):
+                v = getattr(i, "volume", None)
+                if prev is not None and v is not None and v > prev:
+                    starts.append(f)
+                if v is not None:
+                    prev = v
+            every = bool(starts) and all(not f["solid"] for f in starts)
+            if unp >= 29:
+                solid_vols = "sv_first" if every else "plain_first"
+        if solid_vols == "plain_first":
+            self._log("    solid stream restarts at some new volumes: RAR 3.x "
+                      "does that by itself after a few MB, and -sv at every "
+                      "volume — sweeping without -sv, then with it.", "dim")
+        elif solid_vols == "sv_first":
+            self._log("    every new volume restarts the solid stream: -sv, or "
+                      "RAR 3.x's own restart — sweeping with -sv, then "
+                      "without it.", "dim")
+        elif solid_vols:
             self._log("    independent solid volumes: a later file starts a "
                       "fresh solid stream, which inside one volume set only "
                       "-sv does — sweeping with -sv.", "dim")
@@ -12679,11 +12709,18 @@ class RsrToolAPI:
             # Independent solid volumes (see the detection in _capture_set):
             # every combo packs with -sv in place of -s. One that already
             # names its own solid mode (-s1 for the Unix line) keeps it.
-            combos = [(c[0], c[1], tuple(c[2] if len(c) > 2 else ())
-                       + (() if any(str(x).startswith("-s")
-                                    for x in (c[2] if len(c) > 2 else ()))
-                          else ("-sv",)))
-                      for c in combos]
+            # RAR 3.x sets ("plain_first"/"sv_first") get both, in that order.
+            sv = [(c[0], c[1], tuple(c[2] if len(c) > 2 else ())
+                   + (() if any(str(x).startswith("-s")
+                                for x in (c[2] if len(c) > 2 else ()))
+                      else ("-sv",)))
+                  for c in combos]
+            if solid_vols == "plain_first":
+                combos = combos + [c for c in sv if c not in combos]
+            elif solid_vols == "sv_first":
+                combos = sv + [c for c in combos if c not in sv]
+            else:
+                combos = sv
         if store_ms:
             # See _wants_ms. Appended, so the known recipes still lead; the
             # recipe's `mc` carries it to every replay.
