@@ -8747,6 +8747,37 @@ class RsrToolAPI:
         keep = dict(embedded)
         self._tl.early_splice = False
         res = self._capture_set(st, si, folder, work, s, exes, embedded)
+        # A STORED set (-m0) proves nothing about the build in the sweep:
+        # every build writes stored data byte-exact, so the first one tried
+        # "matches" and only the replay can tell them apart. When that replay
+        # fails, the build is wrong, not the set — drop it and sweep again so
+        # the next build gets its turn. MAME 0.145 oNePiEcE DVDs, 2026-11-10:
+        # 5.00 led (the group's newest prior) and differed in one volume of
+        # each; 2.70/2.80 had replayed them all exactly.
+        tried = []
+        while (not res.get("ok") and len(tried) < 6
+               and str(res.get("error", "")).startswith("replay unverified")
+               and not (self._stop.is_set() or self._skip.is_set())):
+            rec = (res.get("set") or {}).get("recipe") or {}
+            if rec.get("level") not in (0, "0") or not rec.get("exe"):
+                break
+            bad = Path(rec["exe"])
+            tried.append(bad)
+            left = [e for e in exes if Path(e) not in tried]
+            if not left:
+                break
+            # The year window is no help either: it only narrows builds by
+            # what their streams say, and stored streams say nothing. The
+            # MAME DVDs are 2012 releases packed with 2.70/2.80 (2000-01),
+            # which the -6/+4 window had hidden.
+            self._log(f"    ◐ stored data matches every build, so the replay is "
+                      f"the only test — {_exe_label(str(bad))} failed it; "
+                      f"sweeping again without it, and without the year window.",
+                      "warn")
+            embedded.clear()
+            embedded.update(keep)
+            res = self._capture_set(st, si, folder, work,
+                                    dict(s, year_before=0, year_after=0), left, embedded)
         if (res.get("ok") or not self._tl.early_splice
                 or self._stop.is_set() or self._skip.is_set()):
             return res
