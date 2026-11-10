@@ -226,7 +226,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
             <input class="num" id="max_mt" type="number" min="0" max="32" value="16">
             <span class="hint">thread counts swept 0–N</span>
           </div>
-          <div class="row">
+          <div class="row" id="embed_cap_row">
             <div class="lbl">Embed cap</div>
             <input class="num" id="embed_max_mb" type="number" min="0" max="4096" value="16">
             <span class="hint">MB — larger packed files count as content</span>
@@ -236,8 +236,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
             <input class="num" id="wall_carry_mb" type="number" min="0" max="65536" value="0">
             <span class="hint">MB — a release no recipe reproduces is kept whole (0 = only under the embed cap)</span>
           </div>
-          <label class="chk-row"><input type="checkbox" id="content_all">
-            Store only scene text (nfo/diz/sfv) — every other file is content, supplied at rebuild</label>
+          <label class="chk-row" title="Inside the archives only nfo/diz/sfv are stored; everything else (game files, pictures, covers) is supplied from your collection at rebuild. Loose files beside the archives, such as Proof folders, are still stored."><input type="checkbox" id="content_all" onchange="syncEmbedCap()">
+            No copyrighted files in the .rsr — inside the archives keep only nfo/diz/sfv (loose Proof folders are still kept)</label>
           <label class="chk-row"><input type="checkbox" id="embed_extras" checked>
             Embed archive-only extras (required to rebuild them)</label>
           <label class="chk-row"><input type="checkbox" id="write_srr" checked>
@@ -462,6 +462,14 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 
 <script>
 const $ = id => document.getElementById(id);
+// With "No copyrighted files" ticked, nothing packed inside an archive is
+// sized against the embed cap, so grey it out.
+function syncEmbedCap() {
+  const on = $('content_all').checked;
+  $('embed_max_mb').disabled = on;
+  $('embed_cap_row').style.opacity = on ? '0.45' : '';
+  $('embed_cap_row').title = on ? 'Not used while "No copyrighted files" is ticked' : '';
+}
 // name -> {name, recipe, status, kind, seq, el}. The model is kept apart from
 // the DOM so the list can be re-ordered and filtered without the backend ever
 // having to resend it — a scan of 2,400 releases only ever sends each row.
@@ -485,6 +493,7 @@ window.addEventListener('pywebviewready', async () => {
   $('wall_carry_mb').value = s.wall_carry_mb || 0;
   $('embed_extras').checked = s.embed_extras;
   $('content_all').checked = !!s.content_all;
+  syncEmbedCap();
   $('write_srr').checked = s.write_srr;
   $('skip_done').checked = s.skip_done;
   $('dict_ladder').checked = s.dict_ladder;
