@@ -5652,6 +5652,15 @@ class SceneRecreatorAPI:
             for p in stem_paths:
                 if p.parent == zpath.parent:
                     add(p.name, 'loose copy', p)
+        # The release's output folder: in move mode the first zip fixed takes
+        # the loose nfo/diz there with it, and a group that packs its nfo in
+        # EVERY zip (Unleashed) needs it again for the next one
+        if config.get('dst'):
+            done = self._game_output_dir(cand, Path(config['dst']).expanduser())
+            if done.is_dir():
+                for p in done.iterdir():
+                    if p.is_file() and p.suffix.lower() in _SIDECAR_ONLY_EXTENSIONS:
+                        add(p.name, 'output folder', p)
         roots = [r for r in (config.get('sidecar_dirs') or []) if r]
         for d in self._release_dirs(roots, cand.get('game_name', ''))[:3]:
             for p in d.iterdir():
