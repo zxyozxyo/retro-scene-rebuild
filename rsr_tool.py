@@ -10854,6 +10854,24 @@ class RsrToolAPI:
         same names the original does."""
         cmds = []
         at = 0
+        # RAR for Unix order over SEVERAL commands: each command names its own
+        # files in the original's order, and the folder entries (named by no
+        # command's file list) go with the first. XBOX_Media_Center_2005-05-02
+        # _build-IND: 1,260 files at -m5, then the .nfo added at -m3.
+        exact_by_group = None
+        if exact_names and base and len(groups) > 1:
+            owner, k = {}, 0
+            for gi_, (_lv, cnt) in enumerate(groups):
+                for q in srcs[k:k + cnt]:
+                    try:
+                        owner[os.path.relpath(str(q), str(base)).lower()] = gi_
+                    except ValueError:
+                        pass
+                k += cnt
+            exact_by_group = [[] for _ in groups]
+            for nm in exact_names:
+                exact_by_group[owner.get(nm.replace("/", "\\").lower(), 0)
+                               ].append(nm)
         for gi, (level, count) in enumerate(groups):
             pre = self._pack_args(ex, fmt, level, dict_kb, mt)
             if pre is None:
@@ -10886,12 +10904,13 @@ class RsrToolAPI:
             # (see the note where dir_names is read). Named relative to the
             # base for the same reason the files are: -ep is dropped, so rar
             # stores exactly the name it is given.
-            exact = bool(exact_names and base and len(groups) == 1)
+            exact = bool(exact_names and base)
             if exact:
                 # Every entry, folders included, in the original's order
                 # (rar4_unix_layout): rar 3.x writes exactly this order, each
                 # folder's entry where it is named.
-                names = list(exact_names)
+                names = (list(exact_names) if exact_by_group is None
+                         else list(exact_by_group[gi]))
             elif dirs and not dirs_form and not dirs_inline:
                 # No recorded form: this build's default (_default_dirs_form).
                 # MSX_Emu-MAZNFXP: folders named first came out 844 of 845
@@ -14208,8 +14227,7 @@ class RsrToolAPI:
 
         verdict, volmeta, deltas, rr_maps = _compare(produced)
         if (verdict == "none" and st["format"] == "RAR4"
-                and not recipe.get("unix")
-                and len(recipe.get("groups") or [1]) == 1):
+                and not recipe.get("unix")):
             # Packed by RAR for Unix: same streams, but every header differs
             # (rar4_unix_layout). Named in its order and given its headers
             # back, the replay can come out byte for byte.
