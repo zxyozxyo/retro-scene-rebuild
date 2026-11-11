@@ -10576,7 +10576,7 @@ class RsrToolAPI:
                 self._log(f"    ◐ this stream is on record as packed by "
                           f"{_exe_label(known[0])} stepping down a level "
                           f"{len(known[1])} time(s) part-way "
-                          f"({', '.join(f'-m{lv} from {p:,} B' for p, lv in known[1])}) "
+                          f"({', '.join((f'-m{st[1]}' if st[1] else 'filters off') + f' from {st[0]:,} B' for st in known[1])}) "
                           "— replaying it that way.", "info")
                 return {"exe": known[0], "version": _exe_label(known[0]),
                         "mt": 0, "dict_kb": dkb,

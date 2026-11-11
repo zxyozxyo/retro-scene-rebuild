@@ -25,7 +25,13 @@ search depth, the values rar sets for -m1..-m5) and switches filters off;
 after it, with filters off, every filter region is dropped from the
 analyser's list so that data is packed plain.
 
-A recipe carries `@R3STEP<pos>:<level>` per step (level as in -m<level>).
+A recipe carries `@R3STEP<pos>:<level>` per step (level as in -m<level>):
+the level change and filters off together. `@R3STEP<pos>:<level>:1` changes
+the level only, `@R3STEP<pos>:0` only switches filters off. Those fire on
+the analyser's 32 KB chunk edges, which lands the change ~250 bytes before
+the edge in compressor terms. `@R3STEP<pos>:<level>:2` (level only) and
+`:3` (and filters off) fire when the compressor itself reaches byte pos
+(checked after every token, in the main loop).
 """
 from __future__ import annotations
 
@@ -38,6 +44,9 @@ CHUNK = 32768
 _CAVE = 0x400
 # lea eax,[ebx+0DA4]; mov edx,[edx]; call ANALYSER   (in the dispatcher)
 _SITE = bytes.fromhex("8D83A40D00008B12E8")
+# the compressor loop's bottom: edi = lookahead (window write - read pos)
+#   mov edi,[ebp+2C]; sub edi,[ebp+149C]; and edi,[ebp+24]; cmp edi,111h
+_LOOP = bytes.fromhex("8B7D2C" "2BBD9C140000" "237D24" "81FF11010000")
 # the dispatcher's own frame: 16 regions at ebp-138, their count at ebp-0C
 _FRAME = bytes.fromhex("8D95C8FEFFFF" "8945F4" "52" "8D4DF4" "51" "6A10")
 _COUNTER = 0x14A4           # analysed bytes (low dword), compressor object
@@ -48,6 +57,9 @@ _COUNTER = 0x14A4           # analysed bytes (low dword), compressor object
 KNOWN_STEPS = {
     # Ski_Racing_2006_Ft_Hermann_Maier_PAL_MULTi5_XBOX_DVDRiP-JEDi
     "c323555d25bb2fc38d3254c399ebba387ee02aa0": ("2005-02-22_rar342.exe", [(104366080, 2), (291209216, 1)]),
+    # Kingdom_Under_Fire_Heroes_XBOX_DVDRIP-JEDi: -m1 from compressor byte
+    # 330,744,439 (mid-chunk, a block start), filters off a chunk later
+    "c487cf72ac2a4bb2c92ee7831f32bf69fed9a567": ("2005-02-22_rar342.exe", [(330744439, 1, 2), (330760192, 0)]),
 }
 
 
@@ -89,13 +101,14 @@ def parse(switches) -> list[tuple[int, int]]:
     for s in switches:
         s = str(s)
         if s.startswith("@R3STEP"):
-            p, lv = s[len("@R3STEP"):].split(":")
-            out.append((int(p), int(lv)))
+            f = s[len("@R3STEP"):].split(":")
+            out.append(tuple(int(x) for x in f))
     return sorted(out)
 
 
 def switch(steps) -> list[str]:
-    return [f"@R3STEP{int(p)}:{int(lv)}" for p, lv in sorted(steps)]
+    return ["@R3STEP" + ":".join(str(int(x)) for x in st)
+            for st in sorted(steps)]
 
 
 def build(exe: bytes, steps) -> bytes:
@@ -108,9 +121,20 @@ def build(exe: bytes, steps) -> bytes:
         raise ValueError("filter analyser call site not found")
     if code['vs'] - code['rs'] < _CAVE:
         raise ValueError("no slack in CODE for the patch")
-    steps = sorted((int(p), int(lv)) for p, lv in steps)
-    if not steps or any(lv not in LEVEL_FIELDS for _p, lv in steps):
+    # (pos, level) = level change + filters off; (pos, level, 1) = level
+    # change only; (pos, 0) = filters off only
+    steps = sorted(tuple(int(x) for x in st) for st in steps)
+    if not steps or any(len(st) not in (2, 3) or (st[1] not in LEVEL_FIELDS
+                        and tuple(st[1:]) != (0,)) for st in steps):
         raise ValueError(f"bad steps {steps}")
+    if any(len(st) == 3 and st[2] not in (0, 1, 2, 3) for st in steps):
+        raise ValueError(f"bad steps {steps}")
+    loop = None
+    if any(len(st) == 3 and st[2] >= 2 for st in steps):
+        lo, hi = code['ro'], code['ro'] + code['rs']
+        loop = d.find(_LOOP, lo, hi)
+        if loop < 0 or d.find(_LOOP, loop + 1, hi) >= 0:
+            raise ValueError("compressor loop not found")
     site_va = ib + code['va'] + (at - code['ro'])
     analyser = site_va + 5 + struct.unpack_from('<i', d, at + 1)[0]
     ins = code['ro'] + code['rs']
@@ -128,15 +152,18 @@ def build(exe: bytes, steps) -> bytes:
         raise ValueError("too many steps")
     c = bytearray()
     c += b"\x8F\x05" + struct.pack('<I', RET)                  # pop [RET]
-    for i, (p, lv) in enumerate(steps):
+    for i, (p, lv, *keep) in enumerate(steps):
+        if keep and keep[0] >= 2:
+            continue
         c += b"\x80\x3D" + struct.pack('<I', DONE + i) + b"\x00\x75\x00"
         j1 = len(c) - 1                                        # done? skip
         c += (b"\x81\xBB" + struct.pack('<I', _COUNTER)
               + struct.pack('<I', p) + b"\x72\x00")
         j2 = len(c) - 1                                        # not yet? skip
         c += b"\xC6\x05" + struct.pack('<I', DONE + i) + b"\x01"
-        c += b"\xC6\x05" + struct.pack('<I', NOF) + b"\x01"    # filters off
-        for k, v in zip((0x30, 0x34, 0x38), LEVEL_FIELDS[lv]):
+        if not (keep and keep[0]):
+            c += b"\xC6\x05" + struct.pack('<I', NOF) + b"\x01"  # filters off
+        for k, v in zip((0x30, 0x34, 0x38), LEVEL_FIELDS.get(lv, ())):
             c += b"\xC7\x83" + struct.pack('<iI', k, v)        # level fields
         c[j1] = len(c) - (j1 + 1)
         c[j2] = len(c) - (j2 + 1)
@@ -161,6 +188,29 @@ def build(exe: bytes, steps) -> bytes:
     c += b"\xFF\x35" + struct.pack('<I', RET) + b"\xC3"        # back
     c[j0] = end - (j0 + 1); c[jae] = drop - (jae + 1)
     c[jk] = nx - (jk + 1); c[jz] = out - (jz + 1)
+    if loop is not None:
+        # after each token: compressor byte = analysed - lookahead
+        hook = len(c)
+        for i, (p, lv, *keep) in enumerate(steps):
+            if not (keep and keep[0] >= 2):
+                continue
+            c += b"\x80\x3D" + struct.pack('<I', DONE + i) + b"\x00\x75\x00"
+            j1 = len(c) - 1
+            c += b"\x50\x8B\x45\x2C\x2B\x85\x9C\x14\x00\x00\x23\x45\x24"
+            c += b"\xF7\xD8\x03\x85" + struct.pack('<I', _COUNTER)
+            c += b"\x3D" + struct.pack('<I', p) + b"\x58\x72\x00"
+            j2 = len(c) - 1
+            c += b"\xC6\x05" + struct.pack('<I', DONE + i) + b"\x01"
+            if keep[0] == 3:
+                c += b"\xC6\x05" + struct.pack('<I', NOF) + b"\x01"
+            for k, v in zip((0x30, 0x34, 0x38), LEVEL_FIELDS.get(lv, ())):
+                c += b"\xC7\x45" + struct.pack('<bI', k, v)
+            c[j1] = len(c) - (j1 + 1)
+            c[j2] = len(c) - (j2 + 1)
+        c += b"\x8B\x7D\x2C\x2B\xBD\x9C\x14\x00\x00\xC3"  # the moved code
+        loop_va = ib + code['va'] + (loop - code['ro'])
+        d[loop:loop + 9] = (b"\xE8" + struct.pack('<i', cave + hook - (loop_va + 5))
+                            + b"\x90" * 4)
     if len(c) > 0x300:
         raise ValueError("too many steps for the cave")
     d[ins:ins + len(c)] = c
