@@ -5925,6 +5925,19 @@ class RsrToolAPI:
                      store / rel / f"{rel}.rsr"):
             if cand.is_file():
                 return cand
+        # Captured earlier under another system or year folder (a guide filed
+        # under MISC that is now sorted as GUIDES, say). The name is the
+        # index's key, so the same name is the same release.
+        try:
+            for sysd in store.iterdir():
+                if not sysd.is_dir():
+                    continue
+                for yr in sysd.iterdir():
+                    cand = yr / rel / f"{rel}.rsr"
+                    if cand.is_file():
+                        return cand
+        except OSError:
+            pass
         return None
 
     def _scan_run(self, roots, store: Path, s: dict):
