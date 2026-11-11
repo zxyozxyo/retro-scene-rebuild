@@ -10558,6 +10558,31 @@ class RsrToolAPI:
                 or bd[0] < 4 << 20):
             return None
         depth, exe, mt_, sw_, dkb = bd[0], bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
+        # A pack on record as having dropped a level part-way (rar3_step):
+        # its own build with those steps, no other switch. The replay still
+        # verifies every volume, and the splice stays the fallback.
+        if len(targets) == 1:
+            try:
+                import rar3_step
+                (bl,) = packed_blocks(Path(st["volumes"][0])).values()
+                vol0, off0, _sz = bl[0]
+                with open(vol0, "rb") as fh:
+                    fh.seek(off0)
+                    known = rar3_step.known_steps(fh.read(65536))
+            except Exception:
+                known = None
+            if known and (self._app_dir / "apps" / "winrar_pack-4.20"
+                          / known[0]).is_file():
+                self._log(f"    ◐ this stream is on record as packed by "
+                          f"{_exe_label(known[0])} stepping down a level "
+                          f"{len(known[1])} time(s) part-way "
+                          f"({', '.join(f'-m{lv} from {p:,} B' for p, lv in known[1])}) "
+                          "— replaying it that way.", "info")
+                return {"exe": known[0], "version": _exe_label(known[0]),
+                        "mt": 0, "dict_kb": dkb,
+                        "mc": rar3_step.switch(known[1]),
+                        "dirs": list(dirs), "dirs_first": bool(dirs_first),
+                        "tried": 0, "near_miss": len(targets)}
         # A DOS build is replayed through DOSBox like any DOS recipe: the
         # RAR/DOS32 line packs the same bytes run after run (three packs of
         # Viewtiful_Joe_JAP_GC-RARE parted at the same byte), and the splice
@@ -13623,6 +13648,20 @@ class RsrToolAPI:
                           f"multimedia verdicts: {e}", "err")
                 return None
             ex = pex
+        # @R3STEP<pos>:<level>: a RAR 3 pack that dropped a level (and its
+        # filters) part-way through the file (see rar3_step).
+        steps = [x for x in mc_all if x.startswith("@R3STEP")]
+        if steps:
+            try:
+                import rar3_step
+                pex = target.parent.parent / f"r3s_{recipe['exe']}"
+                pex.write_bytes(rar3_step.build(ex.read_bytes(),
+                                                rar3_step.parse(steps)))
+            except (ValueError, OSError, ImportError) as e:
+                self._log(f"    ✗ {recipe['exe']} cannot take the level "
+                          f"steps: {e}", "err")
+                return None
+            ex = pex
         groups = [tuple(g) for g in recipe.get("groups") or []]
         if not groups:
             groups = [(recipe["level"], len(srcs))]
@@ -13682,7 +13721,7 @@ class RsrToolAPI:
                                exact_names=(recipe.get("unix") or {}).get("order"))
         cmds = self._pack_cmds_extra(
             cmds, [x for x in (recipe.get("mc") or ())
-                   if not str(x).startswith(("@MMV", "@LZV", "@ADJ"))])
+                   if not str(x).startswith(("@MMV", "@LZV", "@ADJ", "@R3STEP"))])
         if cmds and recipe.get("sort_list"):
             # Recursive, in rar's own solid order (RARFILES_LST): the build
             # runs from a private folder holding the list, and is given the
@@ -17932,7 +17971,7 @@ class RsrToolAPI:
         sw = ",".join(str(x) for x in (recipe.get("mc") or ())
                       if str(x) != self.DOS_MARK
                       and not str(x).startswith(("@FILL", "@SLOTS"))
-                      and not str(x).startswith(("@MMV", "@LZV", "@ADJ")))
+                      and not str(x).startswith(("@MMV", "@LZV", "@ADJ", "@R3STEP")))
         try:
             con = self._db()
             try:
