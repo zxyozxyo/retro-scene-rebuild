@@ -6535,10 +6535,15 @@ class RsrToolAPI:
                     break
                 except ValueError:
                     continue
+            if not rel_path.parts:
+                # the scan root WAS this release folder: keep its system
+                # folder, or the target is `dest` itself (always exists)
+                rel_path = Path(folder.parent.name) / folder.name
             tgt = dest / rel_path
             if tgt.exists():
-                self._log(f"  Proven sets: {tgt} already exists — "
-                          f"{folder.name} left where it is.", "warn")
+                self._log(f"  Proven sets: not moved — {tgt.parent} already "
+                          f"has a folder called {folder.name}. Compare the two "
+                          f"and remove one, then re-run to move it.", "warn")
                 continue
             try:
                 tgt.parent.mkdir(parents=True, exist_ok=True)
