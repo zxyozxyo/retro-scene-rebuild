@@ -39,7 +39,12 @@ import struct
 
 # what rar 3.42 sets per -m level (dumped from the compressor object)
 LEVEL_FIELDS = {1: (0, 2, 0), 2: (1, 6, 1), 3: (2, 12, 3), 4: (3, 30, 7),
-                5: (4, 70, 17)}
+                5: (4, 70, 17),
+                # not a real -m switch: -m1 with a match search depth of 1.
+                # Heroes_Of_The_Pacific_PAL_XBOX_DVDRIP-JEDi packs this way
+                # from 742 MB to the end, all but 3 spots (11 bytes) in the
+                # 18 KB after the step, which a splice carries.
+                6: (0, 1, 0)}
 CHUNK = 32768
 _CAVE = 0x400
 # lea eax,[ebx+0DA4]; mov edx,[edx]; call ANALYSER   (in the dispatcher)
@@ -60,6 +65,10 @@ KNOWN_STEPS = {
     # Kingdom_Under_Fire_Heroes_XBOX_DVDRIP-JEDi: -m1 from compressor byte
     # 330,744,439 (mid-chunk, a block start), filters off a chunk later
     "c487cf72ac2a4bb2c92ee7831f32bf69fed9a567": ("2005-02-22_rar342.exe", [(330744439, 1, 2), (330760192, 0)]),
+    # Heroes_Of_The_Pacific_PAL_XBOX_DVDRIP-JEDi: -m2 + filters off at the
+    # chunk after the last filter, then search depth 1 from compressor byte
+    # 742,371,171 (a near miss: 3 spots, 11 bytes, carried by the splice)
+    "0ded3ef7d2185c5567d2dad01561543bbe58c753": ("2005-02-22_rar342.exe", [(592543744, 2), (742371171, 6, 2)]),
 }
 
 
