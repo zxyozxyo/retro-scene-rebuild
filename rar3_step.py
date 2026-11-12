@@ -69,6 +69,10 @@ KNOWN_STEPS = {
     # chunk after the last filter, then search depth 1 from compressor byte
     # 742,371,171 (a near miss: 3 spots, 11 bytes, carried by the splice)
     "0ded3ef7d2185c5567d2dad01561543bbe58c753": ("2005-02-22_rar342.exe", [(592543744, 2), (742371171, 6, 2)]),
+    # Disneys_Quack_Attack_PAL_MULTI5_NGC-GCUBE (-m2, no filters at all):
+    # -m1 from compressor byte 347,209,573 (level 6 packs the same here);
+    # a near miss of 150 short spots just after the step, splice-carried
+    "ea5325eb59c4a2a62b4f41de2f4cf3f66738c69c": ("2005-02-22_rar342.exe", [(347209573, 1, 2)]),
 }
 
 
