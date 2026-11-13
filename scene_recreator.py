@@ -69,6 +69,7 @@ import re
 import json
 import zlib
 import struct
+import itertools
 import shutil
 import hashlib
 import io
@@ -1786,6 +1787,87 @@ def technique_data_descriptor_strip(data: bytes, target_crc: str,
                f"still no match (something else differs too)"
     )
 
+
+def _add_data_descriptors(data: bytes, records: list, which: set,
+                          signature: bool = True, zero_local: bool = False) -> bytes:
+    """The zip with a data descriptor put back after each entry in `which`
+    (record indices): flag bit 3 set in the local and central headers, the
+    descriptor (crc, compressed and real size, optionally led by PK\\x07\\x08)
+    written after the compressed bytes. Every compressed byte is copied
+    unchanged; only offsets move."""
+    out = bytearray()
+    new_off = []
+    for i, rec in enumerate(records):
+        lo = rec.local_offset
+        nl, el = struct.unpack_from('<HH', data, lo + 26)
+        start = lo + 30 + nl + el
+        hdr = bytearray(data[lo:start])
+        if i in which:
+            struct.pack_into('<H', hdr, 6, struct.unpack_from('<H', hdr, 6)[0] | 0x08)
+            if zero_local:
+                struct.pack_into('<3I', hdr, 14, 0, 0, 0)
+        new_off.append(len(out))
+        out += hdr + data[start:start + rec.comp_size]
+        if i in which:
+            out += ((b'PK\x07\x08' if signature else b'')
+                    + struct.pack('<3I', rec.crc32, rec.comp_size, rec.uncomp_size))
+    cd_start = len(out)
+    for i, rec in enumerate(records):
+        cd = bytearray(rec.raw)
+        if i in which:
+            struct.pack_into('<H', cd, 8, rec.flag_bits | 0x08)
+        struct.pack_into('<I', cd, 42, new_off[i])
+        out += cd
+    eocd_idx = find_eocd(data)
+    comment_len = struct.unpack('<H', data[eocd_idx + 20:eocd_idx + 22])[0]
+    eocd = bytearray(data[eocd_idx:eocd_idx + 22 + comment_len])
+    struct.pack_into('<II', eocd, 12, len(out) - cd_start, cd_start)
+    return bytes(out + eocd)
+
+
+def technique_data_descriptor_add(data: bytes, target_crc: str) -> RepairAttempt:
+    """
+    The reverse of data_descriptor_strip: the original zipper streamed one or
+    more entries (flag bit 3 + a data descriptor after the data) and a later
+    re-save dropped the descriptors. Seen on MiRAGE DC/PS Vita 2024-25 zips,
+    where the big game entry carried a 16-byte PK\\x07\\x08 descriptor while
+    its local header still held the real CRC/sizes, so a copy is exactly 16
+    bytes per entry short of the DAT. Compressed bytes are never touched.
+    """
+    try:
+        records = parse_central_directory(data)
+    except Exception as e:
+        return RepairAttempt("data_descriptor_add", False, detail=f"unreadable: {e}")
+    if not records or any(r.flag_bits & 0x08 for r in records) \
+            or any(r.comp_size == 0xFFFFFFFF for r in records):
+        return RepairAttempt("data_descriptor_add", False,
+                             detail="already has descriptors (or is Zip64) — not this case")
+    n = len(records)
+    # one entry at a time (largest first: that is the one a streaming zipper
+    # writes), then all of them, then every subset of a small archive
+    singles = sorted(range(n), key=lambda i: -records[i].comp_size)
+    subsets = [{i} for i in singles] + [set(range(n))]
+    if n <= 6:
+        for k in range(2, n):
+            subsets += [set(c) for c in itertools.combinations(range(n), k)]
+    tried = 0
+    for which in subsets:
+        for signature in (True, False):
+            for zero_local in (False, True):
+                cand = _add_data_descriptors(data, records, which, signature, zero_local)
+                tried += 1
+                if crc32_of(cand) == target_crc:
+                    names = ', '.join(records[i].name for i in sorted(which))
+                    return RepairAttempt(
+                        "data_descriptor_add", True, cand,
+                        f"put back the data descriptor{'s' if len(which) > 1 else ''} on "
+                        f"({names}){'' if signature else ' without signature'}"
+                        f"{', local CRC/sizes zeroed' if zero_local else ''} — "
+                        f"compressed bytes unchanged")
+    return RepairAttempt("data_descriptor_add", False,
+                         detail=f"tried {tried} descriptor placements, no match")
+
+
 def technique_strip_to_essentials(data: bytes, target_crc: str, fingerprints: list = None) -> RepairAttempt:
     """
     Last-resort technique: strips EVERYTHING except the single largest
@@ -3203,6 +3285,7 @@ def repair_loose_text_file(data: bytes, target_crc: str) -> RepairAttempt:
 TECHNIQUES = [
     technique_surgical_delete,
     technique_data_descriptor_strip,
+    technique_data_descriptor_add,
     technique_local_header_reconstruct,
     technique_eocd_comment_strip,
     technique_grow_append_truncate,
