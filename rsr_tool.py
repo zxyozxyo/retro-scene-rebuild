@@ -10559,13 +10559,15 @@ class RsrToolAPI:
         # A recovery record no longer rules it out: the splice recomputes its
         # data (marker R in _splice_attempt).
         if (not bd or st["format"] != "RAR4" or (solid and len(targets) > 1)
-                or len(groups) != 1 or st.get("sfx") or head_vol
-                or bd[0] < 4 << 20):
+                or len(groups) != 1 or st.get("sfx") or head_vol):
             return None
         depth, exe, mt_, sw_, dkb = bd[0], bd[1], bd[2], [str(x) for x in bd[3]], bd[4]
         # A pack on record as having dropped a level part-way (rar3_step):
         # its own build with those steps, no other switch. The replay still
-        # verifies every volume, and the splice stays the fallback.
+        # verifies every volume, and the splice stays the fallback. Keyed by
+        # the stream itself, so it skips the 4 MB depth rule below: Xyanide
+        # (illuishorny) parts from every stock build at 128 KB, yet with its
+        # steps only 768 short spots stay, all before 9 MB.
         if len(targets) == 1:
             try:
                 import rar3_step
@@ -10588,6 +10590,8 @@ class RsrToolAPI:
                         "mc": rar3_step.switch(known[1]),
                         "dirs": list(dirs), "dirs_first": bool(dirs_first),
                         "tried": 0, "near_miss": len(targets)}
+        if depth < 4 << 20:
+            return None
         # A DOS build is replayed through DOSBox like any DOS recipe: the
         # RAR/DOS32 line packs the same bytes run after run (three packs of
         # Viewtiful_Joe_JAP_GC-RARE parted at the same byte), and the splice

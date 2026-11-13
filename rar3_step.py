@@ -38,13 +38,16 @@ from __future__ import annotations
 import struct
 
 # what rar 3.42 sets per -m level (dumped from the compressor object)
-LEVEL_FIELDS = {1: (0, 2, 0), 2: (1, 6, 1), 3: (2, 12, 3), 4: (3, 30, 7),
-                5: (4, 70, 17),
+# +0x3c is derived from the search depth too (depth >> 5, at least 1): 2 at
+# -m5 and 1 below, so a step down from -m5 must set it as well.
+LEVEL_FIELDS = {1: (0, 2, 0, 1), 2: (1, 6, 1, 1), 3: (2, 12, 3, 1),
+                4: (3, 30, 7, 1), 5: (4, 70, 17, 2),
                 # not a real -m switch: -m1 with a match search depth of 1.
                 # Heroes_Of_The_Pacific_PAL_XBOX_DVDRIP-JEDi packs this way
                 # from 742 MB to the end, all but 3 spots (11 bytes) in the
                 # 18 KB after the step, which a splice carries.
-                6: (0, 1, 0)}
+                6: (0, 1, 0, 1)}
+_FIELDS = (0x30, 0x34, 0x38, 0x3C)
 CHUNK = 32768
 _CAVE = 0x400
 # lea eax,[ebx+0DA4]; mov edx,[edx]; call ANALYSER   (in the dispatcher)
@@ -55,6 +58,10 @@ _LOOP = bytes.fromhex("8B7D2C" "2BBD9C140000" "237D24" "81FF11010000")
 # the dispatcher's own frame: 16 regions at ebp-138, their count at ebp-0C
 _FRAME = bytes.fromhex("8D95C8FEFFFF" "8945F4" "52" "8D4DF4" "51" "6A10")
 _COUNTER = 0x14A4           # analysed bytes (low dword), compressor object
+# the filter/text analyser inside the compressor object: 16 per-feature
+# modes of 12 bytes at its start (1 = auto on, 3 = off; set once at start
+# from the level), +0x2D4 = "every feature off" flag
+_ANALYSER = 0xDA4
 
 
 # Found by hand (B:/rtmp/jedi/stepfind.py), keyed by the SHA-1 of the
@@ -73,6 +80,11 @@ KNOWN_STEPS = {
     # -m1 from compressor byte 347,209,573 (level 6 packs the same here);
     # a near miss of 150 short spots just after the step, splice-carried
     "ea5325eb59c4a2a62b4f41de2f4cf3f66738c69c": ("2005-02-22_rar342.exe", [(347209573, 1, 2)]),
+    # Xyanide.Resurrection.GER.EUR.UMDRIP.PSP-illuishorny (-m5): search
+    # depth 1 from compressor byte 8,662,478 (just past the last >1 MB
+    # match), with the analyser's text/PPM + filter switches turned off as
+    # a low-level pack has them (mode 4); 768 short spots before it, splice
+    "08d183423185650fe352b9e7886cb4c89f725d6a": ("2005-02-22_rar342.exe", [(8662478, 6, 4)]),
 }
 
 
@@ -140,7 +152,7 @@ def build(exe: bytes, steps) -> bytes:
     if not steps or any(len(st) not in (2, 3) or (st[1] not in LEVEL_FIELDS
                         and tuple(st[1:]) != (0,)) for st in steps):
         raise ValueError(f"bad steps {steps}")
-    if any(len(st) == 3 and st[2] not in (0, 1, 2, 3) for st in steps):
+    if any(len(st) == 3 and st[2] not in (0, 1, 2, 3, 4) for st in steps):
         raise ValueError(f"bad steps {steps}")
     loop = None
     if any(len(st) == 3 and st[2] >= 2 for st in steps):
@@ -176,7 +188,7 @@ def build(exe: bytes, steps) -> bytes:
         c += b"\xC6\x05" + struct.pack('<I', DONE + i) + b"\x01"
         if not (keep and keep[0]):
             c += b"\xC6\x05" + struct.pack('<I', NOF) + b"\x01"  # filters off
-        for k, v in zip((0x30, 0x34, 0x38), LEVEL_FIELDS.get(lv, ())):
+        for k, v in zip(_FIELDS, LEVEL_FIELDS.get(lv, ())):
             c += b"\xC7\x83" + struct.pack('<iI', k, v)        # level fields
         c[j1] = len(c) - (j1 + 1)
         c[j2] = len(c) - (j2 + 1)
@@ -207,19 +219,39 @@ def build(exe: bytes, steps) -> bytes:
         for i, (p, lv, *keep) in enumerate(steps):
             if not (keep and keep[0] >= 2):
                 continue
-            c += b"\x80\x3D" + struct.pack('<I', DONE + i) + b"\x00\x75\x00"
-            j1 = len(c) - 1
+            wide = keep[0] == 4              # its body is past a short jump
+            c += b"\x80\x3D" + struct.pack('<I', DONE + i) + b"\x00"
+            c += b"\x0F\x85\0\0\0\0" if wide else b"\x75\x00"
+            j1 = len(c) - (4 if wide else 1)
             c += b"\x50\x8B\x45\x2C\x2B\x85\x9C\x14\x00\x00\x23\x45\x24"
             c += b"\xF7\xD8\x03\x85" + struct.pack('<I', _COUNTER)
-            c += b"\x3D" + struct.pack('<I', p) + b"\x58\x72\x00"
-            j2 = len(c) - 1
+            c += b"\x3D" + struct.pack('<I', p) + b"\x58"
+            c += b"\x0F\x82\0\0\0\0" if wide else b"\x72\x00"
+            j2 = len(c) - (4 if wide else 1)
             c += b"\xC6\x05" + struct.pack('<I', DONE + i) + b"\x01"
             if keep[0] == 3:
                 c += b"\xC6\x05" + struct.pack('<I', NOF) + b"\x01"
-            for k, v in zip((0x30, 0x34, 0x38), LEVEL_FIELDS.get(lv, ())):
+            for k, v in zip(_FIELDS, LEVEL_FIELDS.get(lv, ())):
                 c += b"\xC7\x45" + struct.pack('<bI', k, v)
-            c[j1] = len(c) - (j1 + 1)
-            c[j2] = len(c) - (j2 + 1)
+            if keep[0] == 4:
+                # the analyser's 16 auto switches (text/PPM + filters) as a
+                # pack started at this level would have them: on above
+                # -m3, off below, -m3 = all on but text
+                f = LEVEL_FIELDS[lv][0]
+                modes = [1 if f > 2 else 3 if f < 2 else (3 if i == 1 else 1)
+                         for i in range(16)]
+                for i, m in enumerate(modes):
+                    c += b"\xC7\x85" + struct.pack('<iI', _ANALYSER + 12 * i, m)
+                c += b"\xC6\x85" + struct.pack('<i', _ANALYSER + 0x2D4) + bytes(
+                    [1 if all(m == 3 for m in modes) else 0])
+            if wide:
+                struct.pack_into('<i', c, j1, len(c) - (j1 + 4))
+                struct.pack_into('<i', c, j2, len(c) - (j2 + 4))
+            else:
+                if len(c) - (j1 + 1) > 127:
+                    raise ValueError("step body too long for a short jump")
+                c[j1] = len(c) - (j1 + 1)
+                c[j2] = len(c) - (j2 + 1)
         c += b"\x8B\x7D\x2C\x2B\xBD\x9C\x14\x00\x00\xC3"  # the moved code
         loop_va = ib + code['va'] + (loop - code['ro'])
         d[loop:loop + 9] = (b"\xE8" + struct.pack('<i', cave + hook - (loop_va + 5))
