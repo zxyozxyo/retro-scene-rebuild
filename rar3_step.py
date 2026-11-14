@@ -85,6 +85,10 @@ KNOWN_STEPS = {
     # match), with the analyser's text/PPM + filter switches turned off as
     # a low-level pack has them (mode 4); 768 short spots before it, splice
     "08d183423185650fe352b9e7886cb4c89f725d6a": ("2005-02-22_rar342.exe", [(8662478, 6, 4)]),
+    # Breakdown_XBOXRiP-VOLCANO CD2 (rar 3.30 -m3): -m1 + filters off at the
+    # chunk after the last filter (380,305,136); 3.30 has no CODE slack, so
+    # the patch gets a section of its own. Byte-identical, no splice.
+    "8be41752c86425a1c9d6942f33e72cf620e3195b": ("2004-07-20_rar330.exe", [(380338176, 1)]),
 }
 
 
@@ -115,8 +119,7 @@ def supported(exe: bytes) -> bool:
         d = bytearray(exe)
         _pe, secs, _ib = _sections(d)
         code = secs[0]
-        return (_site(d, code) is not None
-                and code['vs'] - code['rs'] >= _CAVE)
+        return _site(d, code) is not None
     except Exception:
         return False
 
@@ -136,16 +139,36 @@ def switch(steps) -> list[str]:
             for st in sorted(steps)]
 
 
+def _new_section(d, pe, secs, ib):
+    """Append a writable, executable section of _CAVE bytes; returns its
+    (file offset, VA)."""
+    nsec = struct.unpack_from('<H', d, pe + 6)[0]
+    slot = secs[-1]['off'] + 40
+    hdrs = struct.unpack_from('<I', d, pe + 24 + 60)[0]
+    if slot + 40 > hdrs or any(d[slot:slot + 40]):
+        raise ValueError("no room in the section table for the patch")
+    salign = struct.unpack_from('<I', d, pe + 24 + 32)[0]
+    falign = struct.unpack_from('<I', d, pe + 24 + 36)[0]
+    up = lambda v, a: (v + a - 1) // a * a
+    last = max(secs, key=lambda s: s['va'])
+    va = up(last['va'] + max(last['vs'], last['rs']), salign)
+    ro = up(len(d), falign)
+    d.extend(bytes(ro - len(d) + up(_CAVE, falign)))
+    struct.pack_into('<8sIIIIIIHHI', d, slot, b".step", _CAVE, va,
+                     up(_CAVE, falign), ro, 0, 0, 0, 0, 0xE0000060)
+    struct.pack_into('<H', d, pe + 6, nsec + 1)
+    struct.pack_into('<I', d, pe + 24 + 56, up(va + _CAVE, salign))
+    return ro, ib + va
+
+
 def build(exe: bytes, steps) -> bytes:
     """The build with each (analysed-byte position, -m level) step done."""
     d = bytearray(exe)
-    _pe, secs, ib = _sections(d)
+    pe, secs, ib = _sections(d)
     code = secs[0]
     at = _site(d, code)
     if at is None:
         raise ValueError("filter analyser call site not found")
-    if code['vs'] - code['rs'] < _CAVE:
-        raise ValueError("no slack in CODE for the patch")
     # (pos, level) = level change + filters off; (pos, level, 1) = level
     # change only; (pos, 0) = filters off only
     steps = sorted(tuple(int(x) for x in st) for st in steps)
@@ -162,15 +185,19 @@ def build(exe: bytes, steps) -> bytes:
             raise ValueError("compressor loop not found")
     site_va = ib + code['va'] + (at - code['ro'])
     analyser = site_va + 5 + struct.unpack_from('<i', d, at + 1)[0]
-    ins = code['ro'] + code['rs']
-    cave = ib + code['va'] + code['rs']
-    d[ins:ins] = bytes(_CAVE)
-    struct.pack_into('<I', d, code['off'] + 16, code['rs'] + _CAVE)
-    for s in secs[1:]:
-        if s['ro'] >= ins:
-            struct.pack_into('<I', d, s['off'] + 20, s['ro'] + _CAVE)
-    ch = struct.unpack_from('<I', d, code['off'] + 36)[0]
-    struct.pack_into('<I', d, code['off'] + 36, ch | 0x80000000)  # writable
+    if code['vs'] - code['rs'] >= _CAVE:
+        ins = code['ro'] + code['rs']
+        cave = ib + code['va'] + code['rs']
+        d[ins:ins] = bytes(_CAVE)
+        struct.pack_into('<I', d, code['off'] + 16, code['rs'] + _CAVE)
+        for s in secs[1:]:
+            if s['ro'] >= ins:
+                struct.pack_into('<I', d, s['off'] + 20, s['ro'] + _CAVE)
+        ch = struct.unpack_from('<I', d, code['off'] + 36)[0]
+        struct.pack_into('<I', d, code['off'] + 36, ch | 0x80000000)
+    else:
+        # No slack after CODE (rar 3.30 and others): a section of its own.
+        ins, cave = _new_section(d, pe, secs, ib)
     data = cave + 0x300
     RET, NOF, DONE = data, data + 4, data + 0x10
     if len(steps) > 0xE0:
