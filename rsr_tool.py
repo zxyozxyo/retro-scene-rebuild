@@ -13865,6 +13865,11 @@ class RsrToolAPI:
                                            f" over {mb:,.0f} MB",
                                  cwd=base, keep_output=True):
                     return None
+                if getattr(self._tl, "last_rc", 0) and self._stop.is_set():
+                    # Stop kills rar mid-pack; its exit code says nothing
+                    # about the sources (Metroid Prime 2, 2026-11-13: three
+                    # stopped rebuilds reported as "could not open a source").
+                    return None
                 if getattr(self._tl, "last_rc", 0) and not rc:
                     said = _rar_complaints(getattr(self._tl, "last_out", ""))
                     if said:
@@ -15205,6 +15210,7 @@ class RsrToolAPI:
         self._log("  matching by size + CRC32 against the .rsr index", "dim")
 
         matched, done, failed, miss = {}, 0, 0, 0
+        stopped_n = 0
         shared = 0
         present = set()         # (size, crc32) of every file that matched
         for i, p in enumerate(cands, 1):
@@ -15360,7 +15366,7 @@ class RsrToolAPI:
                     "kind": "error"})
 
         def _rebuild_one_inner(i, rel, p, hit):
-            nonlocal done, failed, freed, skipped, tidied_live
+            nonlocal done, failed, freed, skipped, tidied_live, stopped_n
             # Tag this thread's lines so parallel rebuilds stay readable, the
             # same way captures do.
             self._tl.tag = f"[{rel[:24]}] " if self._rebuild_slots() > 1 else ""
@@ -15464,6 +15470,11 @@ class RsrToolAPI:
                                   "dim")
                 self._emit("row", {"name": rel, "status": "done",
                                    "recipe": "rebuilt", "kind": "ok"})
+            elif res.get("stopped"):
+                with book:
+                    stopped_n += 1
+                self._emit("row", {"name": rel, "status": "skipped",
+                                   "recipe": "stopped", "kind": "skipped"})
             else:
                 with book:
                     failed += 1
@@ -15529,6 +15540,8 @@ class RsrToolAPI:
         self._log("", "")
         self._log(f"Batch rebuild complete — {done} rebuilt, {failed} failed, "
                   f"{miss} unmatched file(s)."
+                  + (f" {stopped_n} stopped by hand (not failures — run "
+                     "again to finish them)." if stopped_n else "")
                   + (f" {skipped} already rebuilt, skipped." if skipped else "")
                   + (f" {tidied} leftover extra(s) removed from the content "
                      "folder." if tidied else "")
@@ -16192,11 +16205,14 @@ class RsrToolAPI:
                 self._tl.inner_dir = None
                 _rmtree(work)
             self._log("", "")
+            stopped = not ok_all and self._stop.is_set()
             self._log("✓ Rebuild complete — every volume verified."
                       if ok_all else
+                      "▪ Rebuild stopped by hand — not a failure; run it "
+                      "again to finish it." if stopped else
                       "✗ Rebuild finished with errors — see above.",
-                      "ok" if ok_all else "err")
-            return {"ok": ok_all}
+                      "ok" if ok_all else "warn" if stopped else "err")
+            return {"ok": ok_all, "stopped": stopped}
         finally:
             z.close()
 
@@ -16341,7 +16357,11 @@ class RsrToolAPI:
                                 st["format"],
                                 base=srcdir if keep_paths else None)
         if not produced:
-            self._log("    ✗ replay produced nothing.", "err")
+            if self._stop.is_set():
+                self._log("    ▪ stopped by hand before the replay finished.",
+                          "warn")
+            else:
+                self._log("    ✗ replay produced nothing.", "err")
             return False
 
         vols = st["volumes"]
