@@ -5224,7 +5224,7 @@ class RsrToolAPI:
             "embed_max_mb": _num(cfg.get("embed_max_mb"), 16, int),
             # Store only scene text: every packed file but nfo/diz/sfv is
             # content, supplied at rebuild -- no game bytes in the .rsr.
-            "content_all": bool(cfg.get("content_all", False)),
+            "content_all": bool(cfg.get("content_all", True)),
             # A loose file over the embed cap that is no set's content (a .ppf
             # patch beside the rars) is carried up to this size.
             "big_sidecar_max_mb": _num(cfg.get("big_sidecar_max_mb"), 128, int),
