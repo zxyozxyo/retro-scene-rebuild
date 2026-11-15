@@ -27,7 +27,7 @@ SYSTEM_NAMES = {
     "NDS": "Nintendo DS", "NES": "NES", "NEOGEO": "Neo Geo", "NGCD": "Neo Geo CD",
     "NGP": "Neo Geo Pocket", "NGPC": "Neo Geo Pocket Color", "NGAGE": "N-Gage",
     "NGC": "GameCube", "OTHER": "Other", "PC": "PC", "PCECD": "PC Engine CD",
-    "POCKET": "Analogue Pocket", "PS1": "PlayStation (PS1)", "PSX": "PlayStation (PSX)",
+    "POCKET": "Analogue Pocket", "PSX": "PlayStation",
     "PS2": "PlayStation 2", "PS3": "PlayStation 3", "PS4": "PlayStation 4",
     "PSP": "PlayStation Portable", "PSV": "PlayStation Vita", "ROMSETS": "ROM sets",
     "SATURN": "Saturn", "SMD": "Mega Drive", "SMS": "Master System", "SNES": "Super Nintendo",
@@ -41,6 +41,10 @@ TAG_SYS = {"NES": "NES", "NESMINI": "NES", "ZXS": "ZXS", "SMD": "SMD", "POCKET":
            "PCECD": "PCECD", "PCED": "PCECD", "NGPC": "NGPC", "NGP": "NGP", "SNES": "SNES",
            "SMS": "SMS", "MSX": "MSX", "VVD": "VVD", "SATURN": "SATURN", "NEOGEO": "NEOGEO",
            "NGCD": "NGCD", "WSC": "WSC", "WS": "WS", "ST": "ATARIST", "ATARIST": "ATARIST"}
+
+
+# Store folders that are one system on the site.
+MERGE_SYS = {"PS1": "PSX"}
 
 
 def place_unknown(name):
@@ -189,6 +193,8 @@ def main():
         r["store_sys"] = r["sys"]
         if r["sys"] == "Unknown":
             r["sys"] = place_unknown(r["name"])
+        elif r["sys"] in MERGE_SYS:
+            r["sys"] = MERGE_SYS[r["sys"]]
     print("releases", len(recs))
     (site / "assets").mkdir(parents=True, exist_ok=True)
     for f in (HERE / "static").iterdir():
