@@ -4,12 +4,16 @@ Reads the local store + index (never writes to them) and produces:
   <out>/rsr/<SYS>/<release>.rsr   public copy, only for "clean" releases
   <out>/catalog/<SYS>.jsonl       one line per release (page data)
 
-A release is clean when its .rsr carries no file data beyond the rebuild
-recipe: manifest, release.srr, deltas, zip/lha skeletons and preflate diffs,
-and allow-listed sidecars/extras (nfo, sfv, images, text, disc sheets).
-Anything else (carried zip members, LHA members, archives carried whole,
-splice/tail/graft/av/sfx blobs, other extras) means the public site shows the
-release page but does not host the .rsr.
+A release is public only when EVERY entry of its .rsr passes an allow-list:
+  * recipe data: manifest, release.srr, deltas (4 KB in total at most: header-sized fixes only),
+    zip/lha skeletons and preflate.bin reconstruction data;
+  * files that sat BESIDE the archives (sidecars): nfo/diz/sfv/text that
+    really is text, and proof images that really are images (5 MB at most);
+  * files from INSIDE the archives: only nfo/diz/sfv and disc sheets
+    (cue/ccd/toc/gdi/m3u) that really are text.
+Anything else (images or documents from inside an archive, carried zip/LHA
+members, archives carried whole, splice/tail/graft/av/sfx blobs, large diffs)
+means the release page is shown but the .rsr is not hosted.
 
 The public manifest drops the local source folder path; nothing else changes.
 
@@ -21,27 +25,76 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "rsr_index.db"
-SAFE_EXT = {".nfo", ".diz", ".sfv", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-            ".txt", ".cue", ".ccd", ".mds", ".toc", ".m3u", ".gdi", ".md5",
-            ".sha1", ".url", ".log", ".htm", ".html", ".srr", ".nzb"}
+SIDECAR_TEXT = {".nfo", ".diz", ".sfv", ".txt", ".md5", ".sha1", ".url", ".log",
+                ".htm", ".html", ".nzb", ".m3u", ".cue", ".srr"}
+SIDECAR_IMG = {".jpg", ".jpeg", ".png", ".gif", ".bmp"}
+INNER_OK = {".nfo", ".diz", ".sfv", ".cue", ".ccd", ".toc", ".gdi", ".m3u"}
+IMG_MAX = 5_000_000
+DELTA_MAX = 4 * 1024      # a diff holds original archive bytes; header-sized only
+BIN_MAGIC = (b"\xd0\xcf\x11\xe0", b"MZ", b"PK\x03\x04", b"Rar!", b"7z\xbc\xaf", b"\x1f\x8b", b"CD001")
+IMG_MAGIC = (b"\xff\xd8\xff", b"\x89PNG", b"GIF8", b"BM")
 NFO_MAX = 96 * 1024
 DATE_RE = re.compile(r"(?:^|[\\/])(?:\[[^\]]*\]\s*)?(\d{4}-\d{2}-\d{2})-")
 
 
-def entry_class(n: str) -> str:
-    """'ok' for recipe/diff data and safe sidecars, else the reason it is withheld."""
+def is_meta(n: str) -> bool:
     top = n.split("/")[0]
-    if n in ("manifest.json", "release.srr") or top == "deltas":
-        return "ok"
-    if top in ("sidecars", "extras"):
-        return "ok" if Path(n).suffix.lower() in SAFE_EXT else f"{top} file {Path(n).name}"
-    if top == "zips":
-        if n.endswith(("skeleton.bin", "preflate.bin")) or ("/pf/" in n and "carry" not in n):
-            return "ok"
-        return "carried zip member data"
-    if top == "lha":
-        return "ok" if n.endswith("skeleton.bin") else "carried LHA member data"
-    return f"carried archive data ({top})"
+    return (n in ("manifest.json", "release.srr") or top == "deltas"
+            or (top == "zips" and n.endswith(("/skeleton.bin", "/preflate.bin")))
+            or (top == "lha" and n.endswith("/skeleton.bin")))
+
+
+def is_text(b: bytes) -> bool:
+    if b.startswith((b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf")):
+        return True                     # UTF-16 / UTF-8 with BOM
+    if b.startswith(BIN_MAGIC):
+        return False                    # a Word document, program or archive
+    return b.count(0) <= len(b) // 100  # cp437 art uses 0x01-0x1F, never NULs
+
+
+def is_image(b: bytes) -> bool:
+    return b.startswith(IMG_MAGIC) and b.strip(b"\x00") != b""
+
+
+def withheld_reasons(z: zipfile.ZipFile, man: dict) -> list:
+    """Why this .rsr can't be published; [] when every entry passes."""
+    names = {i.filename: i for i in z.infolist()}
+    refs = {}
+    for c in man.get("sidecars", []):
+        if c.get("stored"):
+            refs[c["stored"]] = ("sidecar", c["name"], c.get("size") or 0)
+    for s in man.get("sets", []):
+        for f in s.get("files", []):
+            if f.get("stored"):
+                refs[f["stored"]] = ("inner", f["name"], f.get("size") or 0)
+    why = set()
+    if any((s.get("recipe") or {}).get("label") == "carried" for s in man.get("sets", [])):
+        why.add("archive carried whole")
+    delta = sum(i.file_size for n, i in names.items() if n.startswith("deltas/"))
+    if delta > DELTA_MAX:
+        why.add(f"large diff ({delta // 1024:,} KB)")
+    for n in names:
+        if is_meta(n):
+            continue
+        if n not in refs:
+            top = n.split("/")[0]
+            why.add({"zips": "carried zip member data", "lha": "carried LHA member data"}.get(
+                top, f"carried archive data ({top})"))
+            continue
+        where, fname, size = refs[n]
+        ext = Path(fname).suffix.lower()
+        head = z.open(n).read(1 << 20)
+        if where == "sidecar":
+            if ext in SIDECAR_TEXT and is_text(head):
+                continue
+            if ext in SIDECAR_IMG and is_image(head) and size <= IMG_MAX:
+                continue
+            why.add("release file that is not plain text or a small proof image")
+        else:
+            if ext in INNER_OK and is_text(head):
+                continue
+            why.add("files from inside the archive")
+    return sorted(why)
 
 
 def nfo_text(raw: bytes) -> str:
@@ -56,10 +109,7 @@ def one(row, out: Path):
     sys_, year = parts[-4], parts[-3]
     z = zipfile.ZipFile(p)
     man = json.loads(z.read("manifest.json"))
-    reasons = sorted({c for c in (entry_class(i.filename) for i in z.infolist()) if c != "ok"})
-    whole = any((s.get("recipe") or {}).get("label") == "carried" for s in man.get("sets", []))
-    if whole:
-        reasons = sorted(set(reasons) | {"archive carried whole"})
+    reasons = withheld_reasons(z, man)
     m = DATE_RE.search(man.get("source_folder") or "")
     rec = {
         "name": name, "sys": sys_, "year": year, "date": m.group(1) if m else None,
@@ -78,6 +128,8 @@ def one(row, out: Path):
     for c in man.get("sidecars", []):
         if c["name"].lower().endswith(".nfo") and c.get("stored"):
             raw = z.read(c["stored"])[:NFO_MAX]
+            if not is_text(raw):
+                continue
             rec["nfo"], rec["nfo_name"] = nfo_text(raw), c["name"]
             break
     if not reasons:
