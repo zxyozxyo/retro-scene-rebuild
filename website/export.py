@@ -19,7 +19,7 @@ The public manifest drops the local source folder path; nothing else changes.
 
 usage: python export.py <out dir> [--workers N] [--only NAME ...]
 """
-import argparse, hashlib, json, os, re, sqlite3, sys, zipfile
+import argparse, hashlib, json, os, re, sqlite3, sys, zipfile, zlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -56,7 +56,21 @@ def is_image(b: bytes) -> bool:
     return b.startswith(IMG_MAGIC) and b.strip(b"\x00") != b""
 
 
-def withheld_reasons(z: zipfile.ZipFile, man: dict) -> list:
+def _load_delta_clear() -> dict:
+    """{release: .rsr SHA-256} whose large diffs were mapped onto the original
+    volumes and carry no compressed file data (deltacheck.py). A different
+    .rsr than the one checked gets no pass."""
+    p = Path(__file__).with_name("delta_clear.json")
+    try:
+        return json.loads(p.read_text(encoding="utf-8")).get("clear", {})
+    except (OSError, ValueError):
+        return {}
+
+
+DELTA_CLEAR = _load_delta_clear()
+
+
+def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = None) -> list:
     """Why this .rsr can't be published; [] when every entry passes."""
     names = {i.filename: i for i in z.infolist()}
     refs = {}
@@ -71,7 +85,8 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict) -> list:
     if any((s.get("recipe") or {}).get("label") == "carried" for s in man.get("sets", [])):
         why.add("archive carried whole")
     delta = sum(i.file_size for n, i in names.items() if n.startswith("deltas/"))
-    if delta > DELTA_MAX:
+    cleared = rsr_sha256 is not None and DELTA_CLEAR.get(man.get("release")) == rsr_sha256
+    if delta > DELTA_MAX and not cleared:
         why.add(f"large diff ({delta // 1024:,} KB)")
     for n in names:
         if is_meta(n):
@@ -84,6 +99,13 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict) -> list:
         where, fname, size = refs[n]
         ext = Path(fname).suffix.lower()
         head = z.open(n).read(1 << 20)
+        if n.endswith(".def"):
+            # a zip member carried as its original deflate stream: judge what it
+            # unpacks to (an nfo kept compressed is still an nfo)
+            try:
+                head = zlib.decompressobj(-15).decompress(z.read(n), 1 << 20)
+            except zlib.error:
+                head = b"\x00" * 64
         if where == "sidecar":
             if ext in SIDECAR_TEXT and is_text(head):
                 continue
@@ -109,7 +131,14 @@ def one(row, out: Path):
     sys_, year = parts[-4], parts[-3]
     z = zipfile.ZipFile(p)
     man = json.loads(z.read("manifest.json"))
-    reasons = withheld_reasons(z, man)
+    sha = None
+    if man.get("release") in DELTA_CLEAR:
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            while chunk := f.read(1 << 20):
+                h.update(chunk)
+        sha = h.hexdigest()
+    reasons = withheld_reasons(z, man, sha)
     m = DATE_RE.search(man.get("source_folder") or "")
     rec = {
         "name": name, "sys": sys_, "year": year, "date": m.group(1) if m else None,
