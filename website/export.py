@@ -73,7 +73,7 @@ DELTA_CLEAR = _load_delta_clear()
 def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = None) -> list:
     """Why this .rsr can't be published; [] when every entry passes."""
     names = {i.filename: i for i in z.infolist()}
-    refs = {}
+    refs, methods = {}, {}
     for c in man.get("sidecars", []):
         if c.get("stored"):
             refs[c["stored"]] = ("sidecar", c["name"], c.get("size") or 0)
@@ -81,6 +81,8 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = Non
         for f in s.get("files", []):
             if f.get("stored"):
                 refs[f["stored"]] = ("inner", f["name"], f.get("size") or 0)
+                if f.get("method") is not None:
+                    methods[f["stored"]] = f["method"]
     why = set()
     if any((s.get("recipe") or {}).get("label") == "carried" for s in man.get("sets", [])):
         why.add("archive carried whole")
@@ -99,9 +101,10 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = Non
         where, fname, size = refs[n]
         ext = Path(fname).suffix.lower()
         head = z.open(n).read(1 << 20)
-        if n.endswith(".def"):
+        if n.endswith(".def") and methods.get(n, 8) == 8:
             # a zip member carried as its original deflate stream: judge what it
-            # unpacks to (an nfo kept compressed is still an nfo)
+            # unpacks to (an nfo kept compressed is still an nfo). A member the
+            # zip only STORED (method 0) is carried as-is and is judged raw.
             try:
                 head = zlib.decompressobj(-15).decompress(z.read(n), 1 << 20)
             except zlib.error:
