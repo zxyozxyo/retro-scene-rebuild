@@ -394,6 +394,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
             <button class="btn btn-sm" id="btn-reindex" onclick="reindexStore()">Reindex store</button>
             <span class="hint">re-read the Store folder; index any .rsr the db is missing</span>
           </div>
+          <div class="row">
+            <button class="btn btn-sm" id="btn-packers" onclick="checkPackers()">Check packers</button>
+            <button class="btn btn-sm" onclick="importPackers()">Import from folder…</button>
+            <span class="hint" id="packers-hint">are all the RAR / DOS builds here? import renames any you add</span>
+          </div>
           <div class="db-list" id="db-list"></div>
         </div>
       </div>
@@ -881,6 +886,23 @@ async function reindexStore() {
   }
   refreshStats();
   dbSearch();
+}
+
+async function checkPackers() {
+  const b = $('btn-packers');
+  b.disabled = true;
+  try {
+    const r = await window.pywebview.api.check_packers();
+    if (!r.ok) { log('✗ ' + r.error, 'err'); return; }
+    $('packers-hint').textContent = r.missing
+      ? `${r.missing} of ${r.total} required files missing — see the log`
+      : `all ${r.total} required files present`;
+  } finally { b.disabled = false; }
+}
+
+async function importPackers() {
+  const r = await window.pywebview.api.import_packers();
+  if (!r.ok) log('✗ ' + r.error, 'err');
 }
 
 function stopRun() { window.pywebview.api.stop(); }

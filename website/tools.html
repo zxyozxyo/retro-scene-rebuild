@@ -1,0 +1,21 @@
+<div class="prose">
+<h1>Tools needed for rebuilding</h1>
+<p class="lede">An .rsr file says <em>which</em> archiver made a release and exactly how it was run. To rebuild the release, your PC needs that same archiver build.</p>
+
+<h2>Why so many RAR versions?</h2>
+<p>Different RAR versions, and even beta and bug-fix builds of the same version, produce different bytes from the same files. A scene group in 1998 used whatever RAR they had that week. To rebuild their archive byte for byte, the rebuild has to run that exact build. That's why full compatibility needs <strong>__N_WIN__ Windows/console RAR builds</strong>, from the 1996 RAR 2.00 beta to RAR 7.x, plus <strong>__N_DOS__ DOS RAR builds</strong> from 1994 onwards. The DOS builds run inside DOSBox-X, which the app manages for you.</p>
+<p>ZIP releases are re-created with <code>precomp</code>. 7-Zip and UnRAR are used to read archives.</p>
+
+<h2>Where do I get them?</h2>
+<p>RAR builds are RARLAB's software and are <strong>not hosted here</strong>. Old WinRAR and RAR for DOS installers can still be found in software archives. You don't need to rename or unpack anything yourself:</p>
+<ol>
+<li>Put the installers or executables you found in one folder, with any names.</li>
+<li>In the app, choose <strong>Check packers → Import from folder</strong>.</li>
+<li>The app identifies each build by its SHA-256, including builds inside installers, and files it under the name it expects.</li>
+</ol>
+<p>The check then lists anything still missing. A missing build only affects releases packed with that build. Every release page shows which packer it needs.</p>
+
+<h2>The full list</h2>
+<p>Every file the app looks for, with the SHA-256 it must match. A file with the right name but different contents is a different build, and the app reports it rather than using it.</p>
+__GROUPS__
+</div>

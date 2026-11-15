@@ -98,7 +98,7 @@ def page(title, body, depth, desc=""):
 <body>
 <header class="top"><div class="wrap">
 <a class="brand" href="{up}index.html"><span class="mark">▚</span> {SITE_NAME}</a>
-<nav><a href="{up}search.html">Search</a><a href="{up}about.html">About</a><a href="{up}disclaimer.html">Disclaimer</a></nav>
+<nav><a href="{up}search.html">Search</a><a href="{up}tools.html">Tools</a><a href="{up}about.html">About</a><a href="{up}disclaimer.html">Disclaimer</a></nav>
 </div></header>
 <main class="wrap">
 {body}
@@ -250,6 +250,24 @@ def main():
     idx = [[r["name"], r["sys"], r["year"], 1 if r.get("public") else 0] for r in recs]
     (site / "assets" / "index.json").write_text(json.dumps(idx, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
+    # tools list
+    man = json.loads((HERE.parent / "apps_manifest.json").read_text(encoding="utf-8"))
+    counts = {g["title"]: len(g["files"]) for g in man["groups"]}
+    n_win = counts.get("Windows/console RAR builds", 0)
+    n_dos = counts.get("DOS RAR builds", 0)
+    groups_html = []
+    for g in man["groups"]:
+        rows = "".join(f"<tr><td class=mono>{e(f['name'])}</td><td class=num>{human(f['size'])}</td>"
+                       f"<td class=sha>{f['sha256']}</td></tr>" for f in g["files"])
+        req = "required" if g["required"] else "helper"
+        groups_html.append(f'<details{" open" if len(g["files"]) < 10 else ""}><summary><b>{e(g["title"])}</b> · '
+                           f'{len(g["files"])} file{"s" if len(g["files"]) != 1 else ""} · {req} · <code>apps/{e(g["dir"])}</code></summary>'
+                           f'<table class="t tools"><thead><tr><th>File</th><th class=num>Size</th><th>SHA-256</th></tr></thead>'
+                           f'<tbody>{rows}</tbody></table></details>')
+    tools = (HERE / "tools.html").read_text(encoding="utf-8")
+    tools = tools.replace("__N_WIN__", str(n_win)).replace("__N_DOS__", str(n_dos)).replace("__GROUPS__", "".join(groups_html))
+    (site / "tools.html").write_text(page(f"Tools — {SITE_NAME}", tools, 0), encoding="utf-8")
+
     # home
     cards = "".join(
         f'<a class="card" href="s/{quote(s)}/index.html"><b>{e(sys_name(s))}</b><span>{len(rs):,}</span></a>'
@@ -260,6 +278,14 @@ def main():
 <p class="lede">Byte-exact rebuild recipes for retro console scene releases. Bring your own files, get the original release back — archives, volumes, NFO and all.</p>
 <form class="search" action="search.html" method="get"><input name="q" type="search" placeholder="Search {len(recs):,} releases…" autofocus><button>Search</button></form>
 <p class="stats"><b>{len(recs):,}</b> releases · <b>{len(by_sys)}</b> systems · <b>{pub:,}</b> with downloadable rebuild data</p>
+</section>
+<section class="features">
+<div class="feat big"><div class="num">100%</div><h3>Byte-exact, every time</h3>
+<p>Every release on this site was rebuilt and checked against the original archive hashes before it was added. Supply the original files unpacked (matching the listed CRC32), and you get back the <strong>exact original scene archives</strong>: every volume, header, comment and timestamp, identical to the day they were released.</p></div>
+<div class="feat"><h3>RAR and ZIP</h3>
+<p>RAR from the 1994 DOS 1.5x builds to RAR 7: multi-volume, solid, recovery records, comments, old and new volume naming. ZIP releases are re-created too, along with LHA archives and NFO/dir fixes.</p></div>
+<div class="feat"><h3>Uses the original packers</h3>
+<p>A rebuild replays the archiver the group actually used. Full compatibility needs <strong>{n_win} Windows/console RAR builds</strong> (1996–2026) and <strong>{n_dos} DOS RAR builds</strong> run under DOSBox-X. They aren't hosted here; the app checks which ones you have and files them under the right names. <a href="tools.html">See the list</a></p></div>
 </section>
 <h2>Systems</h2>
 <div class="grid">{cards}</div>"""

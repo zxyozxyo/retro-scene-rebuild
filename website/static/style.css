@@ -132,3 +132,14 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0;
 .help code, .prose code { font-family: var(--mono); font-size: 12px; }
 .prose { max-width: 760px; }
 .prose li { margin-bottom: 6px; }
+.features { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; margin: 8px 0 8px; }
+.feat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 6px; }
+.feat h3 { font-family: var(--sans); font-size: 16px; margin: 0 0 8px; }
+.feat p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+.feat p strong { color: var(--ink); }
+.feat.big { border-color: var(--accent); }
+.feat .num { font: 700 44px/1 var(--sans); color: var(--accent); margin-bottom: 8px; letter-spacing: -.02em; }
+.t.tools td.sha { font: 11px var(--mono); color: var(--muted); word-break: break-all; }
+.t.tools th:nth-child(1) { width: 34%; }
+.t.tools .mono { width: auto; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 860px) { .features { grid-template-columns: 1fr; } }

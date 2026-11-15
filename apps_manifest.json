@@ -1,0 +1,2303 @@
+{
+ "groups": [
+  {
+   "title": "Windows/console RAR builds",
+   "dir": "winrar_pack-4.20",
+   "required": true,
+   "files": [
+    {
+     "name": "1996-03-27_rar200b.exe",
+     "size": 131072,
+     "sha256": "5c53a3e6ff5f6f75c4cee13cbd22954c9f39afb894c1a3951d106b8c5aa476a9"
+    },
+    {
+     "name": "1996-09-02_rar200.exe",
+     "size": 139264,
+     "sha256": "43c2547c5e3f8518fb8589ae5be3fc71cb8aec563a46d6a66032106dc69d7c61"
+    },
+    {
+     "name": "1997-03-12_rar201.exe",
+     "size": 139264,
+     "sha256": "1f45519d300c48324505ff6bdd98335bba22a532cbadae7a6bdcc5c195d915da"
+    },
+    {
+     "name": "1997-09-16_rar202.exe",
+     "size": 139264,
+     "sha256": "e16384574a6f7f4cf1263fd8c3c1631ad550fd55741f7bd8cd2b2b66d384fa32"
+    },
+    {
+     "name": "1998-03-19_rar203.exe",
+     "size": 139264,
+     "sha256": "4b205d48e8a0ee23837d48610b39be133e8640102fb69c64007c152eb2d66ca2"
+    },
+    {
+     "name": "1998-05-13_rar204.exe",
+     "size": 139264,
+     "sha256": "9929a8de30ceb0042516d9b7d69f589867f82f91efd8009fb23e5fffa19eb197"
+    },
+    {
+     "name": "1998-09-21_rar205.exe",
+     "size": 143360,
+     "sha256": "7d4aaa9907e0031ef9380b52489a66d09ccd1608bc4af8b0bdb2243bc81b51de"
+    },
+    {
+     "name": "1998-12-03_rar206.exe",
+     "size": 143360,
+     "sha256": "21a24b2ad4bd715e1dd3e4580e2febec6b124405dd8a3f07fc2d2e57fa548274"
+    },
+    {
+     "name": "1999-01-14_rar250b1jan.exe",
+     "size": 143360,
+     "sha256": "97e2d3a0cd481badced9d9db8d6edb74a13de3f779bed6f87f36553216b8c8a2"
+    },
+    {
+     "name": "1999-01-20_rar250b2jan.exe",
+     "size": 147456,
+     "sha256": "ea774a08e13db870bfe71806ddad836b4a49a4704f29bf85106b43f931f3acac"
+    },
+    {
+     "name": "1999-02-01_rar250b3feb.exe",
+     "size": 147456,
+     "sha256": "272993fcea7c7a287700724c74a6e1fd3ba3fe92d0376e0f7441b6347f5a607d"
+    },
+    {
+     "name": "1999-02-16_rar250b4feb.exe",
+     "size": 159744,
+     "sha256": "54fe6e8e373ba80131d21f9f7b723ad5f363e80d87963fc51914b34907a2622f"
+    },
+    {
+     "name": "1999-02-28_rar250b5feb.exe",
+     "size": 159744,
+     "sha256": "c01afee83dcb956f388e9512399972ee7bfe4d4e75ac65ce67b769caf035c120"
+    },
+    {
+     "name": "1999-08-02_rar250.exe",
+     "size": 159744,
+     "sha256": "c14b4c285974f64535720100a633946a5eb093fac36bad407bb0f4d321d39567"
+    },
+    {
+     "name": "1999-08-02_rar250b2.exe",
+     "size": 147456,
+     "sha256": "ea774a08e13db870bfe71806ddad836b4a49a4704f29bf85106b43f931f3acac"
+    },
+    {
+     "name": "1999-08-02_rar250b4.exe",
+     "size": 159744,
+     "sha256": "54fe6e8e373ba80131d21f9f7b723ad5f363e80d87963fc51914b34907a2622f"
+    },
+    {
+     "name": "1999-08-02_rar250b5.exe",
+     "size": 159744,
+     "sha256": "c01afee83dcb956f388e9512399972ee7bfe4d4e75ac65ce67b769caf035c120"
+    },
+    {
+     "name": "1999-08-02_rar250b7.exe",
+     "size": 159744,
+     "sha256": "d13959aae5ff16ecddd0ad65fd709fe16384968ffb3197a6a2e07b5f6c975078"
+    },
+    {
+     "name": "1999-10-21_rar260.exe",
+     "size": 196640,
+     "sha256": "921f968d4356cd0431ac580b5c397f37912b06a919becdda5c3f08243edcf634"
+    },
+    {
+     "name": "1999-10-21_rar260b3.exe",
+     "size": 193056,
+     "sha256": "09aa69246e6a7644a39991be969c49033ab9e3cf58cff212b1e307667611bece"
+    },
+    {
+     "name": "1999-10-21_rar260b4.exe",
+     "size": 193056,
+     "sha256": "68eb9e0fc662b7f3f084b68dfb38ba6bf6078c43c182132a90b015375c769b89"
+    },
+    {
+     "name": "1999-10-21_rar260b5.exe",
+     "size": 194592,
+     "sha256": "fbd9b05a2ae5e0d2f863d12efd22e9bb00436d5ad822c8a9090fac849c44b552"
+    },
+    {
+     "name": "1999-10-21_rar260b6.exe",
+     "size": 195104,
+     "sha256": "97504edee85d61f9dd5440a28dc042cd7fbe549c97fc2ee55b1e03d300a25fd5"
+    },
+    {
+     "name": "1999-10-21_rar260b7.exe",
+     "size": 196128,
+     "sha256": "3f5bb87a73144d8c360ad0734d9b2279972e551e6c58432b32ea121eede9b17b"
+    },
+    {
+     "name": "1999-10-21_rar260b8.exe",
+     "size": 196640,
+     "sha256": "598d3a5ed530cb652efd14a1e027dbbc182c4712afd291a6bb4ef5d9a0d6cd95"
+    },
+    {
+     "name": "2000-11-30_rar270.exe",
+     "size": 205344,
+     "sha256": "d2eb8e85022ea8c0e1092478b8d4b245488e21f5d84b2843596a33a3782238a6"
+    },
+    {
+     "name": "2000-11-30_rar270b1.exe",
+     "size": 204832,
+     "sha256": "e0a30f79fcf08665a26dc78dd4eadc45f0d22883bebd09b26783985f09feebf9"
+    },
+    {
+     "name": "2000-11-30_rar270b2.exe",
+     "size": 204832,
+     "sha256": "2cd3593e7284c1781bfcae6dbeac89e1cfdeb5a9762bba299aa2b383dbc47361"
+    },
+    {
+     "name": "2000-11-30_rar270b4.exe",
+     "size": 205344,
+     "sha256": "0c72694bf89aeca67ba1c6fc36c886caa176b1b8516496d079064d51360a97c4"
+    },
+    {
+     "name": "2000-11-30_rar270b5.exe",
+     "size": 205344,
+     "sha256": "0cd7d3bff887f80f1dfde24732d1bcd737783f0ea02b2d72b8e950c353a4c958"
+    },
+    {
+     "name": "2001-01-11_rar271.exe",
+     "size": 205344,
+     "sha256": "6a4a8a2bcb34c18f82aeae78df3dec3d7012d4bc039aa20bf5ed143d81f9d491"
+    },
+    {
+     "name": "2001-06-01_rar280.exe",
+     "size": 212480,
+     "sha256": "04eec53bd82cd680b2e362e97e6f49e49e0b3250a55bce378f8e6081eeecdbe6"
+    },
+    {
+     "name": "2001-06-01_rar280b1.exe",
+     "size": 210944,
+     "sha256": "80b33086416c493af46522109e33c7f67e9567fda7506b821bbe0057aee4b266"
+    },
+    {
+     "name": "2001-06-01_rar280b2.exe",
+     "size": 211456,
+     "sha256": "b36de5fadfc8f53332d33fe8cb9a80c9171c83cd4b78e6961b50fcaba0b4bcfd"
+    },
+    {
+     "name": "2001-06-01_rar280b3.exe",
+     "size": 211968,
+     "sha256": "ca78ab9c34c5b979f1c8d6cc30b0d53a5f18d339acbc887d637747c4a7a328ea"
+    },
+    {
+     "name": "2001-06-01_rar280b4.exe",
+     "size": 212480,
+     "sha256": "5c157e135506911c7c8f7dc08fdd1c1c35a18fa5ad2c6b8030f55cbe9f83427b"
+    },
+    {
+     "name": "2001-06-01_rar280b5.exe",
+     "size": 212480,
+     "sha256": "aafd0c4c5e84ceb3157008028a82e5ad7c53b5ddfd209fe1da2aa1ed1d9acb18"
+    },
+    {
+     "name": "2001-08-29_rar290.exe",
+     "size": 236032,
+     "sha256": "3f938b2f4cc13b9b85d61417b36af45a970dbee0e09e9d9e13f4e00350485112"
+    },
+    {
+     "name": "2001-08-29_rar290b1.exe",
+     "size": 236032,
+     "sha256": "314a90308ce63bbdbdf9950f3e91f77965833de238963e5aba3dd25ebaffcb53"
+    },
+    {
+     "name": "2001-08-29_rar290b2.exe",
+     "size": 236544,
+     "sha256": "c9ee677f9729a306d7367ae5590a03d55888c9756aeab4995726e6b015570c83"
+    },
+    {
+     "name": "2001-08-29_rar290b3.exe",
+     "size": 236032,
+     "sha256": "e9edcb69b994ae99d6fd3745905842c3085f402ea77a81b27934403bbb557f41"
+    },
+    {
+     "name": "2001-08-29_rar290b4.exe",
+     "size": 236032,
+     "sha256": "97fba5885c55f0e351868c881f8c22894813fb9d2c8d4cc0779e04a9f507341e"
+    },
+    {
+     "name": "2002-05-14_rar300.exe",
+     "size": 275968,
+     "sha256": "fa76d9059fc4fe103e3de1868c76d86efbac9295fcd3e5f1c430cd1c5b4ad710"
+    },
+    {
+     "name": "2002-05-14_rar300b1.exe",
+     "size": 271872,
+     "sha256": "c33667334ef297d149f48b96edd25df6ce10044be1f9e7fb4e1f5bf6f1efbfbc"
+    },
+    {
+     "name": "2002-05-14_rar300b2.exe",
+     "size": 273408,
+     "sha256": "f032eea19cded3412e2afb28b2fc0b8a65cb46175c3a26dfe31cf32472fffb95"
+    },
+    {
+     "name": "2002-05-14_rar300b3.exe",
+     "size": 273920,
+     "sha256": "a3280ae2bed23c44b9439fc300a84f8a0f9cd6b9f16c7e51049e60d7f83eddc9"
+    },
+    {
+     "name": "2002-05-14_rar300b4.exe",
+     "size": 277504,
+     "sha256": "17f2e0b04d22a7bbb3220b863cbdf77586dfb792899216ffc0f727839c7de43e"
+    },
+    {
+     "name": "2002-05-14_rar300b5.exe",
+     "size": 274944,
+     "sha256": "ced36df556f31e4839c482c2bec2d59c4bde99c04b7bde3315af5de40cc8fbda"
+    },
+    {
+     "name": "2002-05-14_rar300b6.exe",
+     "size": 275456,
+     "sha256": "a684c7b31675b999efc377645f50472321477a7d55f2138d03a9532b550b78cd"
+    },
+    {
+     "name": "2002-05-14_rar300b7.exe",
+     "size": 275456,
+     "sha256": "792f33417667f52216ad88bd213d93f6291aec3b76ffdc6158bdb14795e6aa94"
+    },
+    {
+     "name": "2003-11-27_rar310.exe",
+     "size": 280064,
+     "sha256": "3540b191297591c3fe3e468a39f8d44a75d77c7cffe3d55c79b10aabfa5bf67e"
+    },
+    {
+     "name": "2003-11-27_rar310b1.exe",
+     "size": 278528,
+     "sha256": "b772fa936ebfa70478f273b9bda9c14559c3c3bdcacf4d67faf9e643ef1253ef"
+    },
+    {
+     "name": "2003-11-27_rar310b2.exe",
+     "size": 278528,
+     "sha256": "6c3e1e3e8274ee68169d7f79cd9cd0fb176571beed3476a186f86ee37b973559"
+    },
+    {
+     "name": "2003-11-27_rar310b3.exe",
+     "size": 279552,
+     "sha256": "0e57bcc0c157269f4bcbcc1395116a6520e117ac65bbc3c53fe1490e1f87be85"
+    },
+    {
+     "name": "2003-11-27_rar310b4.exe",
+     "size": 280064,
+     "sha256": "9a4879b3708e5ac3a8eedc62abbcf1c03363bfb92e6a4eeb934dc12ff102224c"
+    },
+    {
+     "name": "2003-11-27_rar310b5.exe",
+     "size": 280064,
+     "sha256": "821e2b5852e4e8fcd4f7ea5bea1036fa890bba150be084fb6ba2748b07927a29"
+    },
+    {
+     "name": "2004-02-01_rar311.exe",
+     "size": 280576,
+     "sha256": "25aa858371fc181f6cb125ddc89d27aff034ca2bcf324fb898bf3583ca127cd6"
+    },
+    {
+     "name": "2004-05-20_rar320.exe",
+     "size": 288256,
+     "sha256": "5996f6490095f1f83474baceb4a798be2c9befdf652eb9d0ace706066a446242"
+    },
+    {
+     "name": "2004-05-20_rar320b1.exe",
+     "size": 287232,
+     "sha256": "4bffae2906635e4c039f9e458c42a8ca53647b4c367221a643c97a72f96b0c40"
+    },
+    {
+     "name": "2004-05-20_rar320b2.exe",
+     "size": 287232,
+     "sha256": "fdfb8689a3ef4d103d3c4c6cc8e7789d97f3a81ae6a7b7117570e56346a26147"
+    },
+    {
+     "name": "2004-05-20_rar320b3.exe",
+     "size": 288256,
+     "sha256": "f7a9cdf18112b3aad404e5e1487b2a5a327faaffaded6677c1ef9fcbe9756b6c"
+    },
+    {
+     "name": "2004-05-20_rar320b4.exe",
+     "size": 288256,
+     "sha256": "cd0a51cc734d4b323543e188948874d85424e28300983db04fd421760775453a"
+    },
+    {
+     "name": "2004-05-20_rar320b5.exe",
+     "size": 288256,
+     "sha256": "7a683a3ba2231ca63190205dc849f2bf01f1f5503170768272575fb0f9f94fb6"
+    },
+    {
+     "name": "2004-07-20_rar330.exe",
+     "size": 293376,
+     "sha256": "0c230aae90bbb8756eb7b6aeb4a19d552e53d50f56b18cd386824f8827ac976b"
+    },
+    {
+     "name": "2004-07-20_rar330b1.exe",
+     "size": 292352,
+     "sha256": "f45b7f88394058daeb50935bd7e434fa1f33c800f6a796ca0eac23da3d75520a"
+    },
+    {
+     "name": "2004-07-20_rar330b2.exe",
+     "size": 292864,
+     "sha256": "065bf826833c41887c4464da4ba291091b02a0dadfc44f6612b853dca4752e79"
+    },
+    {
+     "name": "2004-07-20_rar330b3.exe",
+     "size": 293376,
+     "sha256": "c95271b46080557232dd619a13368d65663fa2813488c955f5fb09c930587145"
+    },
+    {
+     "name": "2004-07-20_rar330b4.exe",
+     "size": 293376,
+     "sha256": "c450587b26893e1509383619d439cf5e572d0899992808e2ea5e12ad12ece1fc"
+    },
+    {
+     "name": "2004-07-20_rar330b5.exe",
+     "size": 293376,
+     "sha256": "1d97957d3ef12dc33f2c8b37d92bbd868067e05957a367e01375ebb98cf2766f"
+    },
+    {
+     "name": "2004-09-10_rar340.exe",
+     "size": 297472,
+     "sha256": "d4f272e818ad59ed844e3f01ffd37eceb1ebb261ae28d28a4757b7c79d4435fb"
+    },
+    {
+     "name": "2004-09-10_rar340b1.exe",
+     "size": 296448,
+     "sha256": "b7cdd32cbeac04b897ed8418497ba0d390f5b093b1033ea453f25bba9131d0b8"
+    },
+    {
+     "name": "2004-09-10_rar340b2.exe",
+     "size": 296960,
+     "sha256": "73fd1f6634b4c1d425c30686ab570d8e9e68feed49a4568768f5a48f88fa1594"
+    },
+    {
+     "name": "2004-09-10_rar340b3.exe",
+     "size": 297472,
+     "sha256": "2dc9282c3f136c0bf480bda16b3fa64ed2d92e8afd411cdad3935419871fe4c2"
+    },
+    {
+     "name": "2004-09-10_rar340b4.exe",
+     "size": 297472,
+     "sha256": "152fdfd6c84386ffaf86875feddf3afc17ae421b047e54b63d281a3037160a51"
+    },
+    {
+     "name": "2004-09-10_rar340b5.exe",
+     "size": 297472,
+     "sha256": "2d31d92021c4446fd9a34ff6934769649496040ed1936661cec97f348f5d6b90"
+    },
+    {
+     "name": "2004-09-10_rar340b6.exe",
+     "size": 297472,
+     "sha256": "c4d83b43ae31aa375e5f0cd0cd8ab88d060754055507a2a286f80c39f4c017db"
+    },
+    {
+     "name": "2004-11-04_rar341.exe",
+     "size": 298496,
+     "sha256": "768278733a1b9f338059cff3ee1a7c07243e82b4ed1aa5a7dada09a96f4a9349"
+    },
+    {
+     "name": "2005-02-22_rar342.exe",
+     "size": 297984,
+     "sha256": "4c2696b3b81069296b3bdd086fdaf8e8b04df6e208381d044e8a0b9f592c9f94"
+    },
+    {
+     "name": "2005-08-22_rar350.exe",
+     "size": 298496,
+     "sha256": "202cc9534560d1d6d2ed5fc255b81b37394cc56c850a714aff76fe6e562766a2"
+    },
+    {
+     "name": "2005-08-22_rar350b1.exe",
+     "size": 298496,
+     "sha256": "7f31fa0785ea4ea92620a13a75b3372e2f14687e109bef9b7fab44c2ec181ba3"
+    },
+    {
+     "name": "2005-08-22_rar350b2.exe",
+     "size": 298496,
+     "sha256": "1502032a889b12524d5eec421e700fbe01c6741af516ea8b5d5cf44b7500257f"
+    },
+    {
+     "name": "2005-08-22_rar350b3.exe",
+     "size": 299008,
+     "sha256": "30cdf0604ae47ef269ecb113ddd453506e9378fae865684af9a6a307b7db1afb"
+    },
+    {
+     "name": "2005-08-22_rar350b4.exe",
+     "size": 299008,
+     "sha256": "7612e2f017b12fce178400374b5b6d04a3e7d0e8fa5e3b7320a4f2df24a905b6"
+    },
+    {
+     "name": "2005-08-22_rar350b5.exe",
+     "size": 298496,
+     "sha256": "dd17537e9db63578ec81ea78c320919622fca72198dc81bad1608e08a7213d34"
+    },
+    {
+     "name": "2005-08-22_rar350b6.exe",
+     "size": 298496,
+     "sha256": "ca6dde8f1f2e78e9c47bc7c9a064f0afa0932a507e46f26ac99d24af04d948f6"
+    },
+    {
+     "name": "2005-08-22_rar350b7.exe",
+     "size": 298496,
+     "sha256": "d0c11c5b0c31a5a51bbb06841d6f701452e4a5a5141c24c4014c2201c1319a6b"
+    },
+    {
+     "name": "2005-09-26_rar351.exe",
+     "size": 298496,
+     "sha256": "dea0d551900ce032e8684282977bbe5c5705076ac5d7e229887458906ad174cd"
+    },
+    {
+     "name": "2005-11-21_rar360.exe",
+     "size": 314368,
+     "sha256": "0850e6aabd1a2fa4c09f35b131486325f56c2f5cd115cc1e35360f444587b021"
+    },
+    {
+     "name": "2005-11-21_rar360b1.exe",
+     "size": 314368,
+     "sha256": "45b2f93de8af7539440a61e0add3ccb1a5a3521d75dc6845e7615ce140509c4b"
+    },
+    {
+     "name": "2005-11-21_rar360b2.exe",
+     "size": 314880,
+     "sha256": "aabd503e73aeb64e062d1a8c2f8b052d2f9ff4be892b0fee117337203afb24d5"
+    },
+    {
+     "name": "2005-11-21_rar360b3.exe",
+     "size": 314880,
+     "sha256": "87f8cda2436326bcf5b72f699d03776e0ee037397f5bfbacfbfd5cebdf7e5e22"
+    },
+    {
+     "name": "2005-11-21_rar360b4.exe",
+     "size": 314368,
+     "sha256": "ce7fd73280e8503d260fb733a5e1eb03a196307196f1bf30611493137ed70c25"
+    },
+    {
+     "name": "2005-11-21_rar360b5.exe",
+     "size": 314880,
+     "sha256": "8047fb5bd500a498d2d64d2be9cb34af7867008c0349400d0e957ca8df4fad78"
+    },
+    {
+     "name": "2005-11-21_rar360b6.exe",
+     "size": 314368,
+     "sha256": "ebcf1d8db91dfbefcbda20f072938029e72787343adeb6151b2e811702e136c5"
+    },
+    {
+     "name": "2005-11-21_rar360b7.exe",
+     "size": 314368,
+     "sha256": "9740333094158b816f43db56a6855ec1f43df9f6fac1b6ba384e38921d480eb6"
+    },
+    {
+     "name": "2005-11-21_rar360b8.exe",
+     "size": 314368,
+     "sha256": "db794929e668b4e073a118ead8935b25c0c97ccc60bcfac117ad60f1820ae287"
+    },
+    {
+     "name": "2006-04-05_rar361.exe",
+     "size": 314368,
+     "sha256": "608a62f15a57f0b9c9664eb4ce50684d70ce92908e0962fc6a55b9118b316694"
+    },
+    {
+     "name": "2006-05-30_rar362.exe",
+     "size": 313856,
+     "sha256": "62cfbd7d8217e89edd9bed767a71e019e240bb0cadd703e849b9e33e6a753d22"
+    },
+    {
+     "name": "2007-06-07_rar370.exe",
+     "size": 316928,
+     "sha256": "3203891dd7c02c2fee68f93209ab936881958409af304f33bed94c5c90729515"
+    },
+    {
+     "name": "2007-06-07_rar370b1.exe",
+     "size": 316928,
+     "sha256": "cf3915e2c65c8373c4772aa247e7baa5c31855f9208eec43891e0b53d548db7d"
+    },
+    {
+     "name": "2007-06-07_rar370b2.exe",
+     "size": 316928,
+     "sha256": "3f8d94377982a754f02e354fb66f07b31d89199cf48d39f2d17574e2a378ff1e"
+    },
+    {
+     "name": "2007-06-07_rar370b3.exe",
+     "size": 316928,
+     "sha256": "1672783c26ff80be2af325391c8ac7d1eeacbc99c3c01083d1f2b70e5f3f796a"
+    },
+    {
+     "name": "2007-06-07_rar370b4.exe",
+     "size": 316928,
+     "sha256": "80e524500ff676d577a48563858f9c70e23727f63152201b5d2495e075dfdb3e"
+    },
+    {
+     "name": "2007-06-07_rar370b5.exe",
+     "size": 316928,
+     "sha256": "4821e148c61cbf8a83767a6b5b3b83bee2061c086a1a3542f5d2b9fe53956acb"
+    },
+    {
+     "name": "2007-06-07_rar370b6.exe",
+     "size": 316928,
+     "sha256": "5cf3a1575a919b941a2d45e4ba5536fafbcfe922c800cbce662e2ca0fd30c443"
+    },
+    {
+     "name": "2007-06-07_rar370b7.exe",
+     "size": 317440,
+     "sha256": "1bf2d31c0647d4b1475c8a4b2350ca21d5bdd828b7b8e665b51d270e3d55b2c8"
+    },
+    {
+     "name": "2007-06-07_rar370b8.exe",
+     "size": 316928,
+     "sha256": "60cd3334291a1cf4fe62a930c16e5a71e56a6481ed8275ce6b78461bfd275b91"
+    },
+    {
+     "name": "2007-07-05_rar371.exe",
+     "size": 317952,
+     "sha256": "4fb61906e6cadb1b9846dabf81543f8913831375e1c57f1faadc2ec028f2b5e2"
+    },
+    {
+     "name": "2007-07-05_rar371b1.exe",
+     "size": 317952,
+     "sha256": "6cc7a45876052f9682c2eccd7e34a7c35a5186a95d55ba9bc4f369b0c3e16c86"
+    },
+    {
+     "name": "2008-09-22_rar380.exe",
+     "size": 323072,
+     "sha256": "4dc0d704e544b63bf5f7003c69809a1bd7b83693fba445c9fed07561181c9740"
+    },
+    {
+     "name": "2008-09-22_rar380b1.exe",
+     "size": 322560,
+     "sha256": "270c9fca3e17efdb6b3d659140e26e6943bc29621865eb509adaef0a133622ac"
+    },
+    {
+     "name": "2008-09-22_rar380b2.exe",
+     "size": 323584,
+     "sha256": "90d5cb534cff4447c0e65366916eb6efe7b89ff82211dbc068ebf03fd62bf80b"
+    },
+    {
+     "name": "2008-09-22_rar380b3.exe",
+     "size": 323584,
+     "sha256": "18576312c1122257d86538b4f1edf63bf220a1838ed14cd1c20b4e33a7786546"
+    },
+    {
+     "name": "2008-09-22_rar380b4.exe",
+     "size": 323072,
+     "sha256": "9bd30d3c707c0d6ac42c9939a06e2f6cfaee5286a4702703d2d6b91f0db959e7"
+    },
+    {
+     "name": "2008-09-22_rar380b5.exe",
+     "size": 323072,
+     "sha256": "e4d6a4dcaece7c7a3e183f134a6c7249d229855423d598b2f6db43a5ba150284"
+    },
+    {
+     "name": "2009-04-26_rar390b1.exe",
+     "size": 395776,
+     "sha256": "1290f04150dd59c2e890ad504fa9deb055328c7a12c89aec70f17bd82115f1eb"
+    },
+    {
+     "name": "2009-05-20_rar390b2.exe",
+     "size": 396800,
+     "sha256": "698dd5dca34af43dc5a879ed205485d59134bc02afd495c2f72d6c1ab3231814"
+    },
+    {
+     "name": "2009-06-19_rar390b3.exe",
+     "size": 397312,
+     "sha256": "9e7b4c01336730e924ba7eb4b841e7fe285fa0e644192e7fbcbff681aa8dc923"
+    },
+    {
+     "name": "2009-06-30_rar390b4.exe",
+     "size": 397312,
+     "sha256": "b51c6be90b50fb84f987e2899e2577b0155edd3984bed4bd0ad2d84e5a6ae0f3"
+    },
+    {
+     "name": "2009-08-11_rar390b5.exe",
+     "size": 397312,
+     "sha256": "58142bcb62227c3ac876994bc472eeb177e364c94b3b172fa4a41a7a18052a84"
+    },
+    {
+     "name": "2009-08-16_rar390.exe",
+     "size": 396800,
+     "sha256": "b303c0e0d0d7cc052d69d1848e960af7e14bc85c33e4413d7ddaa022cf5fa16d"
+    },
+    {
+     "name": "2009-09-23_rar390.exe",
+     "size": 378368,
+     "sha256": "9e8ee6b7391aeaec4b3d5f06c8906cb6f0f202e5ed07369343ff81c674d6525e"
+    },
+    {
+     "name": "2009-09-23_rar390b1.exe",
+     "size": 375808,
+     "sha256": "1e932c95be7cee72fe650e7ea31552c1e5a0d55c3f45c4886daae6bce31f105a"
+    },
+    {
+     "name": "2009-09-23_rar390b2.exe",
+     "size": 377344,
+     "sha256": "879cd3f71f019ae0b3b7bf5460a9a1351a2a2fb552bf2c471f8eb70d119eb5aa"
+    },
+    {
+     "name": "2009-09-23_rar390b3.exe",
+     "size": 377344,
+     "sha256": "209e3db2605ebaf7587f6fd00de49e965abb658c64f90742d081f01eeb616bed"
+    },
+    {
+     "name": "2009-09-23_rar390b4.exe",
+     "size": 378368,
+     "sha256": "619e3d04d903e007d8447345d794ca6f7742cb597ddcf1e5b95d00766a43a5e4"
+    },
+    {
+     "name": "2009-09-23_rar390b5.exe",
+     "size": 378368,
+     "sha256": "b82e7e851d5ba8f37c57a1ce5446da92cd6e48f086813006254c0bfbb6cd53db"
+    },
+    {
+     "name": "2009-11-16_rar391b1.exe",
+     "size": 397312,
+     "sha256": "4a1edfaf5e7357db7a9c9e6d7629f4210052d6fb7b4e7700dba69f6400602804"
+    },
+    {
+     "name": "2009-12-01_rar391b2.exe",
+     "size": 397312,
+     "sha256": "0bd811e1bab6f4d92c0ff72d8ac6e6fa8d96251e6ac6ba9042957127aaa0f82e"
+    },
+    {
+     "name": "2009-12-12_rar391.exe",
+     "size": 397312,
+     "sha256": "cd1c322fe86a612bc1a0aa4984b6ff7b120af441d751ce0ebda74bb85b0f02a0"
+    },
+    {
+     "name": "2010-01-23_rar392b1.exe",
+     "size": 397824,
+     "sha256": "dc1a18c01ce25bea546e8a057ffe7e8580456c589deea2a44947060b994eb640"
+    },
+    {
+     "name": "2010-02-10_rar392.exe",
+     "size": 397824,
+     "sha256": "61663781453d8d93fc7ab5b81c68bf6e9cf4e046e5abe850ed3356f60fee557d"
+    },
+    {
+     "name": "2010-03-15_rar393.exe",
+     "size": 398336,
+     "sha256": "37f861e5baafa47999eafe2bead6061d3af0a9a5d7ca59ea88e6b98f308ba335"
+    },
+    {
+     "name": "2010-03-15_rar393it.exe",
+     "size": 386048,
+     "sha256": "df3fd823dd0f606b48d4f3a54570541b9236400ce9875d27b35c4b74e704cd66"
+    },
+    {
+     "name": "2010-03-15_rar393pl.exe",
+     "size": 401920,
+     "sha256": "e90eaddebce601a1b351f79845f93cb8b14a1569bb68518c23df9a561b94ea34"
+    },
+    {
+     "name": "2010-03-15_rar393plx2396.exe",
+     "size": 382464,
+     "sha256": "2396ca2962dff41fadf4ed8c1286c5143e6dd6728cc654aee65ad2c5c5143b70"
+    },
+    {
+     "name": "2010-03-15_rar393tc.exe",
+     "size": 398336,
+     "sha256": "512f9ed7efe70fccb23a5e9f115d68ba43df004bd568272776da35d2de3f5fca"
+    },
+    {
+     "name": "2010-03-15_rar393tcx5bf4.exe",
+     "size": 378880,
+     "sha256": "5bf488992392503603025fefd930770b974324f99be0d9374ec768e24e3c6bec"
+    },
+    {
+     "name": "2010-03-16_rar393k.exe",
+     "size": 391680,
+     "sha256": "37a445337297862cf802ca8dd484d313f7694360b46691fc5bdc067414e1b8f5"
+    },
+    {
+     "name": "2010-03-16_rar393kxdfdc.exe",
+     "size": 372224,
+     "sha256": "dfdc94e98d884d4a07c846f1c8a932b3c88bcee1665bab8d28c699485af8249d"
+    },
+    {
+     "name": "2010-03-22_rar393sc.exe",
+     "size": 413184,
+     "sha256": "4fecb6c6d30e570d617200fe54da8fd399753f5e53b543721105df6c4644b5c4"
+    },
+    {
+     "name": "2010-03-22_rar393scx6f8c.exe",
+     "size": 395264,
+     "sha256": "6f8ccfca1fba2cb046d28cc34c0f0f10f896dbb2752792082c1c3f5a01d9be8b"
+    },
+    {
+     "name": "2010-07-19_rar391.exe",
+     "size": 378368,
+     "sha256": "c08d5a7ecebd585794888d201b3e3cfc4a95b2ee8eae9002e814d81b3b5a9092"
+    },
+    {
+     "name": "2010-07-19_rar391b1.exe",
+     "size": 378368,
+     "sha256": "18a2ee4842d4277564992295e3aee027fbdbac622e6331194c552f8d3a0dd606"
+    },
+    {
+     "name": "2010-07-19_rar391b2.exe",
+     "size": 378368,
+     "sha256": "4b47fe3be53c217df898aa0641ecb750eaec51f5efb86865a23dbbf993f48ee2"
+    },
+    {
+     "name": "2010-07-19_rar393it.exe",
+     "size": 405504,
+     "sha256": "be437846cfcbad2b019598d5400f0ac2d45a488fffa5cb58f07b95575afe7d6e"
+    },
+    {
+     "name": "2010-09-28_rar392.exe",
+     "size": 378368,
+     "sha256": "03fc698b9d05ac7f988417e521515c39f0b7dc91b721f873896116a76b038d3a"
+    },
+    {
+     "name": "2010-09-28_rar392b1.exe",
+     "size": 378368,
+     "sha256": "c28ebef620887e92d833f55f67fca9da4ed8a8a706fea77110c62c5954d71e18"
+    },
+    {
+     "name": "2010-11-16_rar400b1.exe",
+     "size": 416768,
+     "sha256": "f5bacb9d7d03a18b1a92a75fafdf8f1c62291dff9db22f47868b605cb8320fb7"
+    },
+    {
+     "name": "2010-11-26_rar400b2.exe",
+     "size": 416768,
+     "sha256": "a62e6c41e5f57b00b1e3e21fc6b56c6f4fa10aac9b1628ed58b0eba18eb6c15b"
+    },
+    {
+     "name": "2010-12-23_rar393.exe",
+     "size": 378880,
+     "sha256": "2356220cfa9159b463d762e2833f647a04fa58b4c627fcb4fb1773d199656ab8"
+    },
+    {
+     "name": "2010-12-24_rar400b3.exe",
+     "size": 416768,
+     "sha256": "4691c1fe3b63b50bbde44362e49cb011921e661412e76f880335b446f6ffb677"
+    },
+    {
+     "name": "2011-01-18_rar400b4.exe",
+     "size": 417792,
+     "sha256": "8ce0e645bc37eca6fbb222d4ae1ef7a3dce55825b9cea0ec74698cd531eec1a5"
+    },
+    {
+     "name": "2011-01-24_rar400b5.exe",
+     "size": 417792,
+     "sha256": "ff6910f3d6a1a6a6c4c848a6d93cbcf6956f265f1ddfe71e64362599a1655260"
+    },
+    {
+     "name": "2011-02-08_rar400b6.exe",
+     "size": 417792,
+     "sha256": "1d03edaba4d57c386781c695da7ccd5270da449a674d1ff94c9febf3b63ea1a5"
+    },
+    {
+     "name": "2011-02-20_rar400b7.exe",
+     "size": 417792,
+     "sha256": "ac5a47d06c7f5527fdce7f13baf290b4a2a8d1c1de1376376f9f4e6a43c8a406"
+    },
+    {
+     "name": "2011-03-02_rar400.exe",
+     "size": 417792,
+     "sha256": "786bfb826fd4871943676bdb784b7da300620c3d0373663dfb04be8a8d78ea14"
+    },
+    {
+     "name": "2011-03-09_rar400.exe",
+     "size": 396800,
+     "sha256": "52ae84051c5038d19d2d72dfd10739b50f4b78e0936d1cb45d7dabb2eff19810"
+    },
+    {
+     "name": "2011-03-09_rar400b1.exe",
+     "size": 396800,
+     "sha256": "ed1a7b3e3f5e5c8eff7a02a28f23d4ef08bada553e006f602cd3a9c3a20961ca"
+    },
+    {
+     "name": "2011-03-09_rar400b2.exe",
+     "size": 395264,
+     "sha256": "40b419cc727c650dfb536e64951b65eb7a5efbdc54c58f46cbb9abc2cbac5c2e"
+    },
+    {
+     "name": "2011-03-09_rar400b3.exe",
+     "size": 395264,
+     "sha256": "3148cf1fc78313830a217ecb7b678222876e1de74b509f82f391219ce495ced5"
+    },
+    {
+     "name": "2011-03-09_rar400b4.exe",
+     "size": 395264,
+     "sha256": "19b3c4b9f6e53569fd4b78891d64764356ee108b3831b509a7c71a6eacd973e2"
+    },
+    {
+     "name": "2011-03-09_rar400b5.exe",
+     "size": 396800,
+     "sha256": "a213dec7099feb6fe6db8e2feec9ad1ea317f19850283ac7c0bc90383d211372"
+    },
+    {
+     "name": "2011-03-09_rar400b6.exe",
+     "size": 396800,
+     "sha256": "75eaab75273df1091bc6c56f09958bbb1e7c0e08140247db60bbbc3a6c2618d9"
+    },
+    {
+     "name": "2011-03-09_rar400b7.exe",
+     "size": 396800,
+     "sha256": "d3cdd34370791110272058b51d32c21b571ab2e6bf68b7807fa8d53b2101ae27"
+    },
+    {
+     "name": "2011-05-23_rar401b1.exe",
+     "size": 417792,
+     "sha256": "4805efef1e14ffc30ad7d815d530c852b08b1ab76c245f8facef9872ff605cba"
+    },
+    {
+     "name": "2011-05-28_rar401.exe",
+     "size": 417792,
+     "sha256": "d7d336a799c58d3159ac9c56d5783f0228c6098ce6cbe5cffc772ce79a4ffec2"
+    },
+    {
+     "name": "2011-06-14_rar401.exe",
+     "size": 397312,
+     "sha256": "889c491c1fbf6386c11574b18bc320e9399d18271a22f1f3b29aecf26f1af531"
+    },
+    {
+     "name": "2011-06-14_rar401b1.exe",
+     "size": 397312,
+     "sha256": "541ec8171c9d9b51d243aab11f4f506998c8117947797027a721fa4af32b90b8"
+    },
+    {
+     "name": "2011-10-18_rar410b1.exe",
+     "size": 424448,
+     "sha256": "41c837a8881011d0500ca600d1781fbd4b1dcfcb9474c4d7fbdb9aac31bbf63b"
+    },
+    {
+     "name": "2011-10-28_rar410b2.exe",
+     "size": 424448,
+     "sha256": "ac27639137981e35d507d35744f234343598cefcee42f24fb17f85a87a1a15bb"
+    },
+    {
+     "name": "2011-11-10_rar410b3.exe",
+     "size": 424448,
+     "sha256": "561092e99b44d38b6df5356f9e090e54cba74dc56d7dea21c852eac63caeffaf"
+    },
+    {
+     "name": "2011-11-22_rar410b4.exe",
+     "size": 424448,
+     "sha256": "ccb31f5deb82192e8c9e1de0ae882b6d9145363527e007648a9167278ee2c536"
+    },
+    {
+     "name": "2011-12-15_rar410b5.exe",
+     "size": 424448,
+     "sha256": "fb65aef489304536cb119e7a70f8c6689a021fdccb94fceae72421cdceaac578"
+    },
+    {
+     "name": "2012-01-09_rar410.exe",
+     "size": 424448,
+     "sha256": "0307e2e149ad32ddc579c5adb45c0cbf0824fcf62cad33e584b77f349ea5832c"
+    },
+    {
+     "name": "2012-01-17_rar410.exe",
+     "size": 403968,
+     "sha256": "2f3f037b07737101076f50664ea3af10f76970febdcba4bd0e38d5a0eca4f6dd"
+    },
+    {
+     "name": "2012-01-17_rar410b1.exe",
+     "size": 403968,
+     "sha256": "3d7b0864bb694417c79804df77af0aae0379f97c4c2424b1562c3f86773e64a7"
+    },
+    {
+     "name": "2012-01-17_rar410b2.exe",
+     "size": 403968,
+     "sha256": "855e6feb0c7e843c97ddb112536b810e8ff18c141896d56dc0d5af82929b43a7"
+    },
+    {
+     "name": "2012-01-17_rar410b3.exe",
+     "size": 403968,
+     "sha256": "64987391dc3e904543801c132578ce565a7935e3fb045c2f446a3385c2f31989"
+    },
+    {
+     "name": "2012-01-17_rar410b4.exe",
+     "size": 403968,
+     "sha256": "8df36cf0a0a818de0c3697663b26a3071c4e9fa75273c86f0169fd7ef02813b6"
+    },
+    {
+     "name": "2012-01-17_rar410b5.exe",
+     "size": 403968,
+     "sha256": "5b5b7234802a4ed83c803d7ecd541cf90e90fe29f1e6df52fc2d2eef3de9c7e8"
+    },
+    {
+     "name": "2012-02-17_rar411.exe",
+     "size": 424448,
+     "sha256": "15f41dadcf57ac42bae8036c5dc01e0688296ff7dec3b5c6db95d992a2704548"
+    },
+    {
+     "name": "2012-03-15_rar411.exe",
+     "size": 403968,
+     "sha256": "65d41340cc826c70d2fad878b83b63291128496888b91844b55e360068e83bd5"
+    },
+    {
+     "name": "2012-05-03_rar420b1.exe",
+     "size": 420352,
+     "sha256": "0befdd0be0dc5be4c16839816067c8e0c00fa98ab063ec1dd7193c3c173161d5"
+    },
+    {
+     "name": "2012-05-13_rar420b2.exe",
+     "size": 423424,
+     "sha256": "46236f4f15cfe01386e8c83d99da3a0a298c4fb2e5a0ada3812732a6566afb59"
+    },
+    {
+     "name": "2012-05-27_rar420b3.exe",
+     "size": 426496,
+     "sha256": "781ef55272f636bf356f389918bfc9aea4bbfa89eb70358e698aa42fbc091c47"
+    },
+    {
+     "name": "2012-06-09_rar420.exe",
+     "size": 404992,
+     "sha256": "9aa5cfc426d8fafb8826018d72302fcefafac0d07165245aab621267fab5ae59"
+    },
+    {
+     "name": "2012-06-09_rar420b1.exe",
+     "size": 399360,
+     "sha256": "e58f72b9f0d170c87e7fe0e577b5fb483fc88655ad6fd5a2f894f88f1240c028"
+    },
+    {
+     "name": "2012-06-09_rar420b2.exe",
+     "size": 401408,
+     "sha256": "f9b9f10c8cdfe2dff715b86b8895d669239900f531fb4a53f160e486b22c620a"
+    },
+    {
+     "name": "2012-06-09_rar420b3.exe",
+     "size": 404992,
+     "sha256": "a504c1db39fb0ce4fc2d3a018fa55cf21813a9e3538e262db8bcf7196bf4a704"
+    },
+    {
+     "name": "2012-06-09_rar420xea13.exe",
+     "size": 426496,
+     "sha256": "ea139458b4e88736a3d48e81569178fd5c11156990b6a90e2d35f41b1ad9bac1"
+    },
+    {
+     "name": "2013-04-30_rar500b1.exe",
+     "size": 513024,
+     "sha256": "0fe9aa96d3d670a1cf4ed0ef47e5292d1d581fdeb895c1fa73f9c890b7fa65b4"
+    },
+    {
+     "name": "2013-04-30_rar500b2.exe",
+     "size": 513024,
+     "sha256": "2f498a47547debe617dbf7465a1390b9ac406be4a7a2c40ee6a7734664b55096"
+    },
+    {
+     "name": "2013-05-13_rar500b3.exe",
+     "size": 516608,
+     "sha256": "f23f989a2129cae89966217244f13d3875e088f0095efa7eed1ce2088567ec42"
+    },
+    {
+     "name": "2013-05-30_rar500b4.exe",
+     "size": 517120,
+     "sha256": "716830b152c50a39d0c48ad101587ced98d8ccd277fd62fbe9cd85fe1f4fe34b"
+    },
+    {
+     "name": "2013-06-05_rar500b5.exe",
+     "size": 515072,
+     "sha256": "dceb8f586a21ffbb1d79838a22150bc59526fedda2683edc5e38c3605365b91a"
+    },
+    {
+     "name": "2013-06-21_rar500b6.exe",
+     "size": 521304,
+     "sha256": "2b237c82c70a72bb8467fe7145913526b70029aa64d7f5dc137b39eb532c4595"
+    },
+    {
+     "name": "2013-07-20_rar500b7.exe",
+     "size": 520792,
+     "sha256": "bf0347aff11828c096b2026ae434cc0764e860b7fb08ad5faa806eba068b24e5"
+    },
+    {
+     "name": "2013-08-22_rar500.exe",
+     "size": 521816,
+     "sha256": "6d61cdb4e0116f806933f9d0605d3342c0502b96e0f0020ba17985830db4fd07"
+    },
+    {
+     "name": "2013-08-22_rar500b8.exe",
+     "size": 521816,
+     "sha256": "0660094d2fcd9bf4cdff653f7ce4ed3fb4980338bf0b1bbc39c09ea3c62e2d62"
+    },
+    {
+     "name": "2013-10-12_rar500.exe",
+     "size": 488024,
+     "sha256": "2ebc5986cabc99312ff3431d4300bd121bab4972ebfa1f745d74171d4c21e7b1"
+    },
+    {
+     "name": "2013-10-12_rar500b1.exe",
+     "size": 480256,
+     "sha256": "df2b2084332de5810c1589655fc0008c4137a15cafa9c3190bd21bb57f60306d"
+    },
+    {
+     "name": "2013-10-12_rar500b2.exe",
+     "size": 480256,
+     "sha256": "cc9cb6fd122f8aeb9c38e4ad8dd12d6ddc6e01f33bdeaa7fab8ccfc6722c5175"
+    },
+    {
+     "name": "2013-10-12_rar500b3.exe",
+     "size": 483328,
+     "sha256": "88a1766bfa94bc88234bdb93d1fbd26133d6ab305f4810c76a43edf29010a530"
+    },
+    {
+     "name": "2013-10-12_rar500b4.exe",
+     "size": 483328,
+     "sha256": "caebede10fef985a616970aa80d68e7195ad1f7de02b6dde11fb9fbd4d365def"
+    },
+    {
+     "name": "2013-10-12_rar500b5.exe",
+     "size": 480768,
+     "sha256": "20cd305d21053010dca9b87afdf803e2f4e850b5d47ce57946ff7d55277de313"
+    },
+    {
+     "name": "2013-10-12_rar500b6.exe",
+     "size": 487000,
+     "sha256": "a1133d8d57d4b426f1fd6bfed415c81e67a3c8195512dde9c36882bba982df37"
+    },
+    {
+     "name": "2013-10-12_rar500b7.exe",
+     "size": 487000,
+     "sha256": "0d02c324e6c44734c0c781791d7edac04e085b28b6fd5f1358bb98a0dcc88b6c"
+    },
+    {
+     "name": "2013-10-12_rar500b8.exe",
+     "size": 488024,
+     "sha256": "bed3ca5f13199ba464a044a66ec782641ee1662fa5322a359c4e6c3e09f5b540"
+    },
+    {
+     "name": "2013-11-13_rar501b1.exe",
+     "size": 522840,
+     "sha256": "7e76df24367755a0befdbb9ba0177fbf2c25e81d297ec850283768e55f374edb"
+    },
+    {
+     "name": "2013-12-01_rar501.exe",
+     "size": 522840,
+     "sha256": "cfcdb3cb9ebfd5586a792d9bf70a19818684d8e49301b26bf4c5fc759d319807"
+    },
+    {
+     "name": "2013-12-05_rar501.exe",
+     "size": 490072,
+     "sha256": "cf0121cd61990fd3f436bda2b2aff035a2621797d12fd02190ee0f9b2b52a75d"
+    },
+    {
+     "name": "2013-12-05_rar501b1.exe",
+     "size": 490072,
+     "sha256": "16b421708752d8062125627aa9a6e9310e89ade21465c45dd7bd1dfa2d050712"
+    },
+    {
+     "name": "2014-04-04_rar510b1.exe",
+     "size": 524376,
+     "sha256": "4279185d30556c3afbb8451e12c894496ee98d4c2863565bd501d0fb5de6596a"
+    },
+    {
+     "name": "2014-04-05_rar510b2.exe",
+     "size": 524376,
+     "sha256": "97df4ec0f73cceff92e6e88e4fa1310071a9bcb7760ff009880198342e6ec12b"
+    },
+    {
+     "name": "2014-04-16_rar510.exe",
+     "size": 496728,
+     "sha256": "b6eff4ce86f0d5dbb81c20aee7bc1eb02e5386f8c32bb04024b488c06c559812"
+    },
+    {
+     "name": "2014-04-16_rar510b1.exe",
+     "size": 496728,
+     "sha256": "468cbeded68cd3cb8ebed73419335b5c3f1ca13aa7dbade1f33f409ad28b2af8"
+    },
+    {
+     "name": "2014-04-16_rar510b2.exe",
+     "size": 496728,
+     "sha256": "5a3e5f2cd03ebaffc8ba53d9e7be08ec3ba4052f220e50e7c35edb77b22e1779"
+    },
+    {
+     "name": "2014-04-16_rar510b3.exe",
+     "size": 497240,
+     "sha256": "3c0a00a27a5b26a0a54e6509ba9d24a9fab3bc3c997d08f6764f2758fc8f96c4"
+    },
+    {
+     "name": "2014-04-16_rar510b4.exe",
+     "size": 496728,
+     "sha256": "d768a98f0093b36d8a2d8e6e03ab80a828cf87c95e33c488a1b062bb0097d1c3"
+    },
+    {
+     "name": "2014-04-25_rar510b3.exe",
+     "size": 524376,
+     "sha256": "f149ad3afc9c21a05ac36267b9c5fe3a5f35771874d6873af8874d61598bca28"
+    },
+    {
+     "name": "2014-05-21_rar511.exe",
+     "size": 496728,
+     "sha256": "46c3e073daa4aba552f553b914414b8d4419367df63df8a0d2cf4db2d835cdbd"
+    },
+    {
+     "name": "2014-05-21_rar511b1.exe",
+     "size": 497240,
+     "sha256": "ffe3bbf666934db2509d0c08330e4214195bb8495d524ab7f9da7405c8996c76"
+    },
+    {
+     "name": "2014-06-04_rar510b4.exe",
+     "size": 524376,
+     "sha256": "ecae7f592a3c99d8a92fa6e7b9cbe979e5eb1b069ba7bd1485e9c2fa30d74adf"
+    },
+    {
+     "name": "2014-06-10_rar510.exe",
+     "size": 524376,
+     "sha256": "18c14dcfb9a54c5359026a5fcbdb3e4ba6ced2628a9cd9ae589baedbb29beaa6"
+    },
+    {
+     "name": "2014-08-06_rar511b1.exe",
+     "size": 525400,
+     "sha256": "0c28a9bd221d2468ca46fb1539da7d967d8fe1d9409cf26dcb3556679440c566"
+    },
+    {
+     "name": "2014-08-27_rar511.exe",
+     "size": 525400,
+     "sha256": "b22a2f9b5a41111dd02e96371edd2788abc31ada1c51cab884e7c55091646698"
+    },
+    {
+     "name": "2014-10-06_rar520b1.exe",
+     "size": 526936,
+     "sha256": "aad2dfcbbec890f3d8f55b5a260b4b4184d56d880732311521f7687e38befc61"
+    },
+    {
+     "name": "2014-10-20_rar520b2.exe",
+     "size": 526936,
+     "sha256": "6a3162b562e04cdf87594c2418ba44e5972192f180323f93865c0f39e8356474"
+    },
+    {
+     "name": "2014-11-03_rar520b3.exe",
+     "size": 526936,
+     "sha256": "31afca48ad88626aecb2bc295d120f9b717cb1f0061159f651ee03cd9cc6c98e"
+    },
+    {
+     "name": "2014-11-17_rar520b4.exe",
+     "size": 527448,
+     "sha256": "464f13c11da32a60f4a558cd7832232417d4b59de499ef325a61d52b69b5a50c"
+    },
+    {
+     "name": "2014-12-02_rar520.exe",
+     "size": 526424,
+     "sha256": "02e81c62ed9bc3f3a1861aacc9502f868a75521f90a51112008f156e343aa6c5"
+    },
+    {
+     "name": "2014-12-18_rar520.exe",
+     "size": 498264,
+     "sha256": "f2077f85aa0960f4583fb93eef6a97f029f8788b6cf1c42f0bd72c2573dd4f0f"
+    },
+    {
+     "name": "2014-12-18_rar520b1.exe",
+     "size": 498264,
+     "sha256": "58617a6afaab4ff0851efdf1c19b913803397b3452424f691f010e38e57b338d"
+    },
+    {
+     "name": "2014-12-18_rar520b2.exe",
+     "size": 498264,
+     "sha256": "66eec5d0f6b8c841237c8a75d0757f2e6cf1f56e3edb416422b5639581fe6554"
+    },
+    {
+     "name": "2014-12-18_rar520b3.exe",
+     "size": 498264,
+     "sha256": "07aeef78b63038cef34ff6074aa2035480e3d6ac95213651c6d831e4666730b8"
+    },
+    {
+     "name": "2014-12-18_rar520b4.exe",
+     "size": 498264,
+     "sha256": "dd52bbfef7086eca616e1bba4913bbfd5fbfcf54a5fe111325cb70f869cf7251"
+    },
+    {
+     "name": "2015-01-30_rar521b1.exe",
+     "size": 527960,
+     "sha256": "db178eae37149fd84a4ddf4dae8790ccfb3f16cd8f7988a11b3de98fd6d24b98"
+    },
+    {
+     "name": "2015-02-13_rar521b2.exe",
+     "size": 527960,
+     "sha256": "6c7b4842d65cd723a37a727d0b48e334567e4eb5c620bed2e912561e801625d9"
+    },
+    {
+     "name": "2015-02-15_rar521.exe",
+     "size": 527960,
+     "sha256": "1b6d09dfa9282c0f651817224d36bd62e05da3075b6f016105980f836ae06086"
+    },
+    {
+     "name": "2015-06-11_rar521.exe",
+     "size": 499288,
+     "sha256": "5a0898b193b27b8b962c9519d756f0631b62a6a0658a676ffc84744edbff0e10"
+    },
+    {
+     "name": "2015-06-11_rar521b1.exe",
+     "size": 499288,
+     "sha256": "17b7146b427241ab8abbc784a4b3300cf59377b80258eb09c91e3a737a1cb408"
+    },
+    {
+     "name": "2015-06-11_rar521b2.exe",
+     "size": 499288,
+     "sha256": "e31bdf801600d877280fa0d1b25d7783208401db9fd6ee5af59eea64308361de"
+    },
+    {
+     "name": "2015-07-30_rar530b1.exe",
+     "size": 531448,
+     "sha256": "0b2b540c3abac4293ed94cba5000854d03e3e2bcbab6f7470de819deec6c645b"
+    },
+    {
+     "name": "2015-08-10_rar530.exe",
+     "size": 503800,
+     "sha256": "936e44d41edeff6c009c53cf476c9d9f0fa4986817f912943cf47842f60ad878"
+    },
+    {
+     "name": "2015-08-10_rar530b1.exe",
+     "size": 502776,
+     "sha256": "9dd8aaa5e91905acb720ef70e1c2c8d00770f2d96a0286fc250fe8fc6bade431"
+    },
+    {
+     "name": "2015-08-10_rar530b2.exe",
+     "size": 502776,
+     "sha256": "a7d0b8b94fffece7773274738de1333fec7572c1f2c9cf0c1e2f17fc6f920265"
+    },
+    {
+     "name": "2015-08-10_rar530b3.exe",
+     "size": 503800,
+     "sha256": "ad5c7f88087ba7658d76c202603854ec08c81ec9c6c2e855d4fb28a61f14cf5c"
+    },
+    {
+     "name": "2015-08-10_rar530b4.exe",
+     "size": 503800,
+     "sha256": "27897d46bca166858c511a26fd9326d610254fbe6a68bf2b94e70f44883ce9dd"
+    },
+    {
+     "name": "2015-08-10_rar530b5.exe",
+     "size": 503800,
+     "sha256": "ef4e28136936afc88db1f89a2e0d72cf3ae58ffe62cf91adb7d5cfc39eae22ac"
+    },
+    {
+     "name": "2015-08-10_rar530b6.exe",
+     "size": 503800,
+     "sha256": "88afd2dd7469145ddf177daef16a6006cbebdc6bc0f3a8898ff3fb5eff587a9d"
+    },
+    {
+     "name": "2015-08-23_rar530b2.exe",
+     "size": 531448,
+     "sha256": "b3445a574632d20dc93bc699c1de95ed7681313dccffb1a1700589030b34fde4"
+    },
+    {
+     "name": "2015-09-10_rar530b3.exe",
+     "size": 532472,
+     "sha256": "48b87b99fa249d29baa45fe42e333cc40ba50ccfcd5ed4dd9ff4fe0882263e62"
+    },
+    {
+     "name": "2015-10-07_rar530b4.exe",
+     "size": 532984,
+     "sha256": "9548f0e099fed4ed237812fc2cdf632fa210862cbc3ccfdd9ffa58be116b257e"
+    },
+    {
+     "name": "2015-10-26_rar530b5.exe",
+     "size": 532984,
+     "sha256": "61b1d874cab145a71de75d5df2db15da548c922656b777c12d6d930d5769c6b9"
+    },
+    {
+     "name": "2015-11-08_rar530b6.exe",
+     "size": 532984,
+     "sha256": "15471b17d1640a88e2f1c7ec4a05acf34c54a8ac4459d4a45deab84a8ae6734a"
+    },
+    {
+     "name": "2015-11-18_rar530.exe",
+     "size": 532984,
+     "sha256": "1206c05fa729f598b696e6311d9dd198917cc6375fcda08744481be3d9ad5f44"
+    },
+    {
+     "name": "2016-01-10_rar531b1.exe",
+     "size": 539136,
+     "sha256": "94f83e0a9e1dadc27b33721b15870daac90925a78c3935bf37b0229ba38e561e"
+    },
+    {
+     "name": "2016-02-04_rar531.exe",
+     "size": 539136,
+     "sha256": "a48de85306289ccea28a54a75bff56dd5468b7e999aabf7d1229dcd717144424"
+    },
+    {
+     "name": "2016-04-21_rar531.exe",
+     "size": 510456,
+     "sha256": "d99f60f67aaec81fbc4f333ff4185823a99d3ce49fef9e22b22fc11a06f071b8"
+    },
+    {
+     "name": "2016-04-21_rar531b1.exe",
+     "size": 510456,
+     "sha256": "78fe7e6e886a97ac9105ee35af77f383d28f0a7b7450c691706e32b3adece27a"
+    },
+    {
+     "name": "2016-05-12_rar540b1.exe",
+     "size": 596880,
+     "sha256": "0f94dda37222851427d7fe44f748601eae466e85457210618a5ee6e141b929b2"
+    },
+    {
+     "name": "2016-06-28_rar540b2.exe",
+     "size": 597392,
+     "sha256": "b0883d6127da229c533952bdce3382ddbbaaf10118650861fa7596069257ec82"
+    },
+    {
+     "name": "2016-07-14_rar540b3.exe",
+     "size": 597392,
+     "sha256": "4fd6d878919bb213a65e0e5e0c82015da53087d311cb6098f0da8c51e67faf6e"
+    },
+    {
+     "name": "2016-08-13_rar540b4.exe",
+     "size": 597392,
+     "sha256": "088d496ac5f6f36399cfa3289a4caf3dee87f8c98f1b08c050e3227d5ffcaa7c"
+    },
+    {
+     "name": "2016-08-15_rar540.exe",
+     "size": 597392,
+     "sha256": "574fdee6f02885494fade6efab72183f0978a39eea34dc5c2b1ac738c238da0d"
+    },
+    {
+     "name": "2016-10-25_rar540.exe",
+     "size": 562064,
+     "sha256": "6bc4497b86df521b413e4574f4cd4289c986348d2a69da1945ff1a1784db05db"
+    },
+    {
+     "name": "2016-10-25_rar540b1.exe",
+     "size": 562064,
+     "sha256": "8991ff0920d87358e2ccea945f4709894fef34ee8cdbd222dc71f7baba429b89"
+    },
+    {
+     "name": "2016-10-25_rar540b2.exe",
+     "size": 562064,
+     "sha256": "0cb785e1205dd410dc88a46c400e15d32200a7cb09881c264fc443b9a363e994"
+    },
+    {
+     "name": "2016-10-25_rar540b3.exe",
+     "size": 562576,
+     "sha256": "93c1165ab1df06bdcaf23158ece689962d51aa4840cb1eae924001c3155423f9"
+    },
+    {
+     "name": "2016-10-25_rar540b4.exe",
+     "size": 562576,
+     "sha256": "762d29fb0fb8b83766c02c587b6ed48cedc24ced88fd4784036c0cea0bdcd801"
+    },
+    {
+     "name": "2017-05-02_rar550b1.exe",
+     "size": 596128,
+     "sha256": "d78ec32a00a692c5358f9b9d32f706ea17d92d7ac20ff26f46f199506139fa03"
+    },
+    {
+     "name": "2017-05-16_rar550.exe",
+     "size": 565464,
+     "sha256": "c5678ee1a448b8a5fb437ec637aa1edcde1cf423c153ffb62ab8e1244d815e35"
+    },
+    {
+     "name": "2017-05-16_rar550b1.exe",
+     "size": 564896,
+     "sha256": "87596a349190c9f1bbb0e4cac39a5b723231b72ed05db33e0020263a7d6c333f"
+    },
+    {
+     "name": "2017-05-16_rar550b2.exe",
+     "size": 564896,
+     "sha256": "3fcceb3a66583e3f681c5ad0afe8b785afa541137aafc9823208737066a08794"
+    },
+    {
+     "name": "2017-05-16_rar550b3.exe",
+     "size": 564952,
+     "sha256": "7ff94e719f87e2b422f867b963e58a83a5d78fa93aa808bd6db5d2ed82824579"
+    },
+    {
+     "name": "2017-05-16_rar550b4.exe",
+     "size": 564952,
+     "sha256": "9a2e176d1125174854245512ebda11c6368cfcf8ebe121c5419e7f151c9101f7"
+    },
+    {
+     "name": "2017-05-16_rar550b5.exe",
+     "size": 565464,
+     "sha256": "72c1e1bec74dfca554c6d974ed05451e7388979efe5ffcf916ab7074fb8dbefd"
+    },
+    {
+     "name": "2017-05-16_rar550b6.exe",
+     "size": 565464,
+     "sha256": "e426b694eb3804ef01180f84d2a6cb68dd7445f92259ff2d6f40c4d7457fe0c6"
+    },
+    {
+     "name": "2017-05-22_rar550b2.exe",
+     "size": 596128,
+     "sha256": "b87e599aeed6c5524a39078f6170c5f241e3b6daa38ee6c954eeb6c7b9a7658a"
+    },
+    {
+     "name": "2017-06-12_rar550b3.exe",
+     "size": 596184,
+     "sha256": "7b7d821cadc6c8f3c9b1120eb89542c8eb998b834db77efdac1c70fb50b5831e"
+    },
+    {
+     "name": "2017-06-30_rar550b4.exe",
+     "size": 596184,
+     "sha256": "e35061b8ac0000c77266e2429cf8e3126d467717f0eb2a6e64d9a0e764d7a519"
+    },
+    {
+     "name": "2017-07-23_rar550b5.exe",
+     "size": 596696,
+     "sha256": "88a86acf0febdeb4bf25e1bada511b7a8dc255ad75c533d69bd6ea273112503e"
+    },
+    {
+     "name": "2017-08-02_rar550b6.exe",
+     "size": 596696,
+     "sha256": "4f43b0b928d313dbb3b7f30d6c1d108477eeb718d8469219fa876799d1bd03fe"
+    },
+    {
+     "name": "2017-08-11_rar550.exe",
+     "size": 596696,
+     "sha256": "648f6ebe3a7ea75d846fa9f87a0291923677e4c0d21b12400fcdb695bc02917f"
+    },
+    {
+     "name": "2018-02-05_rar560.exe",
+     "size": 572632,
+     "sha256": "8014c516d154a6e17fdf3c40806b775f75b21e18e4047bf1d898a072ee4e3311"
+    },
+    {
+     "name": "2018-02-05_rar560b1.exe",
+     "size": 572632,
+     "sha256": "83aeb82ad67f58db0ded8e4bdb313e4f39d218ef5a9bbf630c84739edd943f0d"
+    },
+    {
+     "name": "2018-02-05_rar560b2.exe",
+     "size": 572632,
+     "sha256": "e0ec3e12413a0b3fbdac2e25252f9058e19db5bff88d4866667ae9bc323b2193"
+    },
+    {
+     "name": "2018-02-05_rar560b3.exe",
+     "size": 572632,
+     "sha256": "33d2b3feaf0266209d65aa216b512e96eba402fdd4f9a464f30ad8334c618997"
+    },
+    {
+     "name": "2018-02-05_rar560b4.exe",
+     "size": 572632,
+     "sha256": "c550d43c139bb3ad3827fc8ca67c4280a3162b38bf4cc3144321da2a50010862"
+    },
+    {
+     "name": "2018-02-05_rar560b5.exe",
+     "size": 572632,
+     "sha256": "fe65e1102741026890f455264acfc1682c5c3e547c04a649ee3c62ef0dc2bdc8"
+    },
+    {
+     "name": "2018-03-26_rar560b1.exe",
+     "size": 602840,
+     "sha256": "bc15685810a3e84ace508520ba861227a6e2a6d6b87748412dd61310df1815b6"
+    },
+    {
+     "name": "2018-04-19_rar560b2.exe",
+     "size": 602840,
+     "sha256": "8dee3f86c96ffa3b435c4cb592b4173de27e22b8df2c879942bdf76e356bfcd1"
+    },
+    {
+     "name": "2018-05-10_rar560b3.exe",
+     "size": 603352,
+     "sha256": "b9b4001145e83e3768b6abcf75adb75c8a043868da380de8c5f73d893d0f70ad"
+    },
+    {
+     "name": "2018-05-29_rar560b4.exe",
+     "size": 603352,
+     "sha256": "73dd526152c60e4dcf7df4a5d1117076b51e20e49469fc6f13f2301a4eedc894"
+    },
+    {
+     "name": "2018-06-05_rar561.exe",
+     "size": 572632,
+     "sha256": "f210868e696b4219f213bc4fe8652380570f60b6f4d5b440f6cf786adf301778"
+    },
+    {
+     "name": "2018-06-05_rar561b1.exe",
+     "size": 572632,
+     "sha256": "ff7cf77744683eec1617cc82871e35eecfc8ab25b33175237cc0d089708c1117"
+    },
+    {
+     "name": "2018-06-24_rar560.exe",
+     "size": 603352,
+     "sha256": "2cf58a93dbac2eaa7c3334fc1343c78956866ab46ff6d16e5aa48f2b463ed61e"
+    },
+    {
+     "name": "2018-06-24_rar560b5.exe",
+     "size": 603352,
+     "sha256": "ea1a3e8315e8b9d6b0447f6fffce343e97869bf728092f728708b086675bbd1c"
+    },
+    {
+     "name": "2018-09-27_rar561b1.exe",
+     "size": 603352,
+     "sha256": "45f566b4ebe62521c671520a01c0107f30e4ca8066622c8c6631396df943699b"
+    },
+    {
+     "name": "2019-05-06_rar570.exe",
+     "size": 569048,
+     "sha256": "45c0e37c0f9db44357fc310a43d03af94ed48248697e912c98d560ffe166c838"
+    },
+    {
+     "name": "2019-05-06_rar570b1.exe",
+     "size": 603864,
+     "sha256": "ed3bbbc2c2ffa5759d6e0622731c95651e84b6dbecd3c375b900950a1c4263af"
+    },
+    {
+     "name": "2019-05-06_rar570b2.exe",
+     "size": 603864,
+     "sha256": "4ab2da9a9c9ac78c49969b2b69872db1abbf51bf5d0537f2b32632039928420b"
+    },
+    {
+     "name": "2019-08-15_rar571.exe",
+     "size": 569560,
+     "sha256": "542bc34adfb1567551146085c04d20171790b379303ca059d5789bd0cbe49862"
+    },
+    {
+     "name": "2019-08-15_rar571b1.exe",
+     "size": 603864,
+     "sha256": "e2f3288873495f6d245de1e2f84dcba7034d227ad8bf4c6c97249226b5ec0571"
+    },
+    {
+     "name": "2019-08-15_rar571b2.exe",
+     "size": 603864,
+     "sha256": "0ae27b78669905c1c343f84e97062b406b5c3a5bf8302e8cb3559c0870010e79"
+    },
+    {
+     "name": "2020-01-14_rar580.exe",
+     "size": 584408,
+     "sha256": "cb3cc656bb0d0eb8ebea98d3ef1779fb0c4eadcce43ddb72547d9411bcd858bc"
+    },
+    {
+     "name": "2020-01-14_rar580b1.exe",
+     "size": 619224,
+     "sha256": "7fcf5b9bcef29fefb71157938a0bd1002542f6cbfa5248a9103f8c09e622ec8d"
+    },
+    {
+     "name": "2020-01-14_rar580b2.exe",
+     "size": 622296,
+     "sha256": "415eb07f6fd2e3a86a8c1dd1bfcfbf81ded2416b0e2668e588743ed25b62c8de"
+    },
+    {
+     "name": "2020-01-14_rar580b3.exe",
+     "size": 621784,
+     "sha256": "9e03698ab68ac88d19214d5c550db56217b46a72098caa55b719c97e598fa489"
+    },
+    {
+     "name": "2020-01-14_rar580b4.exe",
+     "size": 621784,
+     "sha256": "8401d99d8b1f7e22822cd626a2cd57b0356771d9633b1f3ba9c506f51e91fc47"
+    },
+    {
+     "name": "2020-05-07_rar590.exe",
+     "size": 584920,
+     "sha256": "733d9811a18d0f3381d10ed18ba7f09d84eb6a17cffdb0c017a38b1e9b0a0c0b"
+    },
+    {
+     "name": "2020-05-07_rar590b1.exe",
+     "size": 622296,
+     "sha256": "a3130ce33dfc7e3bc54fe40fc729ae7e305690fe7df227922ab4bd552c2b0a84"
+    },
+    {
+     "name": "2020-05-07_rar590b2.exe",
+     "size": 622296,
+     "sha256": "adccfa52ad1b6015bbefc78f628ecb6c5acb1e89839927afb85052dc82861c6a"
+    },
+    {
+     "name": "2020-05-07_rar590b3.exe",
+     "size": 622296,
+     "sha256": "898b7a3caee4143b01bcdf8549b21bacf491759b54f08655239b5b32135f08dd"
+    },
+    {
+     "name": "2020-07-27_rar591.exe",
+     "size": 589872,
+     "sha256": "f762233b1980f912e3c59cad9c7982dac0682e69ebfb70e413a4b7946bbf96e5"
+    },
+    {
+     "name": "2020-07-27_rar591b1.exe",
+     "size": 627928,
+     "sha256": "49245cec1e41deaf2342a4bc3673a9b29fbfd8db3ca828fa58a7f4e657ab0be8"
+    },
+    {
+     "name": "2020-12-08_rar600.exe",
+     "size": 592432,
+     "sha256": "770d7b5e40ed9b0aff5d0e3fc2ccf9ba10d4925d3441f38b71a35bd26e6e8d98"
+    },
+    {
+     "name": "2020-12-08_rar600b1.exe",
+     "size": 629568,
+     "sha256": "f0b03a05ce8f3b9e62b84fd287b045071f8b43b47e14a84707cac16299fd757a"
+    },
+    {
+     "name": "2020-12-08_rar600b2.exe",
+     "size": 629568,
+     "sha256": "fecc281444ae53c64517e76bb5d9215161ef12e030ca1b94106fa7750bda4587"
+    },
+    {
+     "name": "2021-01-25_rar601.exe",
+     "size": 596632,
+     "sha256": "21fde487c8e9994724c1b0201687e56212deddd5075acc16e01e9e050f7afda1"
+    },
+    {
+     "name": "2021-01-25_rar601b1.exe",
+     "size": 633496,
+     "sha256": "0943321e6500afbd73bf38c235e7ad5d46eabdde963378c8b77f434a34c1b382"
+    },
+    {
+     "name": "2021-07-08_rar602.exe",
+     "size": 597144,
+     "sha256": "4b16ea1b1273f8746cf399c71bfc1f5bff7378b5414b4ea044c55e0ee08c89d3"
+    },
+    {
+     "name": "2021-07-08_rar602b1.exe",
+     "size": 633496,
+     "sha256": "75f750d61a2810e8f85dca09a52414f64a6327e3ba3db71ca6aec6da7423ce9e"
+    },
+    {
+     "name": "2021-12-27_rar610.exe",
+     "size": 635032,
+     "sha256": "e7adf9d8f3a83a8130e21e122f29fbfe096a4f80f71cb1e3a57b45562b548880"
+    },
+    {
+     "name": "2021-12-27_rar610b1.exe",
+     "size": 623768,
+     "sha256": "2662e97cce04753d998e053cda7ca988108409a516c90373639b2557d8b73b00"
+    },
+    {
+     "name": "2021-12-27_rar610b2.exe",
+     "size": 624280,
+     "sha256": "90fc746ee9734487662425a8c2ebff6914754beecbaf7c5abc734b1e8a3b0ba9"
+    },
+    {
+     "name": "2021-12-27_rar610b3.exe",
+     "size": 624280,
+     "sha256": "72c10c2384358b7a7ab06dc30ff46194170b36494e14f563310bba6faacc9a6c"
+    },
+    {
+     "name": "2022-03-03_rar611.exe",
+     "size": 627352,
+     "sha256": "7a06b0227ad51454a72ea6e34347ecc8a61d4fb9c9fd15040a97f1ddebc4be81"
+    },
+    {
+     "name": "2022-03-03_rar611b1.exe",
+     "size": 627864,
+     "sha256": "5a0a756cf4eacf028375bc6dd582c2d35bd5caa19ff713b29abfbe173c8380f1"
+    },
+    {
+     "name": "2023-02-28_rar620.exe",
+     "size": 643160,
+     "sha256": "60d5441cc624861065034be0366dd8d03d974254932664c6013f2585a6df7aa0"
+    },
+    {
+     "name": "2023-02-28_rar620b1.exe",
+     "size": 643160,
+     "sha256": "41418ce2ba2be8512a4afe72b0e1d2b98fd4b53842491f0b9fabb77368442f3a"
+    },
+    {
+     "name": "2023-02-28_rar620b2.exe",
+     "size": 643160,
+     "sha256": "26fc2c459e993fb49b946c41923a442c12d1f0fd28ef40f19a77c9beac64a274"
+    },
+    {
+     "name": "2023-02-28_rar620b3.exe",
+     "size": 643672,
+     "sha256": "e613c32acf8ce7744584b55671deb3e4e3fc2033320fada253c48ba40eceb6ce"
+    },
+    {
+     "name": "2023-05-01_rar621.exe",
+     "size": 643160,
+     "sha256": "1518390d3d4145de012c37eb4c4f435ccccb5d36a42f4a7859c85f31175ef199"
+    },
+    {
+     "name": "2023-05-01_rar621b1.exe",
+     "size": 644184,
+     "sha256": "1d9675df52ec2b20a48204bcccad2796198075a9520bc5543cc3af1abf4bc7b7"
+    },
+    {
+     "name": "2023-08-01_rar622.exe",
+     "size": 643160,
+     "sha256": "6dd26cb9b3bb40b0827b0a6a6490ff8aeeabe4fba0cd79a037983c44acbc8b7d"
+    },
+    {
+     "name": "2023-08-01_rar622b1.exe",
+     "size": 644184,
+     "sha256": "3705c7845f518bcdad0a67c5d75b300c2c4695c9290a3126b28a0774fe0bf67a"
+    },
+    {
+     "name": "2023-08-30_rar623.exe",
+     "size": 643672,
+     "sha256": "7cd55f6c6502521aa1527a4621edcc504ad9e9c45bd97de6ca0aef97f6a5b9ee"
+    },
+    {
+     "name": "2023-08-30_rar623b1.exe",
+     "size": 644184,
+     "sha256": "cab4a24d3451ec33702eab72f08bdbf68b6bfd01ec4e4e9e6d9ea83e63aa1d35"
+    },
+    {
+     "name": "2023-10-04_rar624.exe",
+     "size": 636568,
+     "sha256": "7690498d7a2f240ca7cd3e484ee2baacc6f282f25ed17d73f4bb8c36be50c269"
+    },
+    {
+     "name": "2023-10-04_rar624b1.exe",
+     "size": 637080,
+     "sha256": "749df4ce00cceac280593d57ef364ca834c850258e5fe5504e924449f633d9ab"
+    },
+    {
+     "name": "2023-11-22_rar700b1.exe",
+     "size": 760984,
+     "sha256": "f0f08607223951d1e244c7fd5a83938b98a3665dab66132b8b2e014cd882f1af"
+    },
+    {
+     "name": "2023-12-13_rar700b2.exe",
+     "size": 761496,
+     "sha256": "b719d67acae9761e424fe164b29c851b18bc76ce709081ab7c0e2cebe7baa881"
+    },
+    {
+     "name": "2024-01-21_rar700b3.exe",
+     "size": 762520,
+     "sha256": "bb4dab25fabde6785c9a4eba57ad8d64aa801880a903449ad2a84ad3e0a725b6"
+    },
+    {
+     "name": "2024-02-05_rar700b4.exe",
+     "size": 762520,
+     "sha256": "2787476a83c285cd1b54e461e13770ea49597d0ca9ffd6b0090b73659f988625"
+    },
+    {
+     "name": "2024-02-26_rar700.exe",
+     "size": 762520,
+     "sha256": "b61f5cd83d9f781e57d17a78ad421e04267dc99bd0a3ebeaa1fc07e271d9e07b"
+    },
+    {
+     "name": "2024-05-12_rar701.exe",
+     "size": 762520,
+     "sha256": "0b1866b627d8078d296e7d39583c9f856117be79c1d226b8c9378fe075369118"
+    },
+    {
+     "name": "2025-02-12_rar710.exe",
+     "size": 812176,
+     "sha256": "4b5e9b4ca11942b3bccf0a6f9e1f6d2662155b8ec1e07b87eb2a1722e292956c"
+    },
+    {
+     "name": "2025-03-20_rar711.exe",
+     "size": 812176,
+     "sha256": "23b122deea347dbe2407c1542c1cc6caaafca537eb5d1950a4ed7c8a69395dbb"
+    },
+    {
+     "name": "2025-06-23_rar712.exe",
+     "size": 817808,
+     "sha256": "bdbe2bde697c45e02902f19415d7af07dc871f30a3ac84fb552657aeddc38714"
+    },
+    {
+     "name": "2025-07-28_rar713.exe",
+     "size": 835792,
+     "sha256": "a7a155934662984a5063d8d9215dc5e226aa12f4e04fca932574ea075e32dd3a"
+    },
+    {
+     "name": "2026-02-01_rar720.exe",
+     "size": 836304,
+     "sha256": "2ce9d9f8cd10e8ceb3a943e1464938ecab682313f8e4525df17068b3eae5b05b"
+    },
+    {
+     "name": "2026-04-27_rar721.exe",
+     "size": 836304,
+     "sha256": "63093515aed9f27ee2fbe69d6edd4913fc45d093c02ddb3bfe8746c354364ce4"
+    },
+    {
+     "name": "2026-05-01_rar722.exe",
+     "size": 835792,
+     "sha256": "03a2f9a8d1c3234011fe0597a4ac2ab9fb41ea62fb13efc6f8659172a156378a"
+    },
+    {
+     "name": "2026-06-27_rar723.exe",
+     "size": 835792,
+     "sha256": "f561764bc3e9ed208744321a89a819b562edeaf06e203c02a06976121fda1991"
+    }
+   ]
+  },
+  {
+   "title": "DOS RAR builds",
+   "dir": "dosrar_pack",
+   "required": true,
+   "files": [
+    {
+     "name": "1994-06-20_dosrar151.exe",
+     "size": 83892,
+     "sha256": "82ffc2358c1f74065867989312fee8410febea482076aaf4d5b92294522ec8eb"
+    },
+    {
+     "name": "1994-08-17_dosrar152.exe",
+     "size": 84913,
+     "sha256": "d2786e838d9fdf938904f224439fbd16298b598b30a37590b5f08c1e44fade9c"
+    },
+    {
+     "name": "1995-06-22_dosrar154.exe",
+     "size": 88227,
+     "sha256": "504c35970fd3a31430308b147b6599ba7aa68c3e73fe3da90c5ef84e9ba65e58"
+    },
+    {
+     "name": "1995-08-16_dosrar155.exe",
+     "size": 88081,
+     "sha256": "8199a543b1dfbb8229b5079f2d88e1d679731138ce540054f27da74c89e128e6"
+    },
+    {
+     "name": "1996-05-08_dosrar200.exe",
+     "size": 102989,
+     "sha256": "f924470acb12fed615862e23999d1fad084127370bfa3aa25049ba7b9e700a01"
+    },
+    {
+     "name": "1997-04-02_dosrar201.exe",
+     "size": 104319,
+     "sha256": "ac379dabc9a321ce67274cadf3bfaf9c6fab6f86cf3ea2077079f8d75a6cd26d"
+    },
+    {
+     "name": "1997-04-02_dosrar201_rar201.exe",
+     "size": 211641,
+     "sha256": "9f3f5c4dd43b1d568f09a0ee7465ba2c5e0384ea953664ddb45c2ccbe2fab520"
+    },
+    {
+     "name": "1997-09-16_dosrar202.exe",
+     "size": 104514,
+     "sha256": "9c083ac85289c1828ab14ca2153728f8afb5d1e5f1f5cd85988282c82e79f9e3"
+    },
+    {
+     "name": "1997-09-16_dosrar202_rar202.exe",
+     "size": 211985,
+     "sha256": "f5313c1ad08d36e13e1a627e0592ab80967b68e2f74f7a1b34582d74e2e395d2"
+    },
+    {
+     "name": "1998-03-21_dosrar203.exe",
+     "size": 104530,
+     "sha256": "fabc4190e68e22137a3fabb8ec2063c1fd4ce36fb1f7426a63f506150cd58bc6"
+    },
+    {
+     "name": "1998-05-15_dosrar204.exe",
+     "size": 104544,
+     "sha256": "bc7639cd2c07c3a624bfaec6fb110959eaf50abfeb7abb5da8dc396b56e422b2"
+    },
+    {
+     "name": "1998-05-29_dosrar204.exe",
+     "size": 212081,
+     "sha256": "7ec77028b1614741e295725b0ef09b5902896ebefbffd2c6093c5ad7975ef9a6"
+    },
+    {
+     "name": "1998-10-04_dosrar205.exe",
+     "size": 104644,
+     "sha256": "b20993a1a22e2c744b548d93ce5f2edc1ef3ed93eacf8c9d6641679b91923b82"
+    },
+    {
+     "name": "1998-10-04_dosrar205_rar205.exe",
+     "size": 212425,
+     "sha256": "422f6cc297bb2fc7ccc5e9b20b8abad3f89ee7abfe97e13749f95f17b6ae5b48"
+    },
+    {
+     "name": "1998-12-07_dosrar206.exe",
+     "size": 104646,
+     "sha256": "da56670e0ae771b3abfac0680700364ec35dfacdc1983f41f12fafc8f4fe04e4"
+    },
+    {
+     "name": "1998-12-07_dosrar206_rar206.exe",
+     "size": 212457,
+     "sha256": "6e5dff207282e42ebf71d293743105d38a72e6abdc300ea8d427a87722fcc4d3"
+    },
+    {
+     "name": "1999-01-01_dosrar140.exe",
+     "size": 74812,
+     "sha256": "51604c0f0f45d34e3eebbab4d08cf3b4a162ee12f8832e82f4d0d06c05e2d37b"
+    },
+    {
+     "name": "1999-01-01_dosrar153.exe",
+     "size": 85909,
+     "sha256": "d5cd8500d432a94e62f0e5c9886d78c0ac622bfd550ef09b8c4b731b1c6c7eb8"
+    },
+    {
+     "name": "1999-01-01_dosrar250.exe",
+     "size": 105224,
+     "sha256": "bd8b674bbfa66463b1ef367fe8cab58745099cd0b77bfe1c647a2e47c419fde4"
+    },
+    {
+     "name": "1999-01-17_dosrar250.exe",
+     "size": 105192,
+     "sha256": "96ea893acc80b2837b489b75482ebb26e57bb802c72821b4ff39ab9edc39ca6c"
+    },
+    {
+     "name": "1999-01-20_dosrar000.exe",
+     "size": 216075,
+     "sha256": "1583b1bb2010f217047ae1d9af55026b763ed1206fe163a35ed4d3f8149df245"
+    },
+    {
+     "name": "1999-02-02_dosrar000.exe",
+     "size": 216075,
+     "sha256": "e1d0d898c00ebcb51dc638715180f4fe9363f27bf588e6aa32c249124a8ae863"
+    },
+    {
+     "name": "1999-02-02_dosrar250.exe",
+     "size": 105224,
+     "sha256": "5ad3ae9ca8a8aa3ebb0d21800f225a880e9adb7eecd79ae2367920c5d6672e6e"
+    },
+    {
+     "name": "1999-03-24_dosrar250.exe",
+     "size": 105208,
+     "sha256": "426b45982a6a675d149f7ef3cbd3ad3171234c187cb633891c066aa819259651"
+    },
+    {
+     "name": "1999-03-24_dosrar250_rar250.exe",
+     "size": 216075,
+     "sha256": "f0b5dc90fccd763aefe90c06f0346d223baf651469a23b9c3b35cdc20a4fd824"
+    },
+    {
+     "name": "1999-09-21_dosrar32-260b5.exe",
+     "size": 303108,
+     "sha256": "7892623002c194e44ad25faaf2660a87bf4e1da9744b824d7358e494c6696df6"
+    },
+    {
+     "name": "1999-09-29_dosrar32-260b6.exe",
+     "size": 303108,
+     "sha256": "ee2a3a0a274aa9c8569282a904220c1406b139f406d5bcca7a7050502a5d18cc"
+    },
+    {
+     "name": "1999-10-18_dosrar32-260.exe",
+     "size": 307204,
+     "sha256": "ebcbca3a5b48c3055f42e48d817d4affa307f906a3a0d0303584fd81fce443ae"
+    },
+    {
+     "name": "2000-03-06_dosrar32-270b2.exe",
+     "size": 311300,
+     "sha256": "5fc933f8dd0a44d3259f63ff2baed49dd6596f885f43b325ad8d58c398d2c8f8"
+    },
+    {
+     "name": "2000-03-19_dosrar32-270b3.exe",
+     "size": 311300,
+     "sha256": "ebf14ef73284a0193bd57d868dc39b6e38fe6f509782f2bb11f44f2153b3c770"
+    },
+    {
+     "name": "2000-04-27_dosrar32-270b5.exe",
+     "size": 311300,
+     "sha256": "1f9077aa5ab380d55184dd202a8c3f19e2529cdc76e7ca188cf4afb46c749319"
+    },
+    {
+     "name": "2000-05-11_dosrar32-270.exe",
+     "size": 311300,
+     "sha256": "4760da865c088572323850f21c1a7edd025debf1582752d3467e61dd5a0ae4a9"
+    },
+    {
+     "name": "2000-06-21_dosrar32-271.exe",
+     "size": 311300,
+     "sha256": "d5ea2aafc09f12624485e540596961cc5cfafef7358c3c2f72ff029d7fe82421"
+    },
+    {
+     "name": "2000-11-21_dosrar32-280b1.exe",
+     "size": 344068,
+     "sha256": "050bef5ff2789877453f51200bd00344bfd3f601dbde3c764111c03faafa0ca7"
+    },
+    {
+     "name": "2001-01-25_dosrar32-280b4.exe",
+     "size": 348164,
+     "sha256": "1c64ef1168d96fe7ca75c6ed264f137c44ae9e7d85c83f1e61c9addcf1ed64f2"
+    },
+    {
+     "name": "2001-03-02_dosrar32-280.exe",
+     "size": 348164,
+     "sha256": "716362d9a3e9a970472966c7e1d22bd478ac4db4415f01788728dc94c4aba8a5"
+    },
+    {
+     "name": "2001-07-28_dosrar32-290b1.exe",
+     "size": 413700,
+     "sha256": "0b6c6a8ec1d7e7060192f56407b9c7eaf64e4cc34ccab0b9bb0a4577c12b11a0"
+    },
+    {
+     "name": "2001-09-07_dosrar32-290.exe",
+     "size": 413700,
+     "sha256": "9c52bdc8722f514ee3f7f4fb4c308671d27358a21ab0b21048bef6f46e7aec17"
+    },
+    {
+     "name": "2002-01-18_dosrar32-300b1.exe",
+     "size": 495620,
+     "sha256": "cef370ca98ade4a8528b58221968621c6cc0a070f9650976c93fc228fb2789d2"
+    },
+    {
+     "name": "2002-01-28_dosrar32-300b2.exe",
+     "size": 499716,
+     "sha256": "9be0a0001690e50728f7fa999854f4ade95a8d6e671126e9b32aeaf738b89799"
+    },
+    {
+     "name": "2002-05-14_dosrar32-300.exe",
+     "size": 499716,
+     "sha256": "6e325067ea0605d6b0dcd458623b9fce571f726c6c50213a115f739c0b3d3b7c"
+    },
+    {
+     "name": "2002-10-16_dosrar32-310b1.exe",
+     "size": 520196,
+     "sha256": "52c96a1d8ebe7bc102415d1bbf52415c67363f6d97fc95c653e09b5847b0f4d7"
+    },
+    {
+     "name": "2002-10-23_dosrar32-310b2.exe",
+     "size": 520196,
+     "sha256": "ca0f3314d2aac9e76df3f340ef12e8889c259fb2fd4aa7906f2b62d61f6c7dc7"
+    },
+    {
+     "name": "2002-11-10_dosrar32-310b3.exe",
+     "size": 520196,
+     "sha256": "cb3b126938a0faf889d7308b7b211d6b6ec1082a1bbd9fd50291ef7f550db7b5"
+    },
+    {
+     "name": "2002-11-24_dosrar32-310b4.exe",
+     "size": 520196,
+     "sha256": "934f60a501730484effe0b77b89e48a7e446269c5fd98bb8805f436fd8478f5d"
+    },
+    {
+     "name": "2002-12-18_dosrar32-310.exe",
+     "size": 520196,
+     "sha256": "cee9b6cd5a3acbed5379a58c70ccbfcc70d756988b59b35b4671c7eb0c0642f5"
+    },
+    {
+     "name": "2003-01-15_dosrar32-311.exe",
+     "size": 520196,
+     "sha256": "c2fedcbc680ee26315f0f7cdb417798918012d56721001b870cc702e95ca5818"
+    },
+    {
+     "name": "2003-03-08_dosrar32-320b1.exe",
+     "size": 532484,
+     "sha256": "4db037597fd0c73c6c3bf9288c91d0f5e18f5e8fe5c3b7b64931ae34c2b8ff5b"
+    },
+    {
+     "name": "2003-03-17_dosrar32-320b2.exe",
+     "size": 532484,
+     "sha256": "65d76d9571c6cc363cf331b78dbb76ded5c124ca021930005e9107986a49faf5"
+    },
+    {
+     "name": "2003-04-05_dosrar32-320b3.exe",
+     "size": 532484,
+     "sha256": "5708d20b217051f0b5fde520fdb50919a593b76de45b047248e09ce566bd7594"
+    },
+    {
+     "name": "2003-04-21_dosrar32-320b4.exe",
+     "size": 532484,
+     "sha256": "e856ab604ecea7d7bcc289a06362f8a7806ed7fdf2f5ce9dd456588dd6b7bbf3"
+    },
+    {
+     "name": "2003-05-15_dosrar32-320.exe",
+     "size": 532484,
+     "sha256": "130e68c5aab86fb1bef5038b53e0ac4094177b2685d21eafcdcde79b2be0eb65"
+    },
+    {
+     "name": "2003-11-14_dosrar32-330b1.exe",
+     "size": 544772,
+     "sha256": "4ff2b91bd21e73770bc3b459d7eca7e9d894f29ac72758ab4099538231eb082d"
+    },
+    {
+     "name": "2003-12-20_dosrar32-330b4.exe",
+     "size": 544772,
+     "sha256": "10c72a6a6e1cf617df247cde96d32c178afac7804fa434dd2924689c4bf3effc"
+    },
+    {
+     "name": "2004-01-22_dosrar32-330.exe",
+     "size": 544772,
+     "sha256": "8442ef1ebd02cc84cbf33974fbd7dd250becfde3472d2a01731ba1c3092f571c"
+    },
+    {
+     "name": "2004-06-20_dosrar32-340b1.exe",
+     "size": 548868,
+     "sha256": "254c7e219ce072184e265d26a9aa0ad499b1cedfc756b8151137d0172a335dd0"
+    },
+    {
+     "name": "2004-08-20_dosrar32-340b5.exe",
+     "size": 552964,
+     "sha256": "069d7dd4fafc82f576d7242a9ec50596cf80e0decbbb3490f8d4167a929f10c5"
+    },
+    {
+     "name": "2004-09-08_dosrar32-340.exe",
+     "size": 552964,
+     "sha256": "5473ced3d1251f1d1e2ad7ec1a7b9a7b3778acf76c324be95079d6153261b748"
+    },
+    {
+     "name": "2004-11-02_dosrar32-341.exe",
+     "size": 552964,
+     "sha256": "91b163d65ad3535b94f72115a92baf61019c32aad1b043f30ddba3fe962d943b"
+    },
+    {
+     "name": "2005-03-30_dosrar32-350b1.exe",
+     "size": 552964,
+     "sha256": "43e37356a54ceabe79b86e8b18f36b3e893b032a09c209fb5fb6d2bd57cf5e08"
+    },
+    {
+     "name": "2005-06-05_dosrar32-350b5.exe",
+     "size": 548868,
+     "sha256": "066c9171c3a1f54fa1c4a517c739720ab19ebe31f9baf605a82b2b2c5a0cb81b"
+    },
+    {
+     "name": "2005-08-03_dosrar32-350.exe",
+     "size": 548868,
+     "sha256": "38600ec6913dee97d856f995554a9dd13cce7fa406320f4be6629e772860230f"
+    },
+    {
+     "name": "2006-03-29_dosrar32-360b1.exe",
+     "size": 561156,
+     "sha256": "2bd3de3ea01f74e4f942f27d8bd12d6f99f2506533ec25235b6c0fb9b6f9bcd8"
+    },
+    {
+     "name": "2006-04-18_dosrar32-360b2.exe",
+     "size": 561156,
+     "sha256": "3df5b00fe5f365b9fee980f333e7f7219983ae8b1c6cb5f6a4666273445faf83"
+    },
+    {
+     "name": "2006-05-08_dosrar32-360b3.exe",
+     "size": 561156,
+     "sha256": "1af69d81ea4209eaab0fe82431135c103e731ee249156affb366447239c12496"
+    },
+    {
+     "name": "2006-05-25_dosrar32-360b4.exe",
+     "size": 561156,
+     "sha256": "eef99f78d56a81dd23dad1225ccfff67907e8a1e30a5ea388676576a5b078bac"
+    },
+    {
+     "name": "2006-07-03_dosrar32-360b6.exe",
+     "size": 561156,
+     "sha256": "b355e34fd2270882ffcc7a1160da89fa0d100f0a10dbe53db31fe277bca024e1"
+    },
+    {
+     "name": "2006-08-05_dosrar32-360.exe",
+     "size": 561156,
+     "sha256": "901108622532488dab7cf3de7df7fcc2536fedb40edbab09b40a0d56416b4197"
+    },
+    {
+     "name": "2007-01-08_dosrar32-370b1.exe",
+     "size": 565252,
+     "sha256": "716decc75deaf5c2066c21189fd5992a9a86639f9eed48b482bd02a4931da8ff"
+    },
+    {
+     "name": "2007-05-22_dosrar32-370.exe",
+     "size": 569348,
+     "sha256": "2000c0b6005e391959ccd6646b84a35fdb411e56cf51aa2549c1cfe838e4d8ff"
+    },
+    {
+     "name": "2007-09-04_dosrar32-371b1.exe",
+     "size": 573444,
+     "sha256": "d1fbb33a24e4d8854507cf0bfeb2af809565f4e1f00110229dcdebcb9523095b"
+    },
+    {
+     "name": "2007-09-20_dosrar32-371.exe",
+     "size": 573444,
+     "sha256": "76930fdf38ed7d3940df0f26485ac827d4d4580140d5c0258fd20f72f5f92909"
+    },
+    {
+     "name": "2008-07-10_dosrar32-380b3.exe",
+     "size": 581636,
+     "sha256": "d35812bb4748ec616024bd8a227eeaf59f0cacf324bf9011b9dc1fe50cfc868f"
+    },
+    {
+     "name": "2008-08-02_dosrar32-380b4.exe",
+     "size": 581636,
+     "sha256": "8502cee27bb922031b17f292c10863d5a74f94deeb681ca3d0be7c37ad0230b3"
+    },
+    {
+     "name": "2008-09-16_dosrar32-380.exe",
+     "size": 581636,
+     "sha256": "d2facba35be3c4bc993fee5e919700c3459decb670bfb32ba4864a0cbb9d17c3"
+    },
+    {
+     "name": "2009-06-10_dosrar32-390b3.exe",
+     "size": 585732,
+     "sha256": "c233521812a6bb73e2f6aa6b291f56534544d63c7aa10b57f8454c164600c19f"
+    },
+    {
+     "name": "2009-08-16_dosrar32-390.exe",
+     "size": 585732,
+     "sha256": "8b78dda00359aaa6c5e9b7c56909e66526c2fc65bb993e9d0edaeeb06bbffda5"
+    },
+    {
+     "name": "2009-12-12_dosrar32-391.exe",
+     "size": 585732,
+     "sha256": "963f6f8fcfd83debb9cd25aa370b724758f99b79d2342eda2f58bc7e689ec0a3"
+    },
+    {
+     "name": "2010-01-23_dosrar32-392b1.exe",
+     "size": 585732,
+     "sha256": "38ba7c02a8625cc81c24dd6f90f006a08cf8e99676dd3192fe191010c45b635e"
+    },
+    {
+     "name": "2010-02-10_dosrar32-392.exe",
+     "size": 585732,
+     "sha256": "15df3478fc48ba4e0637a2db0bcf9e1eb9af68c0fe0bb518a56106cb31963864"
+    },
+    {
+     "name": "2010-03-15_dosrar32-393.exe",
+     "size": 585732,
+     "sha256": "6a0a35fcc7549b7a646508c3c15b71cdcb586cb9f7c6305f65c73e4ab04968a4"
+    }
+   ]
+  },
+  {
+   "title": "DOS32 helpers",
+   "dir": "dosrar_pack/_dos32",
+   "required": true,
+   "files": [
+    {
+     "name": "emx.dll",
+     "size": 91198,
+     "sha256": "4a25957466d6c4f6bb5ae6406b4fd52779926effe352bfe07e96297497c13d31"
+    },
+    {
+     "name": "emx.exe",
+     "size": 52015,
+     "sha256": "0c1238aa8294fd8a9d1e31e4a8d502f650ad99c5a6008c9142aff92315548a4f"
+    },
+    {
+     "name": "rsx.exe",
+     "size": 111900,
+     "sha256": "798deae77ade8d9ca714f037620703096278f6575c4c6fb092df46dc6bb96bd3"
+    }
+   ]
+  },
+  {
+   "title": "DOSBox-X (runs the DOS builds)",
+   "dir": "dosbox-x",
+   "required": true,
+   "files": [
+    {
+     "name": "dosbox-x.exe",
+     "size": 23807488,
+     "sha256": "5534a75e0bcb9c725af0f77cedec8db422c22552a3d1cacd68ed06badd02110d"
+    }
+   ]
+  },
+  {
+   "title": "precomp (ZIP re-creation)",
+   "dir": "zip_pack/precomp/windows",
+   "required": true,
+   "files": [
+    {
+     "name": "precomf.exe",
+     "size": 848896,
+     "sha256": "725dbe8d138a10cdbb25ac3e3ad8b72b2517647d733e9138ceedffe374f3b6e8"
+    },
+    {
+     "name": "precomf32.exe",
+     "size": 756224,
+     "sha256": "677075cbf90037d3f07f7dda0281d544b97d6ccec159a83f48186cd9ecc4832c"
+    },
+    {
+     "name": "precomp.exe",
+     "size": 847360,
+     "sha256": "aabca1ee4eebc1e6ddcee5cb0b654c1c82c26daa1dbcb63f6e5279852826515d"
+    },
+    {
+     "name": "precomp32.exe",
+     "size": 742912,
+     "sha256": "427f9982197d72e95c26daeb403ddf1d70c62d13ce930ce26c443989ecd1f775"
+    }
+   ]
+  },
+  {
+   "title": "7-Zip",
+   "dir": ".",
+   "required": false,
+   "files": [
+    {
+     "name": "7z.exe",
+     "size": 532480,
+     "sha256": "c800be56fe1619f948625005586a0d5efd6a433718d0922466817e642e64d63f"
+    },
+    {
+     "name": "7za.exe",
+     "size": 1734656,
+     "sha256": "cdd471a15ede6f17396eb0ed7448466471d27786256c5b51acf6d3b50d885fee"
+    },
+    {
+     "name": "7zr.exe",
+     "size": 602112,
+     "sha256": "abcf64ae1cbafddb5395e4cdd3bdc7e3e0561d54a0c6380e3dd43bdbffe519a2"
+    }
+   ]
+  },
+  {
+   "title": "UnRAR / Rar",
+   "dir": ".",
+   "required": false,
+   "files": [
+    {
+     "name": "Rar.exe",
+     "size": 835792,
+     "sha256": "03a2f9a8d1c3234011fe0597a4ac2ab9fb41ea62fb13efc6f8659172a156378a"
+    },
+    {
+     "name": "UnRAR.exe",
+     "size": 560848,
+     "sha256": "a9333c4ea58a836259de7d23cb56b645ee56b7d04655e9e0da6b486f14de92c3"
+    }
+   ]
+  }
+ ]
+}

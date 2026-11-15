@@ -18659,6 +18659,45 @@ class RsrToolAPI:
         finally:
             con.close()
 
+    def check_packers(self) -> dict:
+        """Compare apps/ with apps_manifest.json and log what is missing."""
+        import apps_check
+        try:
+            res = apps_check.check(self._app_dir / "apps")
+        except Exception as e:
+            return {"ok": False, "error": f"packer check failed: {e}"}
+        self._log("Packer check:", "info")
+        for line in apps_check.report(res).splitlines():
+            kind = ("ok" if line.startswith(("OK", "All")) else
+                    "err" if line.startswith("!!") or "missing or different" in line else
+                    "warn" if line.strip().startswith(("missing", "different")) else "info")
+            self._log("  " + line, kind)
+        missing = sum(len(r["missing"]) + len(r["different"]) for r in res.values() if r["required"])
+        total = sum(r["total"] for r in res.values() if r["required"])
+        return {"ok": True, "missing": missing, "total": total}
+
+    def import_packers(self) -> dict:
+        """Ask for a folder and file every known build in it under its proper
+        name (matched by SHA-256, installers opened too). The folder is only
+        read; nothing in it is changed."""
+        import apps_check
+        src = self.browse_folder()
+        if not src:
+            return {"ok": True, "cancelled": True}
+
+        def run():
+            self._log(f"Importing packer builds from {src} …", "info")
+            try:
+                r = apps_check.import_dir(Path(src), self._app_dir / "apps",
+                                          log=lambda m: self._log(m, "ok"))
+                self._log(f"  ✓ {len(r['added'])} build(s) added, "
+                          f"{len(r['already'])} already present.", "ok")
+                self.check_packers()
+            except Exception as e:
+                self._log(f"  ✗ import failed: {e}", "err")
+        threading.Thread(target=run, daemon=True).start()
+        return {"ok": True}
+
     def reindex_store(self, store: str) -> dict:
         """Rebuild the index from what is actually on disk.
 
