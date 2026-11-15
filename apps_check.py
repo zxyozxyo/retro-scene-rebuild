@@ -26,8 +26,9 @@ GROUPS = [
     ("DOS32 helpers", "dosrar_pack/_dos32", "*", True),
     ("DOSBox-X (runs the DOS builds)", "dosbox-x", "dosbox-x.exe", True),
     ("precomp (ZIP re-creation)", "zip_pack/precomp/windows", "*", True),
-    ("7-Zip", ".", "7z*.exe", False),
-    ("UnRAR / Rar", ".", "[UR]*.exe", False),
+    # Any version of these will do, so only their presence is checked.
+    ("7-Zip (any version)", ".", "7z*.exe", False),
+    ("UnRAR / Rar (any version)", ".", "[UR]*.exe", False),
 ]
 
 
@@ -61,7 +62,7 @@ def check(apps: Path, man: dict | None = None) -> dict:
             p = apps / g["dir"] / f["name"]
             if not p.is_file():
                 r["missing"].append(f["name"])
-            elif p.stat().st_size != f["size"] or sha256(p) != f["sha256"]:
+            elif g["required"] and (p.stat().st_size != f["size"] or sha256(p) != f["sha256"]):
                 r["different"].append(f["name"])
             else:
                 r["ok"] += 1
@@ -136,6 +137,8 @@ def report(res: dict) -> str:
     for title, r in res.items():
         miss = len(r["missing"]) + len(r["different"])
         mark = "OK " if not miss else ("!! " if r["required"] else "-  ")
+        if not r["required"] and r["ok"]:
+            mark, miss = "OK ", 0
         lines.append(f"{mark}{title}: {r['ok']} of {r['total']}")
         for n in r["missing"][:40]:
             lines.append(f"      missing    {n}")

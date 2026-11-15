@@ -140,3 +140,6 @@ sfv_templates.json
 
 # Claude Code's per-project settings
 .claude/
+
+# Private Python environment made by the installer
+.venv/

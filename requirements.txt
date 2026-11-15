@@ -1,7 +1,14 @@
-pywebview>=4.4
+# Installed automatically by "Install RetroVault.bat". To do it by hand:
+#   python -m pip install -r requirements.txt
+pywebview>=4.4        # the app windows (uses Microsoft Edge WebView2, built into Windows 10/11)
 py7zr>=0.20
 rarfile>=4.1
 zstandard>=0.21
-
 zipfile-zstd>=0.0.4
-pycryptodome>=3.20   # 3DS NCCH AES-CTR; pure-Python AES is far too slow for multi-GB images
+pycryptodome>=3.20    # 3DS NCCH AES-CTR; pure-Python AES is far too slow for multi-GB images
+# pyReScene: the official srrDB build (the PyPI source package fails to build on Python 3.13)
+pyReScene @ https://github.com/srrDB/pyrescene/releases/download/0.7/pyReScene-0.7-py3-none-any.whl
+standard-nntplib; python_version >= "3.13"   # nntplib left Python in 3.13; pyReScene still imports it
+requests>=2.28        # Internet Archive / rclone tools
+internetarchive>=3.0  # IA uploader
+openpyxl>=3.1         # Excel export of srrdb results

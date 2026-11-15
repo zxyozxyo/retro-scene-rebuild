@@ -4,31 +4,36 @@ A PyWebView desktop application for cleaning and managing ROM and scene release 
 
 ---
 
-## Requirements
+## Install (beginners start here)
 
-### Python
-Python 3.10 or later recommended.
+1. Download this project: the green **Code** button on GitHub → **Download ZIP**, then unzip it anywhere (for example `C:\RetroVault`).
+2. Double-click **`Install RetroVault.bat`**.
+   - If Python isn't installed, it offers to install it for you (free, from python.org).
+   - It makes a private Python environment inside the folder (`.venv`), installs every package, creates the `apps` folders and lists what's missing.
+   - At the end it can put a **RetroVault Toolkit** shortcut on your desktop.
+3. Start the suite with **`RetroVault.bat`** or the desktop shortcut.
 
-### Python Libraries
+Nothing outside the folder is changed, and running the installer again is always safe. To remove everything, delete the folder.
+
+### Helper programs (not included)
+Each `apps/` folder has a `README.txt` saying what goes in it:
+
+| Program | Needed for | Where |
+|---|---|---|
+| 7-Zip console (`7z.exe`) and UnRAR (`UnRAR.exe`) | most tools | `apps/` |
+| RAR builds for Windows and DOS | RSR Scanner (capture + rebuild) | `apps/winrar_pack-4.20`, `apps/dosrar_pack`; use **RSR Scanner → Database → Import from folder…**, which names them for you |
+| DOSBox-X | runs the DOS RAR builds | `apps/dosbox-x` |
+| precomp | ZIP re-creation | `apps/zip_pack/precomp/windows` |
+| rclone | RClone IA Uploader | `rclone/` |
+
+**RSR Scanner → Check packers** (or `python first_run.py`) shows what's present at any time.
+
+### Manual install (advanced)
 ```
-pip install pywebview py7zr rarfile zstandard internetarchive requests
-pip install pyReScene
+python -m pip install -r requirements.txt
+python main.py
 ```
-
-> **Note:** `pyReScene` is not available under the name `rescene`. Install using the exact command above or via the direct wheel if PyPI fails:
-> ```
-> pip install https://github.com/srrDB/pyrescene/releases/download/0.7/pyReScene-0.7-py3-none-any.whl
-> ```
-
-| Library | Purpose |
-|---|---|
-| `pywebview` | Desktop GUI framework |
-| `py7zr` | 7z archive extraction |
-| `rarfile` | RAR archive extraction |
-| `zstandard` | ZSTD compressed file support |
-| `internetarchive` | Internet Archive upload API |
-| `requests` | HTTP for IA uploads |
-| `pyReScene` | Scene SRR parsing and RAR reconstruction |
+Python 3.10 or newer. `requirements.txt` installs pyReScene from the official srrDB build, because the PyPI source package doesn't build on Python 3.13.
 
 ---
 
