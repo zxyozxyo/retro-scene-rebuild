@@ -68,7 +68,7 @@
     }
     var html = "";
     for (var j = 0; j < hits.length; j++) {
-      var h = hits[j], url = "r/" + encodeURIComponent(h[1]) + "/" + encodeURIComponent(h[0]) + ".html";
+      var h = hits[j], url = "r/" + encodeURIComponent(h[1]) + "/" + encodeURIComponent(h[6]) + ".html";
       html += "<tr><td><a href=\"" + url + "\">" + esc(h[0]) + "</a>" + (h[3] ? "" : " <span class=\"tag dim\">listed</span>") +
         "</td><td>" + esc(h[1]) + "</td><td>" + esc(h[2]) + "</td></tr>";
     }
@@ -83,8 +83,10 @@
   fetch("assets/index.json").then(function (r) { return r.json(); }).then(function (d) {
     var names = window.RSR_SYSTEMS || {};
     for (var i = 0; i < d.length; i++) {
-      d[i].push(norm(d[i][0]));
-      d[i].push((d[i][1] + " " + (names[d[i][1]] || "")).toLowerCase());
+      var slug = d[i].length > 4 ? d[i][4] : d[i][0];
+      d[i][4] = norm(d[i][0]);
+      d[i][5] = (d[i][1] + " " + (names[d[i][1]] || "")).toLowerCase();
+      d[i][6] = slug;
     }
     data = d; run();
   }).catch(function () { count.textContent = "Search index could not be loaded (open the site through a web server, not as a file)."; });

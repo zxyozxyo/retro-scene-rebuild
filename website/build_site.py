@@ -80,7 +80,7 @@ def crc(c):
 
 
 def rel_url(rec):
-    return f"r/{quote(rec['sys'])}/{quote(rec['name'])}.html"
+    return f"r/{quote(rec['sys'])}/{quote(rec['slug'])}.html"
 
 
 def page(title, body, depth, desc=""):
@@ -131,7 +131,7 @@ def release_page(rec):
              ("Rebuild", VERIFY_LABEL.get(rec.get("verify"), rec.get("verify")))]
     fact_html = "".join(f"<dt>{k}</dt><dd>{e(str(v))}</dd>" for k, v in facts if v)
     if rec.get("public"):
-        dl = (f'<div class="dl ok"><a class="btn" href="../../files/{quote(rec["sys"])}/{quote(rec["name"])}.rsr" download>'
+        dl = (f'<div class="dl ok"><a class="btn" href="../../files/{quote(rec["sys"])}/{quote(rec["slug"])}.rsr" download>'
               f'Download .rsr</a><span>{human(rec["rsr_size"])}</span>'
               f'<code class="sha" title="SHA-256">{rec["rsr_sha256"]}</code></div>')
     else:
@@ -207,16 +207,30 @@ def main():
     by_sys = defaultdict(list)
     for r in recs:
         by_sys[r["sys"]].append(r)
+    # one page + one file per release, even where names differ only in case
+    # (or two merged systems hold the same name)
+    taken = defaultdict(int)
+    for r in recs:
+        taken[(r["sys"], r.get("file", r["name"]).lower())] += 1
+    for r in recs:
+        base = r.get("file", r["name"])
+        r["slug"] = f"{base}_{r['store_sys']}" if taken[(r["sys"], base.lower())] > 1 else base
+    slugs = defaultdict(list)
+    for r in recs:
+        slugs[(r["sys"], r["slug"].lower())].append(r["name"])
+    clash = [v for v in slugs.values() if len(v) > 1]
+    if clash:
+        raise SystemExit(f"page names still clash: {clash[:5]}")
 
     # release pages + files
     nfiles = 0
     for r in recs:
-        p = site / "r" / r["sys"] / f"{r['name']}.html"
+        p = site / "r" / r["sys"] / f"{r['slug']}.html"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(release_page(r), encoding="utf-8")
         if r.get("public"):
-            src = exp / "rsr" / r["store_sys"] / f"{r['name']}.rsr"
-            dst = site / "files" / r["sys"] / f"{r['name']}.rsr"
+            src = exp / "rsr" / r["store_sys"] / f"{r.get('file', r['name'])}.rsr"
+            dst = site / "files" / r["sys"] / f"{r['slug']}.rsr"
             dst.parent.mkdir(parents=True, exist_ok=True)
             if dst.exists():
                 dst.unlink()
@@ -246,8 +260,9 @@ def main():
                     f'<h1>{e(sys_name(s))} · {e(y)}</h1><p class="lede">{len(v):,} releases</p>{list_table(v, 2)}')
             (d / f"{y}.html").write_text(page(f"{sys_name(s)} {y} — {SITE_NAME}", body, 2), encoding="utf-8")
 
-    # search index: [name, sys, year, public]
-    idx = [[r["name"], r["sys"], r["year"], 1 if r.get("public") else 0] for r in recs]
+    # search index: [name, sys, year, public(, page name when it isn't the release name)]
+    idx = [[r["name"], r["sys"], r["year"], 1 if r.get("public") else 0] + ([r["slug"]] if r["slug"] != r["name"] else [])
+           for r in recs]
     (site / "assets" / "index.json").write_text(json.dumps(idx, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
     # tools list

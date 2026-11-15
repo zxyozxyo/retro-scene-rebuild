@@ -6,7 +6,8 @@ Reads the local store + index (never writes to them) and produces:
 
 A release is public only when EVERY entry of its .rsr passes an allow-list:
   * recipe data: manifest, release.srr, deltas (4 KB in total at most: header-sized fixes only),
-    zip/lha skeletons and preflate.bin reconstruction data;
+    zip/lha skeletons and preflate.bin reconstruction data (one over 64 KB may be at most
+    half the packed size of the files they rebuild);
   * files that sat BESIDE the archives (sidecars): nfo/diz/sfv/text that
     really is text, and proof images that really are images (5 MB at most);
   * files from INSIDE the archives: only nfo/diz/sfv and disc sheets
@@ -32,6 +33,7 @@ INNER_OK = {".nfo", ".diz", ".sfv", ".cue", ".ccd", ".toc", ".gdi", ".m3u"}
 IMG_MAX = 5_000_000
 DELTA_MAX = 4 * 1024      # a diff holds original archive bytes; header-sized only
 BIN_MAGIC = (b"\xd0\xcf\x11\xe0", b"MZ", b"PK\x03\x04", b"Rar!", b"7z\xbc\xaf", b"\x1f\x8b", b"CD001")
+RECON_MIN, RECON_RATIO = 64 * 1024, 0.5   # see withheld_reasons
 IMG_MAGIC = (b"\xff\xd8\xff", b"\x89PNG", b"GIF8", b"BM")
 NFO_MAX = 96 * 1024
 DATE_RE = re.compile(r"(?:^|[\\/])(?:\[[^\]]*\]\s*)?(\d{4}-\d{2}-\d{2})-")
@@ -90,6 +92,15 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = Non
     cleared = rsr_sha256 is not None and DELTA_CLEAR.get(man.get("release")) == rsr_sha256
     if delta > DELTA_MAX and not cleared:
         why.add(f"large diff ({delta // 1024:,} KB)")
+    # Reconstruction data is a small description of how the zipper packed the
+    # files. One as big as the packed data itself means the packer could not be
+    # modelled and the compressed files were kept instead (a damaged zip).
+    for k, st in enumerate(man.get("sets", [])):
+        top = "lha" if st.get("format") == "LHA" else "zips"
+        packed = sum(f.get("packed_size") or 0 for f in st.get("files", []) if f.get("source") == "content")
+        for blob in (f"{top}/{k}/preflate.bin", f"{top}/{k}/skeleton.bin"):
+            if blob in names and names[blob].file_size > RECON_MIN and names[blob].file_size > packed * RECON_RATIO:
+                why.add("zip reconstruction data as large as the packed files")
     for n in names:
         if is_meta(n):
             continue
@@ -127,7 +138,7 @@ def nfo_text(raw: bytes) -> str:
     return t.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def one(row, out: Path):
+def one(row, out: Path, clash=frozenset()):
     name, rsr_path, kind, fmt, verify, rver, level, mt = row
     p = Path(rsr_path)
     parts = p.parts
@@ -142,9 +153,12 @@ def one(row, out: Path):
                 h.update(chunk)
         sha = h.hexdigest()
     reasons = withheld_reasons(z, man, sha)
+    # Windows (and many web hosts) treat names that differ only in case as the
+    # same file: such releases get their year added to the FILE name only.
+    fname = f"{name}_{year}" if (sys_, name.lower()) in clash else name
     m = DATE_RE.search(man.get("source_folder") or "")
     rec = {
-        "name": name, "sys": sys_, "year": year, "date": m.group(1) if m else None,
+        "name": name, "file": fname, "sys": sys_, "year": year, "date": m.group(1) if m else None,
         "group": name.rsplit("-", 1)[1] if "-" in name else "",
         "kind": kind, "format": fmt, "verify": verify,
         "packer": rver or "", "level": level, "mt": mt,
@@ -165,7 +179,7 @@ def one(row, out: Path):
             rec["nfo"], rec["nfo_name"] = nfo_text(raw), c["name"]
             break
     if not reasons:
-        dst = out / "rsr" / sys_ / f"{name}.rsr"
+        dst = out / "rsr" / sys_ / f"{fname}.rsr"
         dst.parent.mkdir(parents=True, exist_ok=True)
         pub = dict(man)
         if pub.get("source_folder"):
@@ -189,11 +203,11 @@ def one(row, out: Path):
 
 
 def _work(args):
-    rows, out = args
+    rows, out, clash = args
     res = []
     for r in rows:
         try:
-            res.append(one(r, Path(out)))
+            res.append(one(r, Path(out), clash))
         except Exception as e:
             res.append({"name": r[0], "error": f"{type(e).__name__}: {e}"})
     return res
@@ -212,7 +226,12 @@ def main():
                        "from releases where rsr_path is not null order by name").fetchall()
     if a.only:
         rows = [r for r in rows if r[0] in set(a.only)]
-    chunks = [(rows[i:i + 200], str(out)) for i in range(0, len(rows), 200)]
+    seen = {}
+    for r in rows:
+        k = (Path(r[1]).parts[-4], r[0].lower())
+        seen[k] = seen.get(k, 0) + 1
+    clash = frozenset(k for k, v in seen.items() if v > 1)
+    chunks = [(rows[i:i + 200], str(out), clash) for i in range(0, len(rows), 200)]
     cats, errs, done = {}, [], 0
     with ProcessPoolExecutor(a.workers) as ex:
         for res in ex.map(_work, chunks):
@@ -229,6 +248,12 @@ def main():
             for rec in sorted(recs, key=lambda r: r["name"].lower()):
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     allr = [r for v in cats.values() for r in v]
+    files = {}
+    for r in allr:
+        files.setdefault((r["sys"], r["file"].lower()), []).append(r["name"])
+    dup = [v for v in files.values() if len(v) > 1]
+    if dup:
+        raise SystemExit(f"file names still clash (same name, case and year): {dup[:5]}")
     print(f"releases {len(allr)}  public {sum(r['public'] for r in allr)}  "
           f"withheld {sum(not r['public'] for r in allr)}  errors {len(errs)}")
     for e in errs[:20]:
