@@ -1,0 +1,127 @@
+:root {
+  --bg: #f6f5f1;
+  --panel: #ffffff;
+  --ink: #1d1f24;
+  --muted: #5d6270;
+  --line: #e2e0d8;
+  --accent: #0f7b6c;
+  --accent-ink: #ffffff;
+  --warn-bg: #fbf3e2;
+  --warn-ink: #7a5310;
+  --nfo-bg: #101216;
+  --nfo-ink: #c9d1d9;
+  --mono: "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, "Courier New", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1013;
+    --panel: #161a1f;
+    --ink: #e6e8eb;
+    --muted: #9aa3ad;
+    --line: #262c33;
+    --accent: #3fc1aa;
+    --accent-ink: #0b1210;
+    --warn-bg: #2a2214;
+    --warn-ink: #e8c27a;
+    --nfo-bg: #07080a;
+    --nfo-ink: #c9d1d9;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1013; --panel: #161a1f; --ink: #e6e8eb; --muted: #9aa3ad; --line: #262c33;
+  --accent: #3fc1aa; --accent-ink: #0b1210; --warn-bg: #2a2214; --warn-ink: #e8c27a;
+  --nfo-bg: #07080a; --nfo-ink: #c9d1d9; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+
+.top { border-bottom: 1px solid var(--line); background: var(--panel); }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; gap: 16px; }
+.brand { font-weight: 700; color: var(--ink); letter-spacing: .01em; white-space: nowrap; }
+.brand .mark { color: var(--accent); font-family: var(--mono); }
+.top nav a { margin-left: 18px; color: var(--muted); }
+.top nav a:hover { color: var(--ink); }
+
+main { padding: 24px 16px 48px; min-width: 0; }
+.relhead > *, .set, pre { min-width: 0; max-width: 100%; }
+h1 { font-size: 28px; line-height: 1.2; margin: 8px 0 8px; }
+h1.rel { font-family: var(--mono); font-size: 20px; word-break: break-all; }
+h2 { font-size: 17px; margin: 32px 0 10px; }
+h3 { font-size: 15px; margin: 18px 0 8px; font-family: var(--mono); }
+.lede { color: var(--muted); margin: 0 0 16px; }
+.crumbs { color: var(--muted); font-size: 13px; }
+.note { color: var(--muted); font-size: 13px; }
+
+.hero { padding: 32px 0 8px; }
+.hero h1 { font-size: 36px; }
+.hero .lede { font-size: 17px; max-width: 640px; }
+.stats { color: var(--muted); font-size: 14px; }
+.stats b { color: var(--ink); }
+
+.search { display: flex; gap: 8px; max-width: 640px; margin: 16px 0; }
+.search input { flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--ink); }
+.search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.search button, .btn { font: inherit; font-weight: 600; padding: 10px 16px; border: 0; border-radius: 8px;
+  background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+.btn:hover { text-decoration: none; filter: brightness(1.08); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.card { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card span { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.relhead { display: grid; grid-template-columns: 1fr minmax(0, 380px); gap: 20px; align-items: start; margin-top: 12px; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.dl { padding: 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); display: flex;
+  flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.dl span { color: var(--muted); }
+.dl .sha { display: block; width: 100%; font: 11px/1.4 var(--mono); color: var(--muted); word-break: break-all; }
+.dl.no { background: var(--warn-bg); color: var(--warn-ink); border-color: transparent; display: block; }
+.dl.no .why { display: block; margin-top: 6px; font-size: 12px; opacity: .85; }
+
+.t { width: 100%; table-layout: fixed; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; font-size: 13px; }
+.t th, .t td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.t th { color: var(--muted); font-weight: 600; background: var(--bg); }
+.t tr:last-child td { border-bottom: 0; }
+.t td:first-child { overflow-wrap: anywhere; }
+.t .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 96px; }
+.t .mono { font-family: var(--mono); white-space: nowrap; width: 96px; }
+.t.list th:nth-child(2) { width: 110px; }
+.t.list th:nth-child(3) { width: 160px; }
+.t.list td:nth-child(n+2) { overflow: hidden; text-overflow: ellipsis; }
+.t.list td:nth-child(n+2) { white-space: nowrap; color: var(--muted); }
+.set + .set { margin-top: 8px; }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.tag { font: 600 11px var(--sans); padding: 1px 6px; border-radius: 4px; background: var(--line); color: var(--muted);
+  vertical-align: middle; }
+.tag.dim { font-weight: 500; }
+
+.nfo { background: var(--nfo-bg); color: var(--nfo-ink); font: 13px/1.0 var(--mono); padding: 16px; border-radius: 8px;
+  overflow-x: auto; white-space: pre; tab-size: 8; }
+
+.foot { color: var(--muted); font-size: 12px; padding: 24px 16px 40px; border-top: 1px solid var(--line); }
+
+@media (max-width: 760px) {
+  .relhead { grid-template-columns: minmax(0, 1fr); }
+  .t .num { width: 72px; }
+  .t .mono { width: 76px; }
+  .t.list th:nth-child(2) { width: 88px; }
+  .hero h1 { font-size: 28px; }
+  .t.list th:nth-child(3), .t.list td:nth-child(3) { display: none; }
+  .t .mono { white-space: normal; }
+  .nfo { font-size: 10px; }
+}

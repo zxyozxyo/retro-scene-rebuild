@@ -1,0 +1,20 @@
+<h1>About</h1>
+<p class="lede">Retro Scene Rebuild keeps the recipe for putting old console scene releases back together exactly as they were released.</p>
+
+<h2>What is an .rsr file?</h2>
+<p>An <code>.rsr</code> (Reproducible Scene Release) file records how a release was packed: which archiver and version, which switches, how the volumes were split, file dates and attributes. It also carries the small release files: NFO, SFV, and proof images. Where the archiver's output can't be matched exactly, it also holds a small diff.</p>
+<p>It does <strong>not</strong> contain the game. You supply the files yourself, for example a disc image verified against a DAT. The rebuild then repacks them into the original archives, byte for byte, and checks every volume against the original hashes.</p>
+
+<h2>Why are some releases "listed" only?</h2>
+<p>For some releases, the rebuild needs part of the original data stored inside the .rsr, for example a ZIP member that no modern zipper reproduces, or an archive that could only be kept whole. Those .rsr files would contain pieces of the original files, so they are not hosted here. Their pages still show the file list, sizes, CRCs and NFO.</p>
+
+<h2>How do I rebuild a release?</h2>
+<ol>
+<li>Download the release's .rsr file.</li>
+<li>Put your matching files (same CRC32 as listed on the release page) in one folder.</li>
+<li>Run the rebuild in the RSR tool, pointing it at the .rsr and that folder.</li>
+</ol>
+<p>The tool checks every rebuilt volume against the hashes recorded at capture time, so a successful rebuild is the original release.</p>
+
+<h2>What is not here</h2>
+<p>No games, ROMs, disc images, BIOS files or other copyrighted program data are hosted on this site.</p>
