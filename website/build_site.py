@@ -98,12 +98,16 @@ def page(title, body, depth, desc=""):
 <body>
 <header class="top"><div class="wrap">
 <a class="brand" href="{up}index.html"><span class="mark">▚</span> {SITE_NAME}</a>
-<nav><a href="{up}search.html">Search</a><a href="{up}about.html">About</a></nav>
+<nav><a href="{up}search.html">Search</a><a href="{up}about.html">About</a><a href="{up}disclaimer.html">Disclaimer</a></nav>
 </div></header>
 <main class="wrap">
 {body}
 </main>
-<footer class="wrap foot">{SITE_NAME} · rebuild data only — no game files are hosted here.</footer>
+<footer class="wrap foot">
+<p><strong>No copyrighted material is hosted on this site.</strong> {SITE_NAME} holds rebuild recipes only: packing instructions, checksums, small diffs and each release's own NFO/SFV/proof files. There are no games, ROMs, disc images, BIOS files or other copyrighted program data here, and none are linked to.</p>
+<p><strong>Please do not ask for files.</strong> Requests for games, ROMs or releases will not be answered. You must supply your own legally obtained files to rebuild anything.</p>
+<p>All game titles, trademarks and release names belong to their respective owners and are used only to identify releases. <a href="{up}disclaimer.html">Full disclaimer</a></p>
+</footer>
 </body>
 </html>
 """
@@ -263,13 +267,29 @@ def main():
 
     body = """<h1>Search</h1>
 <form class="search" onsubmit="return false"><input id="q" type="search" placeholder="Release name, group, system…" autofocus></form>
+<details class="help"><summary>Search tips</summary>
+<table class="t"><tbody>
+<tr><td><code>zelda usa</code></td><td>all words must appear, in any order</td></tr>
+<tr><td><code>"game and watch"</code></td><td>exact phrase (underscores, dots and dashes count as spaces)</td></tr>
+<tr><td><code>mario*kart</code></td><td><code>*</code> matches any run of characters</td></tr>
+<tr><td><code>fifa?0?</code></td><td><code>?</code> matches exactly one character</td></tr>
+<tr><td><code>hitman -nds</code></td><td><code>-</code> leaves out names containing a word</td></tr>
+<tr><td><code>sys:xbox</code></td><td>only one system (code or name, e.g. <code>sys:psp</code>, <code>sys:dreamcast</code>)</td></tr>
+<tr><td><code>year:2004</code></td><td>only one year; wildcards work, e.g. <code>year:199?</code></td></tr>
+<tr><td><code>-CLEAR</code></td><td>the group is part of the name, so <code>-group</code> or <code>group</code> filters by group</td></tr>
+</tbody></table></details>
 <p id="count" class="lede"></p>
 <table class="t list"><thead><tr><th>Release</th><th>System</th><th>Year</th></tr></thead><tbody id="res"></tbody></table>
+<script>window.RSR_SYSTEMS = __SYSNAMES__;</script>
 <script src="assets/search.js"></script>"""
+    sysnames = {k: sys_name(k) for k in by_sys}
+    body = body.replace("__SYSNAMES__", json.dumps(sysnames))
     (site / "search.html").write_text(page(f"Search — {SITE_NAME}", body, 0), encoding="utf-8")
 
     about = (HERE / "about.html").read_text(encoding="utf-8")
     (site / "about.html").write_text(page(f"About — {SITE_NAME}", about, 0), encoding="utf-8")
+    disc = (HERE / "disclaimer.html").read_text(encoding="utf-8")
+    (site / "disclaimer.html").write_text(page(f"Disclaimer — {SITE_NAME}", disc, 0), encoding="utf-8")
     print(f"pages {len(recs)}  systems {len(by_sys)}  .rsr files {nfiles}")
 
 
