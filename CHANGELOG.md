@@ -1,4 +1,4 @@
-# ToSort Toolkit — Changelog
+# RetroVault Toolkit — Changelog
 
 All notable changes to this project are documented here.
 This changelog was reconstructed from the full build history.

@@ -1,5 +1,5 @@
 """
-ToSort Toolkit - Python API Backend
+RetroVault Toolkit - Python API Backend
 Exposes methods to the JS frontend via PyWebView's js_api bridge.
 """
 
@@ -610,7 +610,7 @@ class ToSortAPI:
 
         self._global_status("running")
         self._log("=" * 50, "info")
-        self._log("ToSort Toolkit pipeline started", "ok")
+        self._log("RetroVault Toolkit pipeline started", "ok")
         self._log("=" * 50, "info")
 
         modules = config.get("modules", [True, True, True, True])
@@ -1768,7 +1768,7 @@ class ToSortAPI:
 
         lines = []
         lines.append("=" * 60)
-        lines.append("  ToSort Toolkit — Pipeline Summary Report")
+        lines.append("  RetroVault Toolkit — Pipeline Summary Report")
         lines.append("=" * 60)
         lines.append(f"  Run started : {run_ts}")
         lines.append(f"  Total time  : {total_elapsed}s")

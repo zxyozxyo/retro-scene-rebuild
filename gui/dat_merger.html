@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DAT Tools — ToSort Toolkit</title>
+<title>DAT Tools — RetroVault Toolkit</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@400;500;600&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -136,7 +136,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
         <div class="panel-body">
           <div class="row"><label>Output File</label><input class="path-input" id="merge-output" placeholder="D:\DATs\merged.dat"/><button class="browse-btn" onclick="browseSave('merge-output')">Browse&hellip;</button></div>
           <div class="row"><label>DAT Name</label><input class="path-input" id="merge-name" value="Merged DAT" placeholder="Name shown in RomVault"/></div>
-          <div class="row"><label>Author</label><input class="path-input" id="merge-author" value="ToSort Toolkit"/></div>
+          <div class="row"><label>Author</label><input class="path-input" id="merge-author" value="RetroVault Toolkit"/></div>
           <label class="opt" style="padding:4px 0"><input type="checkbox" id="merge-dedupe" checked> Deduplicate by ROM hash</label>
         </div>
       </div>
@@ -166,7 +166,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
         <div class="panel-body">
           <div class="row"><label>Output File</label><input class="path-input" id="diff-output" placeholder="D:\DATs\diff.dat"/><button class="browse-btn" onclick="browseSave('diff-output')">Browse&hellip;</button></div>
           <div class="row"><label>DAT Name</label><input class="path-input" id="diff-name" value="Diff DAT" placeholder="Name for the diff DAT"/></div>
-          <div class="row"><label>Author</label><input class="path-input" id="diff-author" value="ToSort Toolkit"/></div>
+          <div class="row"><label>Author</label><input class="path-input" id="diff-author" value="RetroVault Toolkit"/></div>
         </div>
       </div>
     </div>
@@ -181,7 +181,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           <div class="hint">Matches DATs containing ANY keyword. Comma-separate for multiple terms. Use specific terms &mdash; "Commodore 64" will not match "Commodore Amiga".</div>
           <div class="row"><label>Output File</label><input class="path-input" id="smart-output" placeholder="D:\DATs\smart_merged.dat"/><button class="browse-btn" onclick="browseSave('smart-output')">Browse&hellip;</button></div>
           <div class="row"><label>DAT Name</label><input class="path-input" id="smart-name" value="Smart Merged DAT"/></div>
-          <div class="row"><label>Author</label><input class="path-input" id="smart-author" value="ToSort Toolkit"/></div>
+          <div class="row"><label>Author</label><input class="path-input" id="smart-author" value="RetroVault Toolkit"/></div>
           <label class="opt" style="padding:4px 0"><input type="checkbox" id="smart-dedupe" checked> Deduplicate by ROM hash</label>
         </div>
       </div>
@@ -197,7 +197,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           <div class="hint">Finds DATs containing ROMs with ANY of these extensions. Comma-separate for multiple. Dots optional.</div>
           <div class="row"><label>Output File</label><input class="path-input" id="ext-output" placeholder="D:\DATs\ext_merged.dat"/><button class="browse-btn" onclick="browseSave('ext-output')">Browse&hellip;</button></div>
           <div class="row"><label>DAT Name</label><input class="path-input" id="ext-name" value="Extension Merged DAT"/></div>
-          <div class="row"><label>Author</label><input class="path-input" id="ext-author" value="ToSort Toolkit"/></div>
+          <div class="row"><label>Author</label><input class="path-input" id="ext-author" value="RetroVault Toolkit"/></div>
           <label class="opt" style="padding:4px 0"><input type="checkbox" id="ext-dedupe" checked> Deduplicate by ROM hash</label>
         </div>
       </div>
@@ -304,7 +304,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           <div class="row"><label>Input DAT</label><input class="path-input" id="intdedupe-file" placeholder="Select a single DAT/XML file"/><button class="browse-btn" onclick="browseSingle('intdedupe-file')">Browse&hellip;</button></div>
           <div class="row"><label>Output File</label><input class="path-input" id="intdedupe-output" placeholder="Cleaned output DAT"/><button class="browse-btn" onclick="browseSave('intdedupe-output')">Browse&hellip;</button></div>
           <div class="row"><label>DAT Name</label><input class="path-input" id="intdedupe-name" placeholder="Leave blank to keep original name"/></div>
-          <div class="row"><label>Author</label><input class="path-input" id="intdedupe-author" value="ToSort Toolkit"/></div>
+          <div class="row"><label>Author</label><input class="path-input" id="intdedupe-author" value="RetroVault Toolkit"/></div>
         </div>
       </div>
     </div>
@@ -340,7 +340,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           <div class="row"><label>Source Folder</label><input class="path-input" id="create-folder" placeholder="Folder containing files to catalogue"/><button class="browse-btn" onclick="browseFolder('create-folder')">Browse&hellip;</button></div>
           <div class="row"><label>Output File</label><input class="path-input" id="create-output" placeholder="D:\DATs\my_collection.dat" oninput="autoFillDatName()"/><button class="browse-btn" onclick="browseAndFillDat()">Browse&hellip;</button></div>
           <div class="row"><label>DAT Name</label><input class="path-input" id="create-name" value="My Collection" placeholder="Name shown in RomVault"/></div>
-          <div class="row"><label>Author</label><input class="path-input" id="create-author" value="ToSort Toolkit"/></div>
+          <div class="row"><label>Author</label><input class="path-input" id="create-author" value="RetroVault Toolkit"/></div>
           <div style="padding:6px 0;display:flex;gap:16px;flex-wrap:wrap">
             <label class="opt"><input type="checkbox" id="create-recursive" checked> Scan subfolders</label>
             <label class="opt"><input type="checkbox" id="create-sha1" checked> Include SHA1</label>
@@ -710,8 +710,8 @@ function autoFillDatName() {
   const stem = out.split(/[\\/]/).pop().replace(/\.dat$/i, '');
   if (!name_field.value || name_field.value === 'My Collection')
     name_field.value = stem;
-  if (!author_field.value || author_field.value === 'ToSort Toolkit')
-    author_field.value = 'ToSort Toolkit';
+  if (!author_field.value || author_field.value === 'RetroVault Toolkit')
+    author_field.value = 'RetroVault Toolkit';
 }
 
 // ── Split by Size ────────────────────────────────────────────────────────────

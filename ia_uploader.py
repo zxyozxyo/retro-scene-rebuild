@@ -776,7 +776,7 @@ class IAUploaderAPI:
         """
         self._log(
             "Could not open Folder Packer — this only works when launched "
-            "via the main ToSort Toolkit app.", "warn"
+            "via the main RetroVault Toolkit app.", "warn"
         )
 
     def browse_files(self) -> list:

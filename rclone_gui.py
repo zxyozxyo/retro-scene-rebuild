@@ -656,7 +656,7 @@ class RCloneAPI:
         """
         self._log(
             "Could not open Folder Packer — this only works when launched "
-            "via the main ToSort Toolkit app.", "warn"
+            "via the main RetroVault Toolkit app.", "warn"
         )
 
     def get_folder_files(self, folder: str) -> list:

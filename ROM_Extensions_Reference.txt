@@ -1,5 +1,5 @@
 ======================================================================
-  ToSort Toolkit - Recognised ROM / Music / Media File Extensions
+  RetroVault Toolkit - Recognised ROM / Music / Media File Extensions
   Generated from rom_extensions.py -- edit THAT file, then run
       python rom_extensions.py
   to regenerate this reference.

@@ -1,4 +1,4 @@
-# ToSort Toolkit
+# RetroVault Toolkit
 
 A PyWebView desktop application for cleaning and managing ROM and scene release collections. Includes tools for RomVault integration, DAT file management, Internet Archive uploading, and scene RAR reconstruction — including **RSR**, a capture-time format that guarantees byte-exact reconstruction rather than merely making it possible.
 

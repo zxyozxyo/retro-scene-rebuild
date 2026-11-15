@@ -1,5 +1,5 @@
 """
-ToSort Toolkit - DAT Merger & Deduper Backend
+RetroVault Toolkit - DAT Merger & Deduper Backend
 Parses CLRMamePro (.dat) and Logiqx XML (.xml/.dat) format DAT files.
 Merges multiple DATs, deduplicates by ROM hash, outputs RomVault-compatible
 CLRMamePro format .dat files.
@@ -825,7 +825,7 @@ class DatMergerAPI:
         output = config.get("output_path", "")
         dat_name = config.get("dat_name", "Merged DAT")
         dat_desc = config.get("dat_description", dat_name)
-        dat_author = config.get("dat_author", "ToSort Toolkit")
+        dat_author = config.get("dat_author", "RetroVault Toolkit")
         dedupe = config.get("dedupe", True)
 
         self._log("=" * 50, "info")
@@ -968,7 +968,7 @@ class DatMergerAPI:
         older_paths = config.get("older_files", [])
         output = config.get("output_path", "")
         dat_name = config.get("dat_name", "Diff DAT")
-        dat_author = config.get("dat_author", "ToSort Toolkit")
+        dat_author = config.get("dat_author", "RetroVault Toolkit")
 
         self._log("=" * 50, "info")
         self._log("DAT Diff started", "ok")
@@ -1131,7 +1131,7 @@ class DatMergerAPI:
             keywords = [k.strip().lower() for k in str(raw_kw).split(",") if k.strip()]
         output = config.get("output_path", "")
         dat_name = config.get("dat_name", "Smart Merged DAT")
-        dat_author = config.get("dat_author", "ToSort Toolkit")
+        dat_author = config.get("dat_author", "RetroVault Toolkit")
         dedupe = config.get("dedupe", True)
 
         self._log("=" * 50, "info")
@@ -1254,7 +1254,7 @@ class DatMergerAPI:
             exts = [e.strip().lower().lstrip(".") for e in str(raw_ext).split(",") if e.strip()]
         output = config.get("output_path", "")
         dat_name = config.get("dat_name", "Extension Merged DAT")
-        dat_author = config.get("dat_author", "ToSort Toolkit")
+        dat_author = config.get("dat_author", "RetroVault Toolkit")
         dedupe = config.get("dedupe", True)
 
         self._log("=" * 50, "info")
@@ -1449,7 +1449,7 @@ class DatMergerAPI:
             try:
                 lines = []
                 lines.append("=" * 65)
-                lines.append("  ToSort Toolkit — DAT Size Calculator Report")
+                lines.append("  RetroVault Toolkit — DAT Size Calculator Report")
                 lines.append("=" * 65)
                 lines.append(f"  Generated: {time.strftime('%Y-%m-%d %H:%M')}")
                 lines.append("")
@@ -1508,7 +1508,7 @@ class DatMergerAPI:
         fpath = config.get("file", "")
         output = config.get("output_path", "")
         dat_name_override = config.get("dat_name", "").strip()
-        dat_author = config.get("dat_author", "ToSort Toolkit")
+        dat_author = config.get("dat_author", "RetroVault Toolkit")
 
         self._log("=" * 50, "info")
         self._log("Single-DAT Internal Deduper", "ok")
@@ -1912,7 +1912,7 @@ class DatMergerAPI:
         folder = Path(config.get("folder", "")).expanduser()
         output = config.get("output_path", "")
         dat_name = config.get("dat_name", "Created DAT")
-        dat_author = config.get("dat_author", "ToSort Toolkit")
+        dat_author = config.get("dat_author", "RetroVault Toolkit")
         recursive = config.get("recursive", True)
         use_sha1 = config.get("use_sha1", True)
         use_md5 = config.get("use_md5", False)

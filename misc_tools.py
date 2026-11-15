@@ -1120,7 +1120,7 @@ class MiscToolsAPI:
 def main():
     api = MiscToolsAPI()
     window = webview.create_window(
-        title='Miscellaneous Tools — ToSort Toolkit',
+        title='Miscellaneous Tools — RetroVault Toolkit',
         url=str(Path(__file__).parent / 'gui' / 'misc_tools.html'),
         js_api=api,
         width=820,

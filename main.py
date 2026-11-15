@@ -1,5 +1,5 @@
 """
-ToSort Toolkit - RomVault Cleaning Pipeline
+RetroVault Toolkit - RomVault Cleaning Pipeline
 Main application entry point.
 Requires: pip install pywebview py7zr rarfile zstandard
 """
@@ -34,7 +34,7 @@ def open_tosort():
     _api.open_folder_packer   = open_folder_packer
     _api.open_scene_recreator = open_scene_recreator
     w = webview.create_window(
-        title="ToSort Pipeline — ToSort Toolkit",
+        title="ToSort Pipeline — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "index.html"),
         js_api=_api,
         width=1050,
@@ -50,7 +50,7 @@ def open_dat_merger():
     global _dat_api
     _dat_api = DatMergerAPI()
     dat_window = webview.create_window(
-        title="DAT Tools — ToSort Toolkit",
+        title="DAT Tools — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "dat_merger.html"),
         js_api=_dat_api,
         width=960,
@@ -65,7 +65,7 @@ def open_folder_packer():
     """Open IA Folder Packer window."""
     _fp_api = IAFolderPackerAPI()
     fp_window = webview.create_window(
-        title="IA Prep Packer: Folder Packer — ToSort Toolkit",
+        title="IA Prep Packer: Folder Packer — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "ia_folder_packer.html"),
         js_api=_fp_api,
         width=800,
@@ -80,7 +80,7 @@ def open_scene_recreator():
     """Open Scene ZIP Recreator window."""
     _sr_api = SceneRecreatorAPI()
     sr_window = webview.create_window(
-        title="Scene ZIP Recreator — ToSort Toolkit",
+        title="Scene ZIP Recreator — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "scene_recreator.html"),
         js_api=_sr_api,
         width=900,
@@ -96,7 +96,7 @@ def open_rclone():
     _rc_api = RCloneAPI()
     _rc_api.open_folder_packer = open_folder_packer
     rc_window = webview.create_window(
-        title="IA RClone Uploader — ToSort Toolkit",
+        title="IA RClone Uploader — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "rclone_gui.html"),
         js_api=_rc_api,
         width=900,
@@ -113,7 +113,7 @@ def open_ia_uploader():
     _ia_api = IAUploaderAPI()
     _ia_api.open_folder_packer = open_folder_packer
     ia_window = webview.create_window(
-        title="Internet Archive Uploader — ToSort Toolkit",
+        title="Internet Archive Uploader — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "ia_uploader.html"),
         js_api=_ia_api,
         width=900,
@@ -128,7 +128,7 @@ def open_srrdb_tool():
     """Open srrdb Scene Rebuilder window."""
     _srr_api = SrrdbToolAPI()
     srr_window = webview.create_window(
-        title="srrdb Scene Rebuilder — ToSort Toolkit",
+        title="srrdb Scene Rebuilder — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "srrdb_tool.html"),
         js_api=_srr_api,
         width=980,
@@ -143,7 +143,7 @@ def open_rsr_tool():
     """Open RSR Scanner window."""
     _rsr_api = RsrToolAPI()
     rsr_window = webview.create_window(
-        title="RSR Scanner — ToSort Toolkit",
+        title="RSR Scanner — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "rsr_tool.html"),
         js_api=_rsr_api,
         width=1000,
@@ -158,7 +158,7 @@ def open_rom_tools():
     """Open ROM Manipulation window."""
     _rom_api = RomToolsAPI()
     rom_window = webview.create_window(
-        title="ROM Manipulation — ToSort Toolkit",
+        title="ROM Manipulation — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "rom_tools.html"),
         js_api=_rom_api,
         width=1040,
@@ -173,7 +173,7 @@ def open_misc_tools():
     """Open Miscellaneous Tools window."""
     _misc_api = MiscToolsAPI()
     misc_window = webview.create_window(
-        title="Miscellaneous Tools — ToSort Toolkit",
+        title="Miscellaneous Tools — RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "misc_tools.html"),
         js_api=_misc_api,
         width=820,
@@ -245,7 +245,7 @@ class LauncherAPI:
 def main():
     api = LauncherAPI()
     window = webview.create_window(
-        title="ToSort Toolkit",
+        title="RetroVault Toolkit",
         url=os.path.join(os.path.dirname(__file__), "gui", "home.html"),
         js_api=api,
         width=920,

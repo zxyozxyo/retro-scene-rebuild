@@ -1,5 +1,5 @@
 """
-ToSort Toolkit - known ROM / music / media / companion file extensions.
+RetroVault Toolkit - known ROM / music / media / companion file extensions.
 
 This is the single list the File Sorter (api.py, Module 2) uses to decide
 what is a "known" file.  Edit the tables below, then run
@@ -799,7 +799,7 @@ def write_reference(path) -> int:
     total = sum(len(t) for _, t in sections)
     lines = [
         rule,
-        "  ToSort Toolkit - Recognised ROM / Music / Media File Extensions",
+        "  RetroVault Toolkit - Recognised ROM / Music / Media File Extensions",
         "  Generated from rom_extensions.py -- edit THAT file, then run",
         "      python rom_extensions.py",
         "  to regenerate this reference.",

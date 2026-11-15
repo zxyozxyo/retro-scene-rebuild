@@ -19054,7 +19054,7 @@ class RsrToolAPI:
 def main():
     api = RsrToolAPI()
     window = webview.create_window(
-        title="RSR Scanner — ToSort Toolkit",
+        title="RSR Scanner — RetroVault Toolkit",
         url=str(Path(__file__).parent / "gui" / "rsr_tool.html"),
         js_api=api,
         width=1000,

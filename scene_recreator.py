@@ -5853,7 +5853,7 @@ class SceneRecreatorAPI:
 def main():
     api = SceneRecreatorAPI()
     window = webview.create_window(
-        title='Scene ZIP Recreator — ToSort Toolkit',
+        title='Scene ZIP Recreator — RetroVault Toolkit',
         url=str(Path(__file__).parent / 'gui' / 'scene_recreator.html'),
         js_api=api,
         width=900,
