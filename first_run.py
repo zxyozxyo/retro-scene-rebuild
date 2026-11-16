@@ -21,6 +21,7 @@ PACKAGES = [  # (import name, pip name, what needs it)
     ("requests", "requests", "Internet Archive tools"),
     ("internetarchive", "internetarchive", "IA uploader"),
     ("openpyxl", "openpyxl", "Excel export"),
+    ("amitools", "amitools", "Amiga LhA for LHA releases (vamos)"),
 ]
 
 # Folder -> what goes in it. A README.txt is written into each one that has none.
@@ -38,9 +39,21 @@ FOLDERS = {
     "apps/dosrar_pack": "DOS RAR builds (YYYY-MM-DD_dosrarNNN.exe). Filled the same way as winrar_pack-4.20:\n"
             "use RSR Scanner > Database > 'Import from folder...' on your RAR for DOS installers.\n",
     "apps/dosrar_pack/_dos32": "DOS32 helpers for the 32-bit DOS RAR builds: emx.exe, emx.dll, rsx.exe.\n",
-    "apps/dosbox-x": "DOSBox-X, which runs the DOS RAR builds.\n"
+    "apps/dosbox": "DOSBox Staging, which runs the DOS RAR builds and DOS LHA.\n"
+            "Download the Windows portable zip from https://www.dosbox-staging.org and unpack it here,\n"
+            "so that apps/dosbox/dosbox.exe exists.\n",
+    "apps/dosbox-x": "DOSBox-X, which runs a DOS RAR build when the files to pack are 2 GB or more\n"
+            "(DOSBox Staging cannot see files that big).\n"
             "Download the Windows portable zip from https://dosbox-x.com and unpack it here,\n"
             "so that apps/dosbox-x/dosbox-x.exe exists.\n",
+    "apps/lha_dos": "DOS LHA by Haruyasu Yoshizaki (freeware), used to rebuild LHA releases:\n"
+            "  LHA213/LHA.EXE   - LHA 2.13  (lha213.exe, https://ifarchive.org/if-archive/download-tools/pc/)\n"
+            "  LHA255E/LHA.EXE  - LHA 2.55e (msdos-lha.exe, https://aminet.net/package/util/arc/msdos-lha)\n"
+            "Both come as self-extracting files: open each with 7-Zip and put LHA.EXE in its folder.\n",
+    "apps/lha_amiga": "Amiga LhA, used to rebuild Amiga LHA releases (run on the PC by vamos):\n"
+            "  LHA215/lha_68k   - LhA 2.15 (https://aminet.net/package/util/arc/lha_68k)\n"
+            "  LHA138/LhA       - LhA 1.38 (https://aminet.net/package/util/arc/LhA_e138)\n"
+            "'Check packers' says whether the right builds are in place.\n",
     "apps/zip_pack/precomp/windows": "precomp, used to re-create ZIP releases.\n"
             "From https://github.com/schnaader/precomp-cpp/releases - put precomp.exe here.\n",
     "apps/romtools": "Optional programs for ROM Manipulation:\n"

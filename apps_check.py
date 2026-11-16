@@ -24,8 +24,15 @@ GROUPS = [
     ("Windows/console RAR builds", "winrar_pack-4.20", "*_rar*.exe", True),
     ("DOS RAR builds", "dosrar_pack", "*.exe", True),
     ("DOS32 helpers", "dosrar_pack/_dos32", "*", True),
-    ("DOSBox-X (runs the DOS builds)", "dosbox-x", "dosbox-x.exe", True),
+    ("DOSBox Staging (runs the DOS builds)", "dosbox", "dosbox.exe", False),
+    ("DOSBox-X (DOS builds whose source is 2 GiB or more)", "dosbox-x", "dosbox-x.exe", True),
     ("precomp (ZIP re-creation)", "zip_pack/precomp/windows", "*", True),
+    # LHA releases: the original programs pack the members again
+    # (DOS ones under DOSBox, Amiga ones under vamos from amitools).
+    ("DOS LHA 2.13", "lha_dos/LHA213", "LHA.EXE", True),
+    ("DOS LHA 2.55e", "lha_dos/LHA255E", "LHA.EXE", True),
+    ("Amiga LhA 2.15", "lha_amiga/LHA215", "lha_68k", True),
+    ("Amiga LhA 1.38", "lha_amiga/LHA138", "LhA", True),
     # Any version of these will do, so only their presence is checked.
     ("7-Zip (any version)", ".", "7z*.exe", False),
     ("UnRAR / Rar (any version)", ".", "[UR]*.exe", False),

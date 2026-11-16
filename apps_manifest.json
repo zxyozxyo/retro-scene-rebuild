@@ -2222,7 +2222,19 @@
    ]
   },
   {
-   "title": "DOSBox-X (runs the DOS builds)",
+   "title": "DOSBox Staging (runs the DOS builds)",
+   "dir": "dosbox",
+   "required": false,
+   "files": [
+    {
+     "name": "dosbox.exe",
+     "size": 24577024,
+     "sha256": "67a907289bad3e25a9be7dd4dc38d882c1c7e74949f8daa103a52476d99f24f5"
+    }
+   ]
+  },
+  {
+   "title": "DOSBox-X (DOS builds whose source is 2 GiB or more)",
    "dir": "dosbox-x",
    "required": true,
    "files": [
@@ -2257,6 +2269,54 @@
      "name": "precomp32.exe",
      "size": 742912,
      "sha256": "427f9982197d72e95c26daeb403ddf1d70c62d13ce930ce26c443989ecd1f775"
+    }
+   ]
+  },
+  {
+   "title": "DOS LHA 2.13",
+   "dir": "lha_dos/LHA213",
+   "required": true,
+   "files": [
+    {
+     "name": "LHA.EXE",
+     "size": 34283,
+     "sha256": "a4dbc6af69dbb06d3b1917e963861789ddc11c0ae1c1c056e55c64f869eef56f"
+    }
+   ]
+  },
+  {
+   "title": "DOS LHA 2.55e",
+   "dir": "lha_dos/LHA255E",
+   "required": true,
+   "files": [
+    {
+     "name": "LHA.EXE",
+     "size": 36624,
+     "sha256": "3da40fabba8b9e6cf930260351ac01ab868e0d01de2979cc6be8e7c63a9db4aa"
+    }
+   ]
+  },
+  {
+   "title": "Amiga LhA 2.15",
+   "dir": "lha_amiga/LHA215",
+   "required": true,
+   "files": [
+    {
+     "name": "lha_68k",
+     "size": 75332,
+     "sha256": "24e90ed19a80b68027088ad0544beabd15b5fc9a833fc4aece3542455e66e142"
+    }
+   ]
+  },
+  {
+   "title": "Amiga LhA 1.38",
+   "dir": "lha_amiga/LHA138",
+   "required": true,
+   "files": [
+    {
+     "name": "LhA",
+     "size": 53592,
+     "sha256": "b69582e76777fead3201f8d526ce2136e3d3f00ed43e313ee649a04d6428976d"
     }
    ]
   },

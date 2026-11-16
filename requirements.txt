@@ -12,3 +12,4 @@ standard-nntplib; python_version >= "3.13"   # nntplib left Python in 3.13; pyRe
 requests>=2.28        # Internet Archive / rclone tools
 internetarchive>=3.0  # IA uploader
 openpyxl>=3.1         # Excel export of srrdb results
+amitools>=0.9         # vamos: runs Amiga LhA to rebuild Amiga LHA releases
