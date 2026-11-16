@@ -88,6 +88,8 @@ _WINRAR_DATES: dict[str, str] = {
     "722": "2026-04-01", "723": "2026-06-15",
 }
 # regex for rescene-format rar executables
+# RAR 7.x dropped RAR4 output (-ma4), and every .srr this tool rebuilds is RAR4.
+_RAR7_RE = re.compile(r"_rar7\d\d", re.IGNORECASE)
 _RESCENE_RAR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_rar\d+(?:b\d)?\.(exe)?$", re.IGNORECASE)
 
 # Observational only (never affects reconstruction): pull the -mt thread count
@@ -166,6 +168,49 @@ _RECON_TIMEOUT_S = 1800  # 30 minutes
 # full sources, and 5 of 15 failures in the last batch were this timeout rather
 # than a wall. Scaled by the biggest source, so small releases are unaffected.
 _RECON_TIMEOUT_PER_GB_S = 2400
+
+# One test pack's time limit. A flat 15 minutes killed the slow-but-right
+# build on a big source and the release was then written off as a wall (the
+# RSR tool measured this: To Heart 2 VERIFIED once its limit became 3 s a
+# MB). Old builds and -m5 on a busy PC do run that slowly.
+_PACK_SECS_PER_MB = 3
+
+
+def _pack_timeout(nbytes: int, floor: int = 900) -> int:
+    return max(floor, int(_PACK_SECS_PER_MB * nbytes / (1 << 20)))
+
+
+def _total_size(paths) -> int:
+    n = 0
+    for p in paths:
+        try:
+            n += os.path.getsize(p)
+        except OSError:
+            pass
+    return n
+
+
+# Windows refuses a command line over 32,767 characters, so a release of
+# many files under long names could not be packed at all and every build
+# "failed" -- recorded as a wall. Over this many characters the names go in
+# a list file instead (every rar reads one), as the RSR tool does.
+_CMDLINE_MAX = 30000
+
+
+def _names_or_listfile(names: list, lst: Path, used: int) -> list:
+    """`names` themselves, or ["@<list file>"] when they would not fit.
+    Written in the ANSI code page an old console rar reads; UTF-16 with a BOM
+    only when a name can't be said in it."""
+    if used + sum(len(str(n)) + 3 for n in names) <= _CMDLINE_MAX:
+        return list(names)
+    text = "\r\n".join(str(n) for n in names) + "\r\n"
+    try:
+        data = text.encode("mbcs", errors="strict")
+    except (UnicodeEncodeError, LookupError):
+        data = b"\xff\xfe" + text.encode("utf-16-le")
+    lst.parent.mkdir(parents=True, exist_ok=True)
+    lst.write_bytes(data)
+    return ["@" + str(lst)]
 
 # Single-file thread-count near-miss rescue: rescene greedily locks the first
 # -mt whose test piece passes, then does one full compress; if the size is a
@@ -1006,17 +1051,14 @@ class SrrdbToolAPI:
         if sfv_paths and sfv_paths[0].stem not in hint_candidates:
             hint_candidates.append(sfv_paths[0].stem)
 
-        self._log(f"  [DIAG] folder={base.name!r} folder_canon={folder_canon!r} "
-                  f"hints={hint_candidates}", "dim")
         best: dict | None = None
         best_trimmed = False
         for hint in hint_candidates:
             res = self.search_srrdb_progressive(hint)
             trimmed = res.pop("query_trimmed", False)
             names = [r.get("release", "") for r in res.get("results", [])]
-            self._log(f"  [DIAG] hint={hint!r} → query={res.get('query')!r} "
-                      f"count={res.get('count')} trimmed={trimmed} "
-                      f"results={names[:6]}", "dim")
+            self._log(f"  srrdb search {res.get('query')!r}: "
+                      f"{res.get('count') or 0} result(s)", "dim")
             if not (res.get("ok") and res.get("count", 0) > 0):
                 continue
             hint_canon = _canon_release(_normalize_name(_strip_date_prefix(hint)))
@@ -1026,7 +1068,6 @@ class SrrdbToolAPI:
                 None,
             )
             if exact:
-                self._log(f"  [DIAG] EXACT-path pin → {exact.get('release')!r}", "dim")
                 return {"ok": True, "count": 1, "results": [exact],
                         "query": res.get("query", hint),
                         "method": ("name (simplified)" if trimmed else "name")}
@@ -1056,10 +1097,7 @@ class SrrdbToolAPI:
                 same_plat = [r for r in results
                              if self._release_platform(r.get("release", "")) == fp]
                 results = same_plat  # may be [] → cross-platform collision, drop
-            self._log(f"  [DIAG] CONTENT-CRC path → raw="
-                      f"{[r.get('release','') for r in hres.get('results',[])][:6]} "
-                      f"folder_plat={fp!r} → kept="
-                      f"{[r.get('release','') for r in results][:6]}", "dim")
+            self._log(f"  Matched by content CRC: {len(results)} release(s)", "dim")
             if results:
                 hres = {**hres, "results": results, "count": len(results)}
                 hres["method"] = f"content CRC32 ({hres.get('query', '')})"
@@ -1067,8 +1105,8 @@ class SrrdbToolAPI:
 
         # Last resort: a fuzzy name hit — flag it so it isn't blindly trusted
         if best:
-            self._log(f"  [DIAG] FUZZY-best path → "
-                      f"{[r.get('release','') for r in best.get('results',[])][:6]}", "dim")
+            self._log("  Only a loose name match was found — check it is the "
+                      "right release.", "warn")
             best["method"] = "name (fuzzy — verify)"
             return best
 
@@ -2070,7 +2108,13 @@ class SrrdbToolAPI:
         # RAR5 binaries into per-file hunts (e.g. on an embedded jpg).
         _orig_get = rm.RarRepository.get_rar_executables
         def _get_pref(repo_self, date, _orig=_orig_get, _rm=rm):
-            order = list(_orig(repo_self, date))
+            # RAR 7.x cannot write a RAR4 archive at all ("Unknown option:
+            # ma4", measured on all 14 builds) and every .srr this route
+            # rebuilds is RAR4. Reaching one used to END the whole hunt --
+            # James_Patterson...-EXiMiUS failed that way once a busy PC cut
+            # the sweep short and the hunt widened past 2018.
+            order = [r for r in _orig(repo_self, date)
+                     if not _RAR7_RE.search(str(getattr(r, "file_name", r)))]
             # Per-stream version-sweep rescue: force the ONE stream currently
             # being compressed (a proof jpg) to a candidate build while the rest
             # of the set stays pinned to its locked build. Keyed by the source
@@ -2188,6 +2232,26 @@ class SrrdbToolAPI:
                     order = fresh + [r for r in order if str(r) in done]
             return order
         rm.RarRepository.get_rar_executables = _get_pref
+
+        # RAR 7.x out of the repository itself, not only the hunt order:
+        # rescene measures its test piece with get_most_recent_version(),
+        # which was RAR 7.23 -- "Unknown option: ma4" -- and the release
+        # failed before a single version was tried for its second file.
+        _orig_load = rm.RarRepository.load_rar_executables
+        def _load_no7(repo_self, bin_folder, _orig=_orig_load):
+            _orig(repo_self, bin_folder)
+            repo_self.rar_executables = [
+                r for r in repo_self.rar_executables
+                if not _RAR7_RE.search(str(getattr(r, "file_name", r)))]
+        rm.RarRepository.load_rar_executables = _load_no7
+        _orig_recent = rm.RarRepository.get_most_recent_version
+        def _recent_no7(repo_self, _orig=_orig_recent):
+            ok = [r for r in repo_self.rar_executables
+                  if not _RAR7_RE.search(str(getattr(r, "file_name", r)))]
+            if ok:
+                return ok[-1]
+            return _orig(repo_self)
+        rm.RarRepository.get_most_recent_version = _recent_no7
 
         # --- skip the 1 GB "test with previous file" fallback on non-solid sets ---
         # When a stream's direct match fails, rescene retries by PREPENDING the
@@ -2535,9 +2599,18 @@ class SrrdbToolAPI:
             f"    rescene: near-miss at -mt{cur} — retrying other thread "
             f"counts (up to -mt{_MT_RETRY_CAP}) before giving up…"
             + (f" (pinned to {locked_ver})" if locked_ver else ""), "dim")
+        # RAR 4.20 and newer refuse -mt0 ("Unknown option: mt0"). That error is
+        # neither RarNotFound nor a size miss, so it used to end this whole
+        # loop before the right count was reached (Junior_Games_3D-VENOM:
+        # 4.20 -mt3 never tried). Leave 0 out for those builds.
+        no_mt0 = False
+        try:
+            no_mt0 = float(str(locked_ver or "").split()[-1]) >= 4.2
+        except (ValueError, IndexError):
+            pass
         try:
             for n in self._order_mts(n for n in range(0, _MT_RETRY_CAP + 1)
-                                     if n != cur):
+                                     if n != cur and not (n == 0 and no_mt0)):
                 if self._stop.is_set() or self._skip.is_set():
                     break
                 if time.time() > getattr(self, "_recon_deadline", float("inf")):
@@ -3301,7 +3374,8 @@ class SrrdbToolAPI:
             return cache[key]
         disc = self._disc_source(content_dir, out_root)
         rar_dir = self._find_rar_dir()
-        exes = sorted(Path(rar_dir).glob("*_rar*.exe")) if rar_dir else []
+        exes = [e for e in (sorted(Path(rar_dir).glob("*_rar*.exe")) if rar_dir else [])
+                if not _RAR7_RE.search(e.name)]     # cannot write RAR4
         if rar4_only:
             r4 = [e for e in exes
                   if re.match(r"\d{4}-\d{2}-\d{2}_rar[0-4]\d", e.name)]
@@ -3351,7 +3425,8 @@ class SrrdbToolAPI:
                             [str(ex), "a", f"-m{level}", md,
                              "-s" if solid else "-s-", "-ds", f"-mt{pmt}",
                              "-o+", "-ep", "-idcd", str(probe), disc],
-                            capture_output=True, timeout=180)
+                            capture_output=True,
+                            timeout=_pack_timeout(_total_size([disc]), 180))
                     except subprocess.TimeoutExpired:
                         sig.append(("TIMEOUT", ex.name, pmt))
                         continue
@@ -3856,7 +3931,8 @@ class SrrdbToolAPI:
         # family dedup is not used here). A RAR4 archive is swept with the RAR4
         # binaries first; RAR5/6 binaries can still emit RAR4 via -ma4, so they
         # follow as a second phase rather than being dropped outright.
-        allexe = sorted(p.name for p in Path(rar_dir).glob("*_rar*.exe"))
+        allexe = sorted(p.name for p in Path(rar_dir).glob("*_rar*.exe")
+                        if not _RAR7_RE.search(p.name))   # cannot write RAR4
         rar4_only = bool(s["rar_version"] and s["rar_version"] < 50)
         if rar4_only:
             era = [n for n in allexe
@@ -4202,8 +4278,13 @@ class SrrdbToolAPI:
             args += [md]
         args += ["-s" if solid else "-s-", "-ds", f"-mt{mt}", "-o+", "-ep",
                  "-idcd", str(out)]
+        limit = _pack_timeout(_total_size(files))
+        names = _names_or_listfile(files, out.parent / (out.stem + ".lst"),
+                                   sum(len(a) + 3 for a in args))
         try:
             for stale in list(out.parent.glob(out.stem + ".*")):
+                if stale.suffix.lower() == ".lst":
+                    continue
                 stale.unlink(missing_ok=True)
         except Exception:
             pass
@@ -4215,13 +4296,13 @@ class SrrdbToolAPI:
             # from its total length — but the OUTPUT can be cut short.
             want = stop_after + (1 << 18)          # slack for headers
             try:
-                proc = subprocess.Popen(args + files, stdout=subprocess.DEVNULL,
+                proc = subprocess.Popen(args + names, stdout=subprocess.DEVNULL,
                                         stderr=subprocess.DEVNULL,
                                         **_no_window_kw())
             except OSError:
                 return False
             try:
-                end = time.time() + 900
+                end = time.time() + limit
                 while proc.poll() is None:
                     if self._stop.is_set() or self._skip.is_set():
                         proc.kill()
@@ -4245,7 +4326,7 @@ class SrrdbToolAPI:
                         pass
             return out.is_file()
         try:
-            r = subprocess.run(args + files, capture_output=True, timeout=900)
+            r = subprocess.run(args + names, capture_output=True, timeout=limit)
         except (subprocess.TimeoutExpired, OSError):
             return False
         return r.returncode == 0 and out.is_file()
@@ -5824,6 +5905,125 @@ class SrrdbToolAPI:
     _VIDEO_TOKENS = {"BLURAY", "DVDRIP", "DVDR", "WEB", "HDTV", "X264", "X265",
                      "XVID", "H264", "H265", "BDRIP", "WEBRIP"}
 
+    _SITE = "https://retroscenerebuild.com"
+
+    def _site_rsr(self, names: set) -> Path | None:
+        """The release's public .rsr from retroscenerebuild.com, downloaded once
+        into srr_cache/rsr/. None when the site does not publish it or can't
+        be reached -- the srrdb route then runs as before."""
+        cache = SRR_CACHE_DIR / "rsr"
+        for n in names:
+            f = cache / f"{n}.rsr"
+            if f.is_file() and f.stat().st_size:
+                self._log(f"  Using the cached retroscenerebuild.com .rsr ({f.name}).", "info")
+                return f
+        idx_f = SRR_CACHE_DIR / "site_index.json"
+        try:
+            fresh = idx_f.is_file() and time.time() - idx_f.stat().st_mtime < 86400
+            if not fresh:
+                with urlopen(Request(f"{self._SITE}/assets/index.json",
+                                     headers={"User-Agent": _UA}), timeout=30) as r:
+                    data = r.read()
+                json.loads(data)                        # only keep a valid index
+                idx_f.parent.mkdir(parents=True, exist_ok=True)
+                idx_f.write_bytes(data)
+            idx = json.loads(idx_f.read_text(encoding="utf-8"))
+        except Exception as e:
+            self._log(f"  retroscenerebuild.com not reachable ({type(e).__name__}) — "
+                      "skipping it.", "dim")
+            return None
+        hit = next((row for row in idx if row and row[0] in names and len(row) > 3 and row[3]), None)
+        if hit is None:
+            return None
+        slug = hit[4] if len(hit) > 4 else hit[0]
+        url = f"{self._SITE}/files/{quote(hit[1])}/{quote(slug)}.rsr"
+        try:
+            with urlopen(Request(url, headers={"User-Agent": _UA}), timeout=120) as r:
+                data = r.read()
+        except Exception as e:
+            self._log(f"  Could not download the .rsr from retroscenerebuild.com: {e}", "warn")
+            return None
+        if not data.startswith(b"PK"):
+            return None
+        cache.mkdir(parents=True, exist_ok=True)
+        f = cache / f"{hit[0]}.rsr"
+        f.write_bytes(data)
+        self._log(f"  retroscenerebuild.com has this release — downloaded its .rsr "
+                  f"({len(data):,} B) to rebuild from its recorded recipe.", "info")
+        return f
+
+    def _rsr_store_rebuild(self, release: str, content_dir: str,
+                           out_root: Path) -> dict | None:
+        """Rebuild the release from the local RSR store when it was captured
+        there: replaying a recorded recipe is exact and takes one pack, where
+        the srrdb route has to search for the build. The volumes go into
+        out_root, where the usual SFV check verifies them like any rebuild.
+
+        None when the store does not have the release or the replay fails,
+        so the caller carries on with the srrdb route exactly as before."""
+        db = Path(__file__).parent / "rsr_index.db"
+        names = {release, release.replace(".", "_"), release.replace("_", ".")}
+        row = None
+        try:
+            if (not db.is_file() or not getattr(self, "_use_rsr_store", True)
+                    or not getattr(self, "_use_local_store", True)):
+                raise FileNotFoundError(db)
+            import sqlite3
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                row = None
+                for n in names:
+                    row = con.execute("SELECT rsr_path FROM releases WHERE name=?",
+                                      (n,)).fetchone()
+                    if row:
+                        break
+            finally:
+                con.close()
+        except Exception:
+            row = None           # no local store: the website is next
+        if row and Path(row[0]).is_file():
+            rsr = Path(row[0])
+            self._log(f"  RSR store has this release ({rsr.name}) — rebuilding "
+                      "from its recorded recipe first.", "info")
+        else:
+            rsr = self._site_rsr(names) if getattr(self, "_use_site_rsr", True) else None
+            if rsr is None:
+                return None
+        tmp = Path(tempfile.mkdtemp(prefix="srrdb-rsr-", dir=str(out_root)))
+        try:
+            import rsr_tool
+            api = rsr_tool.RsrToolAPI()
+            api._emit = lambda *a, **k: None
+            api._progress = lambda *a, **k: None
+            api._log = lambda m, kind="", *a, **k: (
+                self._log(f"    {m}", "dim") if m and kind in ("err", "ok") else None)
+            if self._stop.is_set() or self._skip.is_set():
+                return None
+            res = api._rebuild_run(rsr, Path(content_dir), tmp)
+            if not res.get("ok"):
+                self._log("  RSR store rebuild did not complete — carrying on "
+                          "with the srrdb route.", "warn")
+                return None
+            moved = []
+            for f in sorted(tmp.rglob("*")):
+                if not f.is_file() or f.suffix.lower() in META_EXTS:
+                    continue
+                dst = out_root / f.relative_to(tmp)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if dst.exists():
+                    dst.unlink()
+                shutil.move(str(f), str(dst))
+                moved.append(str(dst.relative_to(out_root)))
+            if not moved:
+                return None
+            self._log(f"  ✓ Rebuilt from the RSR store ({len(moved)} file(s)).", "ok")
+            return {"ok": True, "files": moved, "output": "", "rsr": True}
+        except Exception as e:
+            self._log(f"  RSR store rebuild skipped: {type(e).__name__}: {e}", "warn")
+            return None
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     @property
     def _results_path(self) -> Path:
         return Path(__file__).parent / "srrdb_results.json"
@@ -6381,6 +6581,8 @@ class SrrdbToolAPI:
         # One "run it fresh" decision per release (see _use_db_history).
         self._fresh_release = None
         self._fresh_prompt_on = bool(config.get("fresh_prompt", False))
+        self._use_rsr_store = bool(config.get("use_rsr_store", True))
+        self._use_site_rsr = bool(config.get("use_site_rsr", True))
         if config.get("ignore_db_history"):
             self._fresh_all = True
         self._retry_tried_versions = self._prior_versions_tried(release)
@@ -6659,9 +6861,16 @@ class SrrdbToolAPI:
                         f"  Known-good RAR cache: trying {', '.join(prefs)} "
                         "first (this group's history)", "info",
                     )
+                # A release already captured in the local RSR store is
+                # replayed from its recorded recipe; the srrdb search runs
+                # only when the store doesn't have it or the replay fails.
+                rc = (self._rsr_store_rebuild(release, content_dir, out_root)
+                      if (getattr(self, "_use_rsr_store", True)
+                          or getattr(self, "_use_site_rsr", True)) else None)
                 try:
-                    rc = self._reconstruct_with_m2_fastpath(
-                        str(srr_file), content_dir, out_root)
+                    if rc is None:
+                        rc = self._reconstruct_with_m2_fastpath(
+                            str(srr_file), content_dir, out_root)
                 finally:
                     SrrdbToolAPI._pref_versions = []
                 for line in (rc.get("output") or "").splitlines():

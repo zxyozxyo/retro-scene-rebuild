@@ -122,6 +122,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 
 /* Rescene check banner */
 .banner{padding:6px 10px;font-size:11px;border-radius:4px;border:1px solid var(--warn);color:var(--warn);background:rgba(240,160,48,.06)}
+details.more{border-top:1px solid var(--border);padding-top:4px}
+details.more summary{cursor:pointer;font-size:11px;color:var(--text2);padding:3px 0;user-select:none}
+details.more summary:hover{color:var(--acc)}
+.more-body{display:flex;flex-direction:column;gap:6px;padding:6px 0 2px 0}
 </style>
 </head>
 <body>
@@ -204,55 +208,71 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           <label class="chk-row">
             <input type="checkbox" id="do-sample" checked> Create sample (if SRS available)
           </label>
-          <label class="chk-row" id="row-extract-iso" style="margin-left:1.4em; font-size:0.85em; opacity:0.75">
-            <input type="checkbox" id="extract-iso-m2ts"> Extract M2TS from ISO for Blu-ray samples
-            <span style="opacity:0.6"> — slow, needs ~same disk space as the video stream</span>
-          </label>
-          <label class="chk-row" id="row-nonscene" style="margin-left:1.4em; font-size:0.85em; opacity:0.75">
-            <input type="checkbox" id="nonscene-sample"> Create NON-SCENE preview clip when the scene sample can't be rebuilt
-            <span style="opacity:0.6"> — clearly named NONSCENE, not a scene-verified file</span>
-          </label>
-          <label class="chk-row" id="row-delsrc" style="color:var(--danger)">
-            <input type="checkbox" id="delete-source" onchange="confirmDeleteSource(this)">
-            Delete source folder after successful rebuild
-            <span style="opacity:0.7;font-size:0.85em"> — removes the input folder INCLUDING old nfo/jpg once the RARs are verified</span>
-          </label>
-          <label class="chk-row" title="A re-run reuses three things the results DB stored: a cached version-wall (release skipped outright), a cached recipe-sweep verdict, and the builds a timed-out run already tested. Tick this to ignore all of it and search from scratch.">
-            <input type="checkbox" id="ignore-db-history"> Ignore stored DB history — search every release from scratch
-          </label>
-          <label class="chk-row" title="Instead of ignoring stored history outright, pause 30s the first time a release would reuse it and offer the choice. Always auto-continues, so an unattended batch is unaffected.">
-            <input type="checkbox" id="fresh-prompt"> Ask first (30s pause) when a release would reuse stored history
-          </label>
-          <div class="row" style="flex-wrap:wrap">
-            <span class="lbl">Results DB</span>
-            <button class="btn btn-sm" onclick="viewStats()">View Stats</button>
-            <button class="btn btn-sm" onclick="exportXlsx()">Export XLSX</button>
-            <button class="btn btn-sm" onclick="exportCsv()">Export CSV</button>
-            <span style="font-size:10px;opacity:0.6;flex-basis:100%">every run is recorded automatically (group, year, outcome, RAR version)</span>
-          </div>
-          <div class="row" style="align-items:flex-start">
-            <span class="lbl" title="Local folder(s) of scene extras (nfo/diz/proof jpg). When a rebuild needs an exact packed file that srrdb has no add for, it's matched here by CRC32 and copied in — never moved.">Extras store</span>
-            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
-              <div id="extras-folders" style="display:flex;flex-direction:column;gap:2px;max-height:92px;overflow-y:auto;overflow-x:hidden"></div>
-              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                <button class="btn btn-sm" onclick="extrasAddFolder()">Add folder</button>
-                <button class="btn btn-sm" id="btn-extras-rescan" onclick="extrasRescan()" title="Scan the folder(s) and (re)build the CRC index. Incremental — only new/changed files are read.">Rescan</button>
-                <span id="extras-stats" style="font-size:10px;color:var(--text3)"></span>
+          <details class="more">
+            <summary>More options</summary>
+            <div class="more-body">
+              <label class="chk-row" title="When this release was captured in the local RSR store, replay its recorded recipe: exact, and one pack instead of a search. Falls back to the srrdb search if the store does not have it.">
+                <input type="checkbox" id="use-rsr-store" checked> Rebuild from the local RSR store first when it has the release
+              </label>
+              <label class="chk-row" title="When the local store does not have the release, look it up on retroscenerebuild.com. A public .rsr is downloaded once (to srr_cache/rsr) and rebuilt from its recorded recipe; otherwise the srrdb search runs as before.">
+                <input type="checkbox" id="use-site-rsr" checked> Otherwise use the release's .rsr from retroscenerebuild.com when it has one
+              </label>
+              <label class="chk-row" id="row-extract-iso" style="margin-left:1.4em; font-size:0.85em; opacity:0.75">
+                <input type="checkbox" id="extract-iso-m2ts"> Extract M2TS from ISO for Blu-ray samples
+                <span style="opacity:0.6"> — slow, needs ~same disk space as the video stream</span>
+              </label>
+              <label class="chk-row" id="row-nonscene" style="margin-left:1.4em; font-size:0.85em; opacity:0.75">
+                <input type="checkbox" id="nonscene-sample"> Create NON-SCENE preview clip when the scene sample can't be rebuilt
+                <span style="opacity:0.6"> — clearly named NONSCENE, not a scene-verified file</span>
+              </label>
+              <label class="chk-row" title="A re-run reuses three things the results DB stored: a cached version-wall (release skipped outright), a cached recipe-sweep verdict, and the builds a timed-out run already tested. Tick this to ignore all of it and search from scratch.">
+                <input type="checkbox" id="ignore-db-history"> Ignore stored DB history — search every release from scratch
+              </label>
+              <label class="chk-row" title="Instead of ignoring stored history outright, pause 30s the first time a release would reuse it and offer the choice. Always auto-continues, so an unattended batch is unaffected.">
+                <input type="checkbox" id="fresh-prompt"> Ask first (30s pause) when a release would reuse stored history
+              </label>
+              <div class="row">
+                <span class="lbl">Max candidates</span>
+                <select class="sel" id="max-test" style="width:70px">
+                  <option value="3">3</option>
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100" selected>100</option>
+                </select>
+                <span style="font-size:10px;color:var(--text3)">to score when auto-matching ambiguous results</span>
+              </div>
+              <label class="chk-row" id="row-delsrc" style="color:var(--danger)">
+                <input type="checkbox" id="delete-source" onchange="confirmDeleteSource(this)">
+                Delete source folder after successful rebuild
+                <span style="opacity:0.7;font-size:0.85em"> — removes the input folder INCLUDING old nfo/jpg once the RARs are verified</span>
+              </label>
+            </div>
+          </details>
+          <details class="more">
+            <summary>Results &amp; extras store</summary>
+            <div class="more-body">
+              <div class="row" style="flex-wrap:wrap">
+                <span class="lbl">Results DB</span>
+                <button class="btn btn-sm" onclick="viewStats()">View Stats</button>
+                <button class="btn btn-sm" onclick="exportXlsx()">Export XLSX</button>
+                <button class="btn btn-sm" onclick="exportCsv()">Export CSV</button>
+                <span style="font-size:10px;opacity:0.6;flex-basis:100%">every run is recorded automatically (group, year, outcome, RAR version)</span>
+              </div>
+              <div class="row" style="align-items:flex-start">
+                <span class="lbl" title="Local folder(s) of scene extras (nfo/diz/proof jpg). When a rebuild needs an exact packed file that srrdb has no add for, it's matched here by CRC32 and copied in — never moved.">Extras store</span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+                  <div id="extras-folders" style="display:flex;flex-direction:column;gap:2px;max-height:92px;overflow-y:auto;overflow-x:hidden"></div>
+                  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                    <button class="btn btn-sm" onclick="extrasAddFolder()">Add folder</button>
+                    <button class="btn btn-sm" id="btn-extras-rescan" onclick="extrasRescan()" title="Scan the folder(s) and (re)build the CRC index. Incremental — only new/changed files are read.">Rescan</button>
+                    <span id="extras-stats" style="font-size:10px;color:var(--text3)"></span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="row">
-            <span class="lbl">Max candidates</span>
-            <select class="sel" id="max-test" style="width:70px">
-              <option value="3">3</option>
-              <option value="5">5</option>
-              <option value="10">10</option>
-              <option value="20">20</option>
-              <option value="50">50</option>
-              <option value="100" selected>100</option>
-            </select>
-            <span style="font-size:10px;color:var(--text3)">to score when auto-matching ambiguous results</span>
-          </div>
+          </details>
           <div id="rar-setup-row" class="row" style="display:none">
             <span class="lbl" style="color:var(--text3);font-size:10px">RAR versions</span>
             <span id="rar-version-info" style="flex:1;font-size:10px;color:var(--text3)"></span>
@@ -397,7 +417,7 @@ window.addEventListener('pywebviewready', async () => {
 // starts off every session by design.
 const _SAVE_IDS = ['src-folder', 'content-dir', 'dest-dir', 'do-sample',
                    'extract-iso-m2ts', 'nonscene-sample', 'ignore-db-history',
-                   'fresh-prompt'];
+                   'fresh-prompt', 'use-rsr-store', 'use-site-rsr'];
 function saveSettings() {
   const out = {};
   for (const id of _SAVE_IDS) {
@@ -931,6 +951,8 @@ async function doProcess() {
   const deleteSource   = document.getElementById('delete-source').checked;
   const ignoreHistory  = document.getElementById('ignore-db-history').checked;
   const freshPrompt    = document.getElementById('fresh-prompt').checked;
+  const useRsrStore    = document.getElementById('use-rsr-store').checked;
+  const useSiteRsr     = document.getElementById('use-site-rsr').checked;
 
   if (!dest) { log('Set an output folder first.', 'warn'); return; }
 
@@ -949,6 +971,8 @@ async function doProcess() {
       delete_source:    deleteSource,
       ignore_db_history: ignoreHistory,
       fresh_prompt:     freshPrompt,
+      use_rsr_store:    useRsrStore,
+      use_site_rsr:     useSiteRsr,
     });
   } else {
     // Batch
@@ -975,6 +999,8 @@ async function doProcess() {
         delete_source:    deleteSource,
         ignore_db_history: ignoreHistory,
         fresh_prompt:     freshPrompt,
+        use_rsr_store:    useRsrStore,
+        use_site_rsr:     useSiteRsr,
         max_test:         maxTest,
       }));
     if (!jobs.length) { log('All jobs already done.', 'dim'); return; }
