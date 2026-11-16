@@ -69,6 +69,17 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
 .detail-row .fname{color:var(--text)}
 .detail-row .meta{color:var(--text3);margin-left:6px}
 .detail-empty{font-size:10px;color:var(--text3);font-style:italic;padding:6px}
+.tabs{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.tab{background:var(--bg1);border:1px solid var(--border);border-radius:5px 5px 0 0;padding:6px 14px;color:var(--text2);font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer}
+.tab:hover{color:var(--acc)}
+.tab.on{color:var(--acc);border-color:var(--acc);background:var(--bg2)}
+.tab-dry{margin-left:auto}
+.lede{font-size:11px;color:var(--text2);line-height:1.5}
+.btn-big{padding:6px 18px;font-size:12px;font-weight:600}
+details.more{border-top:1px solid var(--border);padding-top:4px}
+details.more summary{cursor:pointer;font-size:11px;color:var(--text2);padding:3px 0;user-select:none}
+details.more summary:hover{color:var(--acc)}
+.more-body{display:flex;flex-direction:column;gap:6px;padding:6px 0 2px 0}
 </style>
 </head>
 <body>
@@ -80,39 +91,79 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
 </div>
 
 <div class="main">
+  <!-- Two jobs, one tab each. Only the folders a run needs are shown;
+       every tuning option sits under "More options", every explanation
+       under "How it works". Element ids are unchanged. -->
+  <div class="tabs">
+    <button class="tab" id="tab-zips" onclick="showTab('zips')">Fix ZIP files</button>
+    <button class="tab" id="tab-sidecars" onclick="showTab('sidecars')">Fix .sfv / .nfo / .diz / .jpg</button>
+    <label class="opt tab-dry" title="Detect and report only. Nothing is written, copied, moved or replaced."><input type="checkbox" id="dry_run"> Test only (change nothing)</label>
+  </div>
 
-  <!-- Source / DAT / Output -->
-  <div class="panel">
-    <div class="panel-hdr"><div class="dot" style="background:var(--info)"></div>Folders</div>
+  <!-- ZIPs -->
+  <div class="panel" id="pane-zips">
     <div class="panel-body">
+      <div class="lede">Repairs scene .zip files so they match the DAT exactly. Your originals are never changed: fixed copies go to the output folder.</div>
       <div class="row">
-        <span class="lbl">Scene ZIPs</span>
-        <input class="txt" id="src" placeholder="Folder to scan recursively for .zip files"/>
+        <span class="lbl">1. Scene ZIPs</span>
+        <input class="txt" id="src" placeholder="Folder with the .zip files to check (subfolders included)"/>
         <button class="btn" onclick="browseSrc()">Browse</button>
       </div>
       <div class="row">
-        <span class="lbl">DAT folder</span>
-        <input class="txt" id="dat_dir" placeholder="Folder containing one or more DAT/XML files"/>
+        <span class="lbl">2. DAT folder</span>
+        <input class="txt" id="dat_dir" placeholder="Folder with the DAT/XML file(s) for these releases"/>
         <button class="btn" onclick="browseDat()">Browse</button>
       </div>
-      <div class="row" style="align-items:flex-start">
-        <span class="lbl" style="padding-top:4px">Reference (optional)</span>
-        <div style="flex:1;display:flex;flex-direction:column;gap:4px">
-          <div id="ref-list" style="display:flex;flex-direction:column;gap:4px"></div>
-          <button class="btn" style="align-self:flex-start" onclick="addRefFolder()">+ Add reference folder</button>
-        </div>
-      </div>
       <div class="row">
-        <span class="lbl">Sidecar folders</span>
-        <input class="txt" id="sidecar_dirs" placeholder="Optional — e.g. Q:\RomRoot; where the releases' real .nfo/.diz live (separate several with ;)"/>
-        <button class="btn" onclick="addSidecarDir()">+ Add</button>
-      </div>
-      <div class="row">
-        <span class="lbl">Output</span>
-        <input class="txt" id="dst" placeholder="Where fixed/matching copies are written"/>
+        <span class="lbl">3. Output</span>
+        <input class="txt" id="dst" placeholder="Where the fixed / confirmed copies are written"/>
         <button class="btn" onclick="browseDst()">Browse</button>
       </div>
-      <div class="hint">
+      <div class="row" style="gap:16px">
+        <span class="lbl">Confirmed files</span>
+        <label class="opt"><input type="radio" name="move_mode" id="mode_copy" value="copy" checked> Copy (keep originals)</label>
+        <label class="opt"><input type="radio" name="move_mode" id="mode_move" value="move"> Move</label>
+      </div>
+      <div class="row" style="gap:6px">
+        <button class="btn btn-acc btn-big" id="btn-start" onclick="startRun()">▶ Fix ZIPs</button>
+      </div>
+
+      <details class="more">
+        <summary>More options</summary>
+        <div class="more-body">
+          <div class="row" style="align-items:flex-start">
+            <span class="lbl" style="padding-top:4px">Reference folders</span>
+            <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+              <div id="ref-list" style="display:flex;flex-direction:column;gap:4px"></div>
+              <button class="btn" style="align-self:flex-start" onclick="addRefFolder()">+ Add reference folder</button>
+              <div class="hint">Optional: folders of known-good zips from the same groups. They teach the tool each group's settings, so fixes are found faster.</div>
+            </div>
+          </div>
+          <div class="row">
+            <span class="lbl">Sidecar folders</span>
+            <input class="txt" id="sidecar_dirs" placeholder="Optional, e.g. Q:\RomRoot: where the releases' real .nfo/.diz live (separate several with ;)"/>
+            <button class="btn" onclick="addSidecarDir()">+ Add</button>
+          </div>
+          <div class="row" style="gap:8px">
+            <span class="lbl">Time per zip</span>
+            <input class="txt" id="zip_budget_s" value="120" style="width:60px;flex:none;text-align:right"/>
+            <span style="font-size:10px;color:var(--text2)">seconds (0 = no limit)</span>
+          </div>
+          <label class="opt"><input type="checkbox" id="use_rsr_store" checked> Check the RSR store first (rebuilds any zip RSR has captured, byte-exact)</label>
+          <label class="opt"><input type="checkbox" id="deep_search" checked> Deep search (slower; tries every compression setting and zipper)</label>
+          <label class="opt"><input type="checkbox" id="sidecar_revision" checked> Put back the real .nfo/.diz when the one inside a zip was edited</label>
+          <label class="opt"><input type="checkbox" id="auto_retry" checked> Retry unresolved files without suspect reference zips</label>
+          <div class="row" style="gap:8px">
+            <label class="opt" style="flex:1"><input type="checkbox" id="use_fp_db" checked> Remember what each group's zips look like between runs</label>
+            <button class="btn btn-danger" style="padding:1px 8px;font-size:9px" onclick="resetFingerprintDb()">Forget</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="more">
+        <summary>How it works</summary>
+        <div class="more-body">
+          <div class="hint">
         Originals in the Scene ZIPs folder are <strong style="color:var(--acc)">never modified</strong>.
         All repair work happens on copies written to the Output folder.
         Reference folder files are also never modified — they're copied to a temp
@@ -128,33 +179,7 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
         the general techniques. You can add several reference folders (e.g. specific
         subfolders) instead of one huge parent folder, to speed up the scan.
       </div>
-    </div>
-  </div>
-
-  <!-- Options -->
-  <div class="panel">
-    <div class="panel-hdr"><div class="dot"></div>Options</div>
-    <div class="panel-body">
-      <label class="opt"><input type="checkbox" id="dry_run"> Dry run (detect &amp; report only, write nothing)</label>
-      <div class="row" style="gap:8px">
-        <label class="opt" style="flex:1"><input type="checkbox" id="use_fp_db" checked> Use fingerprint database (skip re-scanning groups already learned in a previous run)</label>
-        <button class="btn btn-danger" style="padding:1px 8px;font-size:9px" onclick="resetFingerprintDb()">Reset DB</button>
-      </div>
-      <label class="opt"><input type="checkbox" id="auto_retry" checked> Auto-retry unresolved files by excluding suspect references (catches a poisoned DAT-verified reference)</label>
-      <label class="opt"><input type="checkbox" id="deep_search" checked> Deep search: after the likely encoders, try every zlib level &times; memLevel &times; strategy and every real zipper (Info-ZIP, 7-Zip, WinRAR)</label>
-      <label class="opt"><input type="checkbox" id="sidecar_revision" checked> Undo edited .nfo/.diz inside a zip: put the release's real text back (from loose copies, the sidecar folders, the RSR store, srr_cache), restore the group's header and solve the save time from the DAT's CRC (accepted only when MD5/SHA1 agree too)</label>
-      <label class="opt"><input type="checkbox" id="use_rsr_store" checked> Check the RSR store first (rebuilds byte-exact any zip RSR has captured, whatever zipper made it)</label>
-      <div class="row" style="gap:8px">
-        <span style="font-size:10px;color:var(--text2)">Time budget per zip:</span>
-        <input class="txt" id="zip_budget_s" value="120" style="width:60px;flex:none;text-align:right"/>
-        <span style="font-size:10px;color:var(--text2)">seconds (0 = no limit)</span>
-      </div>
-      <div class="row" style="gap:16px;margin-top:2px">
-        <span style="font-size:10px;color:var(--text2)">Confirmed files:</span>
-        <label class="opt"><input type="radio" name="move_mode" id="mode_copy" value="copy" checked> Copy (keep originals)</label>
-        <label class="opt"><input type="radio" name="move_mode" id="mode_move" value="move"> Move (remove from source)</label>
-      </div>
-      <div class="hint">
+          <div class="hint">
         If the RSR store has captured the release, it is rebuilt from there first. Then the
         techniques, in order per file: EOCD comment strip → grow-append truncation →
         line-ending fix (.nfo/.diz) → junk-file removal → compression variants (STORE +
@@ -176,44 +201,56 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
         most scene zips (PKZIP-era deflate): a re-packed copy of one of those can only be fixed
         when its original compressed bytes survived.
       </div>
-      <div class="hint">
+          <div class="hint">
         Output is organised by DAT release name: <code>output/&lt;game name&gt;/&lt;filename&gt;</code>.
         Sidecar .nfo/.diz files next to a confirmed .zip are also checked — if the DAT's
         same release block has a hash entry for them they're verified/fixed and placed
         alongside the .zip; otherwise they're left untouched in source.
         Only hash-confirmed files are moved or copied — unresolved files always stay in place.
       </div>
+        </div>
+      </details>
     </div>
   </div>
 
-  <!-- Sidecar fixer -->
-  <div class="panel">
-    <div class="panel-hdr"><div class="dot" style="background:var(--warn)"></div>Fix sidecars (.sfv / .nfo / .diz / .jpg)</div>
+  <!-- Sidecars -->
+  <div class="panel" id="pane-sidecars" style="display:none">
     <div class="panel-body">
+      <div class="lede">Finds or repairs each release's .sfv, .nfo, .diz and .jpg so they match the DAT. A replaced file goes to a backup folder; nothing is deleted.</div>
       <div class="row">
         <span class="lbl">Work folder</span>
-        <input class="txt" id="sc_folder" placeholder="The scene sets that need sidecars, their DAT(s), and any incorrect .sfv/.nfo/.diz copies (inside the sets or loose)"/>
+        <input class="txt" id="sc_folder" placeholder="The scene sets that need sidecars, plus their DAT(s)"/>
         <button class="btn" onclick="browseScFolder()">Browse</button>
       </div>
-      <div class="row">
-        <span class="lbl">Extras (optional)</span>
-        <input class="txt" id="sc_extras" placeholder="Optional — folders of extras: loose sidecars, or zips / rars / 7z of them (separate several with ;)"/>
-        <button class="btn" onclick="browseScExtras()">+ Add</button>
-      </div>
-      <div class="row">
-        <span class="lbl">Backup (optional)</span>
-        <input class="txt" id="sc_backup" placeholder="Where replaced files go — default: _sidecar_backup inside the work folder"/>
-        <button class="btn" onclick="browseScBackup()">Browse</button>
-      </div>
-      <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the set is missing</label>
-      <label class="opt"><input type="checkbox" id="sc_make_sfv" checked> Make an .sfv when no copy can be found or repaired (the DAT's CRCs in every layout, under the group's headers from the RSR store)</label>
-      <label class="opt"><input type="checkbox" id="sc_update_rsr" checked> Update the RSR store: a captured release's .rsr gets the DAT-matched sidecars (wrong one replaced, missing one added; old .rsr backed up; no re-scan needed)</label>
-      <label class="opt"><input type="checkbox" id="sc_use_extras" checked> Look in the srrdb extras store (srrdb_extras.db)</label>
-      <label class="opt"><input type="checkbox" id="sc_use_srrdb" checked> Use srrdb online when nothing local has it (downloads the .srr once, then it is cached)</label>
       <div class="row" style="gap:6px">
-        <button class="btn btn-acc" id="btn-sc-start" onclick="startSidecarRun()">▶ Fix sidecars</button>
+        <button class="btn btn-acc btn-big" id="btn-sc-start" onclick="startSidecarRun()">▶ Fix sidecars</button>
       </div>
-      <div class="hint">
+
+      <details class="more">
+        <summary>More options</summary>
+        <div class="more-body">
+          <div class="row">
+            <span class="lbl">Extras</span>
+            <input class="txt" id="sc_extras" placeholder="Optional: folders of loose sidecars, or zips / rars / 7z of them (separate several with ;)"/>
+            <button class="btn" onclick="browseScExtras()">+ Add</button>
+          </div>
+          <div class="row">
+            <span class="lbl">Backup</span>
+            <input class="txt" id="sc_backup" placeholder="Where replaced files go (default: _sidecar_backup inside the work folder)"/>
+            <button class="btn" onclick="browseScBackup()">Browse</button>
+          </div>
+          <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the set is missing</label>
+          <label class="opt"><input type="checkbox" id="sc_make_sfv" checked> Make an .sfv when no copy can be found or repaired</label>
+          <label class="opt"><input type="checkbox" id="sc_update_rsr" checked> Update the RSR store with the matched sidecars (old .rsr backed up)</label>
+          <label class="opt"><input type="checkbox" id="sc_use_extras" checked> Look in the srrdb extras store</label>
+          <label class="opt"><input type="checkbox" id="sc_use_srrdb" checked> Use srrdb online when nothing local has it</label>
+        </div>
+      </details>
+
+      <details class="more">
+        <summary>How it works</summary>
+        <div class="more-body">
+          <div class="hint">
         The DATs are read from the work folder itself (loose, or in a subfolder with no archives) and are the
         only judge: a sidecar counts as found when its size, CRC32 and the DAT's MD5/SHA1 all match. Each set is
         matched to its DAT entry by folder name (with or without the date prefix) or by its archive names; a loose
@@ -226,6 +263,9 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
         The Dry run and RSR store options below apply; every step is logged; a replaced file is moved to the backup
         folder, never deleted. A CSV report goes to <code>reports/</code>.
       </div>
+        </div>
+      </details>
+
       <div id="sc-stats" style="display:none">
         <div class="stats-grid">
           <div class="stat-box"><div class="num" id="sc-st-ok" style="color:var(--acc)">0</div><div class="lbl2">Already Right</div></div>
@@ -239,22 +279,19 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
     </div>
   </div>
 
-  <!-- Progress -->
+  <!-- Progress (both jobs) -->
   <div class="panel">
-    <div class="panel-hdr"><div class="dot" style="background:var(--info)"></div>Progress</div>
     <div class="panel-body">
       <div class="prog-wrap">
         <div class="prog-bar-bg"><div class="prog-bar" id="prog-bar" style="width:0%"></div></div>
         <div style="font-size:10px;font-family:var(--mono);color:var(--text2);margin-top:3px" id="prog-label">—</div>
       </div>
       <div class="row" style="gap:6px">
-        <button class="btn btn-acc" id="btn-start" onclick="startRun()">▶ Start</button>
         <button class="btn" id="btn-skip" onclick="skipFile()" disabled>⏭ Skip file</button>
         <button class="btn btn-danger" id="btn-stop" onclick="stopRun()" disabled>■ Stop</button>
       </div>
     </div>
   </div>
-
   <!-- Stats (shown after run) -->
   <div class="panel" id="stats-panel" style="display:none">
     <div class="panel-hdr">
@@ -291,6 +328,18 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
 </div>
 
 <script>
+function showTab(t) {
+  for (const k of ['zips', 'sidecars']) {
+    document.getElementById('pane-' + k).style.display = k === t ? '' : 'none';
+    document.getElementById('tab-' + k).classList.toggle('on', k === t);
+  }
+  try { localStorage.setItem('sr_tab', t); } catch (e) {}
+}
+document.addEventListener('DOMContentLoaded', () => {
+  let t = 'zips';
+  try { t = localStorage.getItem('sr_tab') || 'zips'; } catch (e) {}
+  showTab(t === 'sidecars' ? 'sidecars' : 'zips');
+});
 let refFolders = [];
 let lastDetails = {};
 

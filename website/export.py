@@ -34,6 +34,7 @@ IMG_MAX = 5_000_000
 DELTA_MAX = 4 * 1024      # a diff holds original archive bytes; header-sized only
 BIN_MAGIC = (b"\xd0\xcf\x11\xe0", b"MZ", b"PK\x03\x04", b"Rar!", b"7z\xbc\xaf", b"\x1f\x8b", b"CD001")
 RECON_MIN, RECON_RATIO = 64 * 1024, 0.5   # see withheld_reasons
+AV_MAX = 4 * 1024         # one RAR authenticity-verification block
 IMG_MAGIC = (b"\xff\xd8\xff", b"\x89PNG", b"GIF8", b"BM")
 NFO_MAX = 96 * 1024
 DATE_RE = re.compile(r"(?:^|[\\/])(?:\[[^\]]*\]\s*)?(\d{4}-\d{2}-\d{2})-")
@@ -103,6 +104,11 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = Non
                 why.add("zip reconstruction data as large as the packed files")
     for n in names:
         if is_meta(n):
+            continue
+        # RAR authenticity verification: the group's registered-RAR signature
+        # block (~220 B per volume) and its end marker. No file data; allowed
+        # by the site owner 2026-11-16.
+        if n.startswith("av/") and names[n].file_size <= AV_MAX:
             continue
         if n not in refs:
             top = n.split("/")[0]

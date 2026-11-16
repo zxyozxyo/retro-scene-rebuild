@@ -1318,7 +1318,11 @@ CONTENT_EXT = frozenset((
     ".3ds", ".cia", ".cci", ".nsp", ".xci", ".vpk", ".pkg", ".n64", ".z64",
     ".v64", ".sfc", ".smc", ".fig", ".md", ".gen", ".smd", ".sms", ".gg",
     ".pce", ".a26", ".a78", ".lnx", ".j64", ".nes", ".fds", ".ngp", ".ngc",
-    ".ws", ".wsc", ".vb", ".32x", ".gcm", ".rvz", ".xex", ".pocket"))
+    ".ws", ".wsc", ".vb", ".32x", ".gcm", ".rvz", ".xex", ".pocket",
+    # Intellivision, ColecoVision, Atari 5200, Vectrex, Pokemon mini, MSX,
+    # Amiga / C64 / Spectrum disk and tape images
+    ".int", ".itv", ".col", ".a52", ".vec", ".min", ".rom", ".adf", ".ipf",
+    ".dms", ".d64", ".t64", ".tzx", ".tap", ".z80", ".sna"))
 
 
 # What "Store only scene text" still carries: the group's own text.
@@ -16160,7 +16164,9 @@ class RsrToolAPI:
             total = sum(len(d) for d in datas)
             try:
                 subprocess.run(argv, env=env, capture_output=True,
-                               timeout=max(300, total // 100_000),
+                               # emulated 68k under a busy PC: measured
+                               # runs of 5 MB passing 300 s (2026-11-16)
+                               timeout=max(1800, total // 10_000),
                                creationflags=getattr(subprocess,
                                                      "CREATE_NO_WINDOW", 0))
             except subprocess.TimeoutExpired:
