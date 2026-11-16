@@ -110,7 +110,9 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = Non
                 top, f"carried archive data ({top})"))
             continue
         where, fname, size = refs[n]
-        ext = Path(fname).suffix.lower()
+        # An LHA member name can carry an Amiga file note after a NUL
+        # ("FiLE_iD.DiZ\0PSYCHO TERMiNAL ..."): the type is the name's.
+        ext = Path(fname.split("\x00")[0]).suffix.lower()
         head = z.open(n).read(1 << 20)
         if n.endswith(".def") and methods.get(n, 8) == 8:
             # a zip member carried as its original deflate stream: judge what it

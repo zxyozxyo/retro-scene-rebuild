@@ -29,6 +29,7 @@ Nothing here ever writes to the folder being scanned.
 import os
 import re
 import io
+import sys
 import csv
 import json
 import time
@@ -6420,6 +6421,20 @@ class RsrToolAPI:
                               timeout=3600,
                               heartbeat=f"rebuild test: extracting {head.name}")
                 _rmtree(vols)
+            # Release files the .rsr leaves to the user (sidecars with source
+            # "content") are given from the release folder, as a user would.
+            try:
+                with zipfile.ZipFile(rsr) as rz:
+                    rman = json.loads(rz.read("manifest.json"))
+            except Exception:
+                rman = {}
+            for sc in rman.get("sidecars", []):
+                if sc.get("source") == "content" and not sc.get("stored"):
+                    sp = folder / sc.get("folder", "") / sc["name"]
+                    if sp.is_file():
+                        dp = content / "_release_files" / sc.get("folder", "") / sc["name"]
+                        dp.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(sp, dp)
             if not self._stop.is_set():
                 # A release with no archive keeps its content loose in itself.
                 res = self._rebuild_run(
@@ -16038,38 +16053,208 @@ class RsrToolAPI:
                   f"hash-exact.", "ok")
         return True
 
+    # The LHA programs a compressed member can come from. Measured 2026-11-16
+    # on 30 random LHA releases: every -lh5- member reproduced byte for byte by
+    # one of these (29 of 30 archives complete): the groups' own DOS LHA, the
+    # Amiga LhA 2.15 of Amiga groups, and LhA 1.38 for the ad files Amiga BBSes
+    # added to the PSX DOX archives.
+    LHA_PACKERS = {
+        "D255": ("dos", "lha_dos/LHA255E/LHA.EXE", []),
+        "D213": ("dos", "lha_dos/LHA213/LHA.EXE", []),
+        "A215": ("ami", "lha_amiga/LHA215/lha_68k", []),
+        "A215-3": ("ami", "lha_amiga/LHA215/lha_68k", ["-3"]),
+        "A138": ("ami", "lha_amiga/LHA138/LhA", []),
+    }
+    # LhA 2.15 opens gadtools.library for its GUI requester and stops without
+    # it; packing from the command line never calls it, so an empty stand-in
+    # of the right version is enough.
+    VAMOS_LIBS = "gadtools.library=mode:fake,version:40,num_fake_funcs:30"
+
+    def _vamos_exe(self) -> Path | None:
+        """vamos (amitools) runs Amiga command-line programs on the PC."""
+        here = Path(sys.executable).parent
+        for p in (self._app_dir / "apps" / "amitools" / "Scripts" / "vamos.exe",
+                  here / "vamos.exe", here / "Scripts" / "vamos.exe"):
+            if p.is_file():
+                return p
+        w = shutil.which("vamos")
+        return Path(w) if w else None
+
+    @staticmethod
+    def _lha_streams(b: bytes) -> list | None:
+        """The compressed data of every member of an LHA archive, in order."""
+        out, pos = [], 0
+        try:
+            while pos < len(b) and b[pos] != 0:
+                lvl = b[pos + 20]
+                if lvl in (0, 1):
+                    data = pos + b[pos] + 2
+                    packed = int.from_bytes(b[pos + 7:pos + 11], "little")
+                    if lvl == 1:
+                        # Level 1 counts its extended headers in the packed
+                        # size; each one's size is the last word before it.
+                        nxt = int.from_bytes(b[data - 2:data], "little")
+                        while nxt:
+                            packed -= nxt
+                            data += nxt
+                            nxt = int.from_bytes(b[data - 2:data], "little")
+                elif lvl == 2:
+                    data = pos + int.from_bytes(b[pos:pos + 2], "little")
+                    packed = int.from_bytes(b[pos + 7:pos + 11], "little")
+                else:
+                    return None
+                out.append(b[data:data + packed])
+                pos = data + packed
+        except IndexError:
+            return None
+        return out
+
+    def _lha_pack_session(self, datas: list, packer: str) -> list | None:
+        """Pack `datas` in this order in ONE run of an LHA_PACKERS program and
+        return each one's compressed stream.
+
+        One run, not one file at a time: Amiga LhA 2.15 carries state from one
+        file into the next -- Gothic_Vania_AMIGA-FiXLTD's `credits` packs to
+        the original's stream only right after the file before it (measured
+        2026-11-16) -- so a member comes back exactly only from the same run
+        it was captured from. The files get sequential names, so both DOS LHA
+        (under DOSBox) and Amiga LhA (under vamos) take them in that order."""
+        spec = self.LHA_PACKERS.get(packer)
+        if spec is None or not datas or len(datas) > 9999:
+            return None
+        kind, rel, opts = spec
+        exe = self._app_dir / "apps" / rel
+        if not exe.is_file():
+            self._log(f"    ✗ LHA {packer} is not in apps/{rel}.", "err")
+            return None
+        work = Path(tempfile.mkdtemp(prefix="rsr-lha-", dir=self._work_root()))
+        try:
+            src = work / "SRC"
+            src.mkdir()
+            for i, d in enumerate(datas):
+                (src / f"F{i:04d}.DAT").write_bytes(d)
+            env = dict(os.environ, SDL_VIDEODRIVER="dummy")
+            if kind == "dos":
+                box = self._dosbox_exe()
+                if box is None:
+                    return None
+                shutil.copy2(exe, work / "LHA.EXE")
+                (work / "GO.BAT").write_bytes(
+                    b"cd SRC\r\n..\\LHA.EXE a ..\\OUT.LZH F????.DAT > ..\\LOG.TXT\r\ncd ..\r\n")
+                (work / "dosbox.conf").write_text(
+                    "[sdl]\noutput=texture\n[cpu]\ncore=dynamic\n"
+                    "cycles=fixed 5000000\n[autoexec]\n"
+                    f"mount c \"{work}\"\nc:\ncall GO.BAT\nexit\n",
+                    encoding="utf-8")
+                argv = [str(box), "-conf", str(work / "dosbox.conf"),
+                        "-noconsole"]
+            else:
+                vam = self._vamos_exe()
+                if vam is None:
+                    self._log("    ✗ this release needs vamos (pip install "
+                              "amitools) to run Amiga LhA.", "err")
+                    return None
+                argv = [str(vam), "-q", "-O", self.VAMOS_LIBS,
+                        "-V", f"wrk:{work}", "--cwd", "wrk:SRC", "--",
+                        str(exe), *opts, "a", "wrk:OUT.LZH", "F#?.DAT"]
+            total = sum(len(d) for d in datas)
+            try:
+                subprocess.run(argv, env=env, capture_output=True,
+                               timeout=max(300, total // 100_000),
+                               creationflags=getattr(subprocess,
+                                                     "CREATE_NO_WINDOW", 0))
+            except subprocess.TimeoutExpired:
+                return None
+            out = work / "OUT.LZH"
+            got = self._lha_streams(out.read_bytes()) if out.is_file() else None
+            return got if got is not None and len(got) == len(datas) else None
+        finally:
+            _rmtree(work)
+
+    def _lha_pack_stream(self, data: bytes, packer: str) -> bytes | None:
+        """One file packed on its own (a run of one)."""
+        got = self._lha_pack_session([data], packer)
+        return got[0] if got else None
+
     def _rebuild_lha(self, st: dict, z, content: Path, out: Path) -> bool:
         """Put an LHA archive back together from the skeleton and its members.
 
-        Simpler than the ZIP rebuild for the one reason that makes LHA worth
-        so little as a recipe: nothing is derived. Every compressed member was
-        carried, and the only thing asked of the caller is the stored content
-        member, matched back by hash exactly as a rom is."""
+        A member is carried (`stored`), supplied with the content (matched by
+        hash exactly as a rom is), or -- recipe "lhapack" -- packed again by
+        the original LHA program in the run the set's `lha_sessions` records,
+        from the content or from the plain text the .rsr keeps of an nfo/diz.
+        The finished archive must match the original's SHA-256."""
         name = st["name"]
+        files = st.get("files") or []
         holes = [list(h) for h in st.get("holes", [])]
         names = list(st.get("hole_names", []))
+        plain: dict = {}
+
+        def member_bytes(i: int):
+            """The member's own (unpacked) bytes: stored text or content."""
+            if i in plain:
+                return plain[i]
+            f = files[i]
+            if f.get("stored"):
+                data = z.read(f["stored"])
+                if f.get("sha256") and _sha256(data) != f["sha256"]:
+                    self._log(f"    ✗ {f['name']}: stored text does not "
+                              "match its hash.", "err")
+                    return None
+            else:
+                src = self._source_by_hash(content, f)
+                if src is None:
+                    self._log(f"    ✗ missing source: {f['name']} "
+                              f"({f['size']:,} B)", "err")
+                    return None
+                self._consumed.append(src)
+                data = src.read_bytes()
+            plain[i] = data
+            return data
+
+        # Replay every packing run once; each member takes its stream from
+        # the run it was captured in.
+        packed: dict = {}
+        for si, sess in enumerate(st.get("lha_sessions") or []):
+            datas = []
+            for i in sess["members"]:
+                d = member_bytes(i)
+                if d is None:
+                    return False
+                datas.append(d)
+            got = self._lha_pack_session(datas, sess["packer"])
+            if got is None:
+                self._log(f"    ✗ {name}: LHA {sess['packer']} run {si + 1} "
+                          "did not complete.", "err")
+                return False
+            for i, s in zip(sess["members"], got):
+                rec = files[i].get("recipe") or {}
+                if rec.get("impl") == "lhapack" and rec.get("session") == si:
+                    packed[i] = s
+
         streams = {}
         used: dict = {}
         for (off, ln), nm in zip(holes, names):
             seen_n = used.get(nm, 0)
-            f = next((x for i, x in enumerate(st["files"])
-                      if x["name"] == nm
-                      and sum(1 for y in st["files"][:i] if y["name"] == nm)
-                      == seen_n), None)
+            idx = next((i for i, x in enumerate(files)
+                        if x["name"] == nm
+                        and sum(1 for y in files[:i] if y["name"] == nm)
+                        == seen_n), None)
             used[nm] = seen_n + 1
-            if f is None:
+            if idx is None:
                 self._log(f"    ✗ {nm}: not described in the manifest.", "err")
                 return False
-            if f.get("stored"):
-                data = z.read(f["stored"])
-            else:
-                src = self._source_by_hash(content, f)
-                if src is None:
-                    self._log(f"    ✗ missing source: {nm} "
-                              f"({f['size']:,} B)", "err")
+            f = files[idx]
+            rec = f.get("recipe") or {}
+            if rec.get("impl") == "lhapack":
+                data = packed.get(idx)
+                if data is None:
+                    self._log(f"    ✗ {nm}: no LHA run produced it.", "err")
                     return False
-                self._consumed.append(src)
-                data = src.read_bytes()
+            else:
+                data = member_bytes(idx)
+                if data is None:
+                    return False
             if len(data) != ln:
                 self._log(f"    ✗ {nm}: {len(data):,} B, expected {ln:,}.",
                           "err")
@@ -16199,7 +16384,7 @@ class RsrToolAPI:
                         ok_all = False
                         continue
                     ok_all &= self._rebuild_set(st, manifest, z, content, out, work)
-                self._restore_sidecars(manifest, z, out)
+                ok_all &= self._restore_sidecars(manifest, z, out, content)
                 self._restore_damaged(manifest, z, out)
             finally:
                 self._tl.inner_dir = None
@@ -17379,20 +17564,40 @@ class RsrToolAPI:
             self._log(f"    ✓ {n} damaged volume(s) restored as they were "
                       f"(they fail the .sfv on purpose).", "ok")
 
-    def _restore_sidecars(self, manifest, z, out: Path):
+    def _restore_sidecars(self, manifest, z, out: Path,
+                          content: Path | None = None) -> bool:
         """Put the .nfo / .sfv / proof back beside the rebuilt volumes, with the
         timestamps and attributes they were captured with — a release folder
-        without its nfo is not the release."""
-        n = 0
+        without its nfo is not the release.
+
+        A sidecar with source "content" is not in the .rsr: it is one of the
+        release's own files (a disk image, a patch, a script shipped beside the
+        archives) that the user supplies like the game files, found in the
+        content folder by size, CRC and SHA-256. Returns False when one of
+        those is missing."""
+        n, ok = 0, True
         for f in manifest.get("sidecars", []):
             if not f.get("stored"):
-                continue
+                if f.get("source") != "content":
+                    continue
+                src = (self._source_by_hash(content, f)
+                       if content is not None else None)
+                if src is None:
+                    self._log(f"    ✗ missing source: {f['name']} "
+                              f"({f.get('size', 0):,} B, CRC "
+                              f"{f.get('crc32') or 0:08X}) — a release file "
+                              "supplied with the content.", "err")
+                    ok = False
+                    continue
+                data = src.read_bytes()
+            else:
+                data = z.read(f["stored"])
             dst = out / f.get("folder", "") / f["name"]
             dst.parent.mkdir(parents=True, exist_ok=True)
-            data = z.read(f["stored"])
             if f.get("sha256") and _sha256(data) != f["sha256"]:
                 self._log(f"    ✗ sidecar {f['name']}: stored bytes do not "
                           "match the captured hash.", "err")
+                ok = False
                 continue
             dst.write_bytes(data)
             try:
@@ -17404,6 +17609,7 @@ class RsrToolAPI:
             n += 1
         if n:
             self._log(f"    ✓ {n} sidecar(s) restored.", "ok")
+        return ok
 
     @staticmethod
     def _restore_extras(st, z, out: Path):
@@ -18655,6 +18861,14 @@ class RsrToolAPI:
                                 (rel, s.get("stem"), f["name"], f["size"],
                                  f["packed_size"], f["crc32"], f.get("sha256"),
                                  f["method"], f.get("source")))
+            # Release files the user supplies (sidecars with source
+            # "content"): a batch rebuild matches and completes on them too.
+            for f in manifest.get("sidecars", []):
+                if f.get("source") == "content" and not f.get("stored"):
+                    con.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?)",
+                                (rel, "(release folder)", f["name"], f["size"],
+                                 f["size"], f.get("crc32"), f.get("sha256"),
+                                 "sidecar", "content"))
             con.commit()
         finally:
             con.close()
