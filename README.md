@@ -1,5 +1,7 @@
 # RetroVault Toolkit
 
+**Here from [retroscenerebuild.com](https://retroscenerebuild.com)?** This is the free Windows app that rebuilds a release from its `.rsr` file. Follow *Install* below, then see the site's [Get the app](https://retroscenerebuild.com/get.html) page for adding the archivers and rebuilding a release.
+
 A PyWebView desktop application for cleaning and managing ROM and scene release collections. Includes tools for RomVault integration, DAT file management, Internet Archive uploading, and scene RAR reconstruction — including **RSR**, a capture-time format that guarantees byte-exact reconstruction rather than merely making it possible.
 
 ---
