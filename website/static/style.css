@@ -143,3 +143,8 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0;
 .t.tools th:nth-child(1) { width: 34%; }
 .t.tools .mono { width: auto; white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 860px) { .features { grid-template-columns: 1fr; } }
+
+/* Get the app */
+.cta { display: inline-block; background: var(--accent); color: var(--accent-ink); padding: 10px 20px; border-radius: 6px; font-weight: 600; text-decoration: none; }
+.cta:hover { filter: brightness(1.08); }
+.small { font-size: 14px; color: var(--muted); }

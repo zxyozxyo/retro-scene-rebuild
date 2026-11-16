@@ -1,0 +1,34 @@
+<div class="prose">
+<h1>Get the app</h1>
+<p class="lede">Rebuilding a release needs the free <strong>RetroVault Toolkit</strong> for Windows. It reads the .rsr file, runs the original archiver, and checks every rebuilt volume against the original hashes.</p>
+
+<p><a class="cta" href="__REPO__">Download from GitHub</a></p>
+<p class="small">The source and the latest version are always at <a href="__REPO__">__REPO_SHORT__</a>. On that page click the green <b>Code</b> button, then <b>Download ZIP</b>.</p>
+
+<h2>1. Install</h2>
+<ol>
+<li>Unzip the download anywhere, for example <code>C:\RetroVault</code>.</li>
+<li>Double-click <b>Install RetroVault.bat</b>. If Python is missing it offers to install it (free, from python.org). It sets up everything inside that folder and nothing outside it.</li>
+<li>Start the app with <b>RetroVault.bat</b>, or the desktop shortcut the installer offers.</li>
+</ol>
+<p>Windows 10 or 11. To remove it, delete the folder.</p>
+
+<h2>2. Add the archivers</h2>
+<p>The app needs the same archiver build that made each release. These are other people's programs and are <strong>not hosted here</strong>. The <a href="tools.html">Tools page</a> lists every build and where they come from.</p>
+<ol>
+<li>Collect the RAR installers or executables you can find in one folder, with any names.</li>
+<li>In the app open <b>RSR Scanner</b>, then <b>Database &rarr; Import from folder&hellip;</b>. It recognises each build by its contents and files it under the right name.</li>
+<li><b>Check packers</b> shows what is still missing. A missing build only affects releases made with it; every release page says which one it needs.</li>
+</ol>
+
+<h2>3. Rebuild a release</h2>
+<ol>
+<li>Find the release here and download its <b>.rsr</b> file.</li>
+<li>Put your own copies of the release's files in one folder. The release page lists each file with its size and CRC32; the names don't matter, the contents do.</li>
+<li>In <b>RSR Scanner</b>, under <b>Rebuild</b>, choose <b>Single</b>. Pick the .rsr file, the folder with your files, and an output folder, then click <b>Rebuild</b>.</li>
+</ol>
+<p>The release comes out in the output folder, with its NFO, SFV and other release files. Every volume is checked against the original hashes, and the app tells you plainly if anything doesn't match.</p>
+
+<h2>Help and feedback</h2>
+<p>Questions, corrections or a release that won't rebuild: email <a href="mailto:admin@retroscenerebuild.com">admin@retroscenerebuild.com</a>, or open an issue on <a href="__REPO__/issues">GitHub</a>.</p>
+</div>
