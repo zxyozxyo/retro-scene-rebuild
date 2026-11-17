@@ -1,0 +1,46 @@
+<div class="prose">
+<h1>FAQ</h1>
+<p class="lede">What this site can rebuild, how it differs from .srr files, and a few releases that show the difference.</p>
+
+<h2>What kinds of releases can be rebuilt?</h2>
+<ul>
+<li><strong>RAR sets</strong>: single archives and multi-volume sets (<code>.rar/.r00</code> and <code>.partN.rar</code>), from the 1994 DOS RAR 1.5x builds to RAR 7. That includes solid archives, recovery records, archive comments, authenticity blocks, and sets split differently per disc.</li>
+<li><strong>DOS-packed RAR sets</strong>: many late-90s and early-2000s releases were packed with DOS RAR. The app runs those original DOS builds under DOSBox-X, so the output matches to the byte.</li>
+<li><strong>ZIP releases</strong>: the original ZIP files, including their compressed data, headers and comments.</li>
+<li><strong>ZIPs that contain a RAR set</strong>: common for GP32, Gizmondo, iQue Player and N-Gage releases. The release is a ZIP holding a RAR (plus the NFO and DIZ), and the RAR holds the game files. Both layers are rebuilt: first the RAR from your files, then the ZIP around it. Example: <a href="r/GIZ/Alien_Hominid_BETA_GIZMONDO_READNFO-SHiZMO.html">Alien_Hominid_BETA_GIZMONDO_READNFO-SHiZMO</a>, a ZIP holding <code>shz-alho.rar</code>, <code>shizmo.nfo</code> and <code>file_id.diz</code>, where the RAR holds 22 game files.</li>
+<li><strong>LHA archives</strong> (Amiga and DOS), packed again by the original LhA/LHA programs.</li>
+<li><strong>NFO, DIR and SFV fixes</strong>: releases that are only a few small files.</li>
+</ul>
+
+<h2>How is this different from srrdb and .srr files?</h2>
+<p>An <code>.srr</code> file stores the archive headers of a release. To rebuild, a tool such as pyReScene has to work out which WinRAR version and settings were used, by trying versions until a test piece matches. That works for many Windows-era releases. It can't run DOS RAR, it doesn't try every switch the scene used, and it doesn't cover ZIP or LHA.</p>
+<p>An <code>.rsr</code> file records the answer: the exact archiver build and switches found when the release was captured. Every capture is checked by rebuilding it and comparing every volume with the original hashes, so nothing has to be searched for again later.</p>
+
+<h2>Examples: the .srr route failed, the .rsr rebuilds</h2>
+<p>Each of these was tried with the .srr from srrdb and pyReScene in our own test runs and could not be rebuilt. Each one rebuilds byte for byte here, some with a small diff applied (the release page says which). More than 200 releases from those runs are in the same position.</p>
+<table class="t ex">
+<thead><tr><th>Release</th><th>What it took</th><th>.srr result</th></tr></thead>
+<tbody>
+<tr><td><a href="r/PSX/FEAR_EFFECT-KALISTO.html">FEAR_EFFECT-KALISTO</a><br><span class="note">PlayStation · 4 discs · 76 volumes · 1.4 GB</span></td><td><strong>DOS RAR 2.00</strong> (1996) run under DOSBox, with different compression levels on different discs</td><td>No good RAR version found</td></tr>
+<tr><td><a href="r/PSX/ENEN_ANGEL_JAP-HOOLiGANS.html">ENEN_ANGEL_JAP-HOOLiGANS</a><br><span class="note">PlayStation · 6 volumes</span></td><td>RAR 2.70 with <strong>multimedia compression</strong> (<code>-mm</code>) and a recovery record</td><td>No good RAR version found</td></tr>
+<tr><td><a href="r/PSX/Castrol_Honda_VTR_PAL_PSX-LIGHTFORCE.html">Castrol_Honda_VTR_PAL_PSX-LIGHTFORCE</a><br><span class="note">PlayStation · 32 volumes</span></td><td>RAR 2.71 with <code>-s1 -ds</code> and a recovery record</td><td>No good RAR version found</td></tr>
+<tr><td><a href="r/3DS/CRUSH3D_USA_3DS-VENOM.html">CRUSH3D_USA_3DS-VENOM</a><br><span class="note">Nintendo 3DS · 19 volumes</span></td><td>RAR 3.30, fastest level (<code>-m1</code>), with an archive comment</td><td>No good RAR version found</td></tr>
+<tr><td><a href="r/NDS/Final_Fantasy_Tactics_A2_Grimoire_of_the_Rift_EUR_MULTi4_NDS-EXiMiUS.html">Final_Fantasy_Tactics_A2_Grimoire_of_the_Rift_EUR_MULTi4_NDS-EXiMiUS</a><br><span class="note">Nintendo DS · 14 volumes</span></td><td>RAR 3.60, two threads (<code>-mt2</code>)</td><td>No good RAR version found</td></tr>
+<tr><td><a href="r/NDS/Kung_Fu_Panda_2_USA_MULTi2_NDS_DSi-PUSSYCAT.html">Kung_Fu_Panda_2_USA_MULTi2_NDS_DSi-PUSSYCAT</a><br><span class="note">Nintendo DS · 10 volumes</span></td><td>RAR 5.00, eight threads (<code>-mt8</code>)</td><td>No good RAR version found</td></tr>
+<tr><td><a href="r/3DS/Persona_Q_Shadow_of_the_Labyrinth_EUR_3DS-ABSTRAKT.html">Persona_Q_Shadow_of_the_Labyrinth_EUR_3DS-ABSTRAKT</a><br><span class="note">Nintendo 3DS · 38 volumes · 1.8 GB</span></td><td>RAR 5.21, <strong>solid</strong>, two threads, with an archive comment</td><td>No good RAR version found</td></tr>
+<tr><td><a href="r/3DS/Metroid_Samus_Returns_Plus3_Trainer_3DS-VENOM.html">Metroid_Samus_Returns_Plus3_Trainer_3DS-VENOM</a><br><span class="note">Nintendo 3DS · trainer</span></td><td>RAR 5.00 with <strong>PPMd text compression</strong> (<code>-mc63:128t+</code>), a locked archive with folder paths</td><td>No good RAR version found</td></tr>
+</tbody>
+</table>
+
+<h2>Do I need srrdb or an .srr file?</h2>
+<p>No. The .rsr has everything the rebuild needs except your own files. The app's srrdb Rebuilder also checks this site first, so a release that is here is rebuilt from its .rsr even when you start from srrdb.</p>
+
+<h2>Why does the app need old RAR versions?</h2>
+<p>A rebuild replays the archiver the group used, and different RAR builds produce different bytes from the same files. The <a href="tools.html">Tools page</a> lists every build, with hashes, and the app checks which ones you have.</p>
+
+<h2>What are the "Release files" downloads?</h2>
+<p>The small files that came with a release: NFO, SFV, DIZ and proof images. They can be downloaded on their own from each release page, including releases whose rebuild data is not hosted.</p>
+
+<h2>What do the numbers on the Progress page mean?</h2>
+<p>The <a href="stats.html">Progress page</a> counts every release in the dats.site scene DATs, one per game or set however many archive volumes it has, and shows how many can be rebuilt here, how many are listed only, which releases are damaged in the original upload, and which haven't been captured yet.</p>
+</div>

@@ -207,3 +207,8 @@ summary.srow:hover { background: var(--bg); }
 .dl .extras { display: block; width: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .dl.no .extras { color: var(--warn-ink); margin-top: 8px; }
 .dl .extras a { font-weight: 600; }
+.t.ex th:nth-child(1) { width: 42%; }
+.t.ex th:nth-child(3) { width: 150px; }
+.t.ex td:nth-child(3) { color: var(--c-bad); }
+.t.ex td { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .t.ex th:nth-child(3), .t.ex td:nth-child(3) { display: none; } }

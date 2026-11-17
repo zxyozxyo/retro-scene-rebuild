@@ -99,7 +99,7 @@ def page(title, body, depth, desc=""):
 <body>
 <header class="top"><div class="wrap">
 <a class="brand" href="{up}index.html"><span class="mark">▚</span> {SITE_NAME}</a>
-<nav><a href="{up}search.html">Search</a><a href="{up}stats.html">Progress</a><a href="{up}get.html">Get the app</a><a href="{up}tools.html">Tools</a><a href="{up}about.html">About</a><a href="{up}disclaimer.html">Disclaimer</a></nav>
+<nav><a href="{up}search.html">Search</a><a href="{up}stats.html">Progress</a><a href="{up}get.html">Get the app</a><a href="{up}tools.html">Tools</a><a href="{up}faq.html">FAQ</a><a href="{up}about.html">About</a><a href="{up}disclaimer.html">Disclaimer</a></nav>
 </div></header>
 <main class="wrap">
 {body}
@@ -462,6 +462,10 @@ def main():
     get = (HERE / "get.html").read_text(encoding="utf-8")
     get = get.replace("__REPO_SHORT__", REPO.split("://", 1)[1]).replace("__REPO__", REPO)
     (site / "get.html").write_text(page(f"Get the app — {SITE_NAME}", get, 0), encoding="utf-8")
+    faq = (HERE / "faq.html").read_text(encoding="utf-8")
+    (site / "faq.html").write_text(page(f"FAQ — {SITE_NAME}", faq, 0,
+                                        "What Retro Scene Rebuild can rebuild, how it differs from .srr files, and examples."),
+                                   encoding="utf-8")
     about = (HERE / "about.html").read_text(encoding="utf-8")
     (site / "about.html").write_text(page(f"About — {SITE_NAME}", about, 0), encoding="utf-8")
     disc = (HERE / "disclaimer.html").read_text(encoding="utf-8")
