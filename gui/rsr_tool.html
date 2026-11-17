@@ -160,6 +160,18 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 .cross{color:var(--danger)}
 .progress{font-family:var(--mono);font-size:10px;color:var(--warn);min-height:14px}
 .banner{padding:6px 10px;font-size:11px;border-radius:4px;border:1px solid var(--info);color:var(--info);background:rgba(64,160,240,.06);line-height:1.5}
+.tabs{display:flex;gap:4px;flex-shrink:0}
+.tab{flex:1;background:var(--bg1);border:1px solid var(--border);border-radius:5px;padding:6px 10px;color:var(--text2);font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer}
+.tab:hover{color:var(--acc)}
+.tab.on{color:var(--acc);border-color:var(--acc);background:var(--bg2)}
+.tabpane{display:none}
+.tabpane.on{display:block}
+#rb-batch,#rb-one{flex-direction:column;gap:7px}
+#rb-batch,#rb-one{display:flex}
+details.more{border-top:1px solid var(--border);padding-top:4px}
+details.more summary{cursor:pointer;font-size:11px;color:var(--text2);padding:3px 0;user-select:none}
+details.more summary:hover{color:var(--acc)}
+.more-body{display:flex;flex-direction:column;gap:6px;padding:6px 0 2px 0}
 </style>
 </head>
 <body>
@@ -181,17 +193,18 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
     <!-- ── Left column ─────────────────────────────────────── -->
     <div class="left-col">
 
-      <div class="banner">
-        Point this at folders holding the <b>ORIGINAL</b> rar sets. Each release
-        is packed again with every WinRAR build until the bytes match, then the
-        recipe is <b>replayed and verified</b> before the .rsr is written.
-        Nothing is ever written back into the scanned folder.
+      <div class="tabs">
+        <button class="tab" id="tab-capture" onclick="showTab('capture')">Capture</button>
+        <button class="tab" id="tab-rebuild" onclick="showTab('rebuild')">Rebuild</button>
+        <button class="tab" id="tab-database" onclick="showTab('database')">Database</button>
       </div>
 
       <!-- Capture -->
-      <div class="panel">
-        <div class="phdr"><span class="dot"></span>Capture</div>
+      <div class="panel tabpane" id="pane-capture">
         <div class="pbody">
+          <div class="hint">Point this at folders holding the <b>original</b> rar sets. Each release is packed
+            again until the bytes match, and the recipe is replayed and verified before its .rsr is written.
+            Nothing is written back into the scanned folder.</div>
           <div class="row">
             <div class="lbl">Originals</div>
             <input class="txt" id="source" placeholder="folder of releases, or one release">
@@ -221,55 +234,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
                    onchange="save()">
             <button class="btn btn-sm" onclick="pick('proven_dir')">…</button>
           </div>
-          <div class="row">
-            <div class="lbl">Max -mt</div>
-            <input class="num" id="max_mt" type="number" min="0" max="32" value="16">
-            <span class="hint">thread counts swept 0–N</span>
-          </div>
-          <div class="row" id="embed_cap_row">
-            <div class="lbl">Embed cap</div>
-            <input class="num" id="embed_max_mb" type="number" min="0" max="4096" value="16">
-            <span class="hint">MB — larger packed files count as content</span>
-          </div>
-          <div class="row">
-            <div class="lbl">Carry walls up to</div>
-            <input class="num" id="wall_carry_mb" type="number" min="0" max="65536" value="0">
-            <span class="hint">MB — a release no recipe reproduces is kept whole (0 = only under the embed cap)</span>
-          </div>
-          <label class="chk-row" title="Inside the archives only nfo/diz/sfv are stored; everything else (game files, pictures, covers) is supplied from your collection at rebuild. Loose files beside the archives, such as Proof folders, are still stored."><input type="checkbox" id="content_all" onchange="syncEmbedCap()">
-            No copyrighted files in the .rsr — inside the archives keep only nfo/diz/sfv (loose Proof folders are still kept)</label>
-          <label class="chk-row"><input type="checkbox" id="embed_extras" checked>
-            Embed archive-only extras (required to rebuild them)</label>
-          <label class="chk-row"><input type="checkbox" id="write_srr" checked>
-            Also embed a legacy .srr</label>
           <label class="chk-row"><input type="checkbox" id="skip_done" checked>
             Skip releases already captured</label>
-          <div class="row">
-            <div class="lbl">Budget</div>
-            <input class="num" id="budget_min" type="number" min="0" max="1440" value="45">
-            <span class="hint">minutes per release, 0 = no limit</span>
-          </div>
-          <label class="chk-row"><input type="checkbox" id="dict_ladder">
-            Retry larger dictionary sizes if the header's is wrong
-            <span class="hint">(never helped: 7,541 of 7,541)</span></label>
-          <label class="chk-row"><input type="checkbox" id="retry_walls">
-            Retry releases already swept to exhaustion</label>
-          <label class="chk-row" title="Of 284 captured DOS-host archives, 284 were reproduced by a DOS build and none by a Windows build. With this on, a DOS-host archive is swept with the DOS builds only and a wall means no DOS build matched."><input type="checkbox" id="dos_host_only">
-            DOS-host archives: DOS builds only (skip the Windows backstop)</label>
-          <label class="chk-row"><input type="checkbox" id="small_first" checked>
-            Smallest releases first (learn recipes cheaply)</label>
-          <div class="cpu-row" title="Sweep only builds released up to this many years BEFORE the release, and skip older ones. A build older than the release is the normal case: measured over 9,485 captures, -10/+3 sweeps 77 of 403 builds and misses 0.07%; -8/+2 sweeps 56 and misses 0.15%; -6/+3 misses 1.87%; -5/+3 misses 2.46%. 0 on both = sweep everything. A wall found inside a window says so in the log.">
-            <div class="lbl" style="min-width:auto">Years before</div>
-            <input type="range" id="year_before" min="0" max="20" step="1" value="0"
-                   oninput="yearWindowPreview()">
-            <div class="val" id="year_before_val">off</div>
-          </div>
-          <div class="cpu-row" title="Sweep only builds released up to this many years AFTER the release. A build NEWER than the release cannot have made it, so this side can be small: the 31% of captures recorded against a newer build are byte-identical twins the sweep reached first. +3 is ample, +2 costs almost nothing more.">
-            <div class="lbl" style="min-width:auto">Years after</div>
-            <input type="range" id="year_after" min="0" max="20" step="1" value="0"
-                   oninput="yearWindowPreview()">
-            <div class="val" id="year_after_val">off</div>
-          </div>
           <div class="cpu-row" title="rar threads the sweep may use at once. Takes effect immediately, even mid-scan.">
             <div class="lbl" style="min-width:auto">Cores</div>
             <input type="range" id="workers" min="0" max="64" step="1" value="0"
@@ -282,6 +248,60 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
                    oninput="jobsPreview()" onchange="jobsApply()">
             <span class="cpu-val" id="jobs-val">1 release</span>
           </div>
+
+          <details class="more" id="more-capture">
+            <summary>More options</summary>
+            <div class="more-body">
+              <div class="row">
+                <div class="lbl">Budget</div>
+                <input class="num" id="budget_min" type="number" min="0" max="1440" value="45">
+                <span class="hint">minutes per release, 0 = no limit</span>
+              </div>
+              <div class="row">
+                <div class="lbl">Max -mt</div>
+                <input class="num" id="max_mt" type="number" min="0" max="32" value="16">
+                <span class="hint">thread counts swept 0–N</span>
+              </div>
+              <div class="row" id="embed_cap_row">
+                <div class="lbl">Embed cap</div>
+                <input class="num" id="embed_max_mb" type="number" min="0" max="4096" value="16">
+                <span class="hint">MB — larger packed files count as content</span>
+              </div>
+              <div class="row">
+                <div class="lbl">Carry walls up to</div>
+                <input class="num" id="wall_carry_mb" type="number" min="0" max="65536" value="0">
+                <span class="hint">MB — a release no recipe reproduces is kept whole (0 = only under the embed cap)</span>
+              </div>
+              <label class="chk-row" title="Inside the archives only nfo/diz/sfv are stored; everything else (game files, pictures, covers) is supplied from your collection at rebuild. Loose files beside the archives, such as Proof folders, are still stored."><input type="checkbox" id="content_all" onchange="syncEmbedCap()">
+                No copyrighted files in the .rsr — inside the archives keep only nfo/diz/sfv (loose Proof folders are still kept)</label>
+              <label class="chk-row"><input type="checkbox" id="embed_extras" checked>
+                Embed archive-only extras (required to rebuild them)</label>
+              <label class="chk-row"><input type="checkbox" id="write_srr" checked>
+                Also embed a legacy .srr</label>
+              <label class="chk-row"><input type="checkbox" id="small_first" checked>
+                Smallest releases first (learn recipes cheaply)</label>
+              <label class="chk-row"><input type="checkbox" id="retry_walls">
+                Retry releases already swept to exhaustion</label>
+              <label class="chk-row" title="Of 284 captured DOS-host archives, 284 were reproduced by a DOS build and none by a Windows build. With this on, a DOS-host archive is swept with the DOS builds only and a wall means no DOS build matched."><input type="checkbox" id="dos_host_only">
+                DOS-host archives: DOS builds only (skip the Windows backstop)</label>
+              <label class="chk-row"><input type="checkbox" id="dict_ladder">
+                Retry larger dictionary sizes if the header's is wrong
+                <span class="hint">(never helped: 7,541 of 7,541)</span></label>
+              <div class="cpu-row" title="Sweep only builds released up to this many years BEFORE the release, and skip older ones. A build older than the release is the normal case: measured over 9,485 captures, -10/+3 sweeps 77 of 403 builds and misses 0.07%; -8/+2 sweeps 56 and misses 0.15%; -6/+3 misses 1.87%; -5/+3 misses 2.46%. 0 on both = sweep everything. A wall found inside a window says so in the log.">
+                <div class="lbl" style="min-width:auto">Years before</div>
+                <input type="range" id="year_before" min="0" max="20" step="1" value="0"
+                       oninput="yearWindowPreview()">
+                <div class="val" id="year_before_val">off</div>
+              </div>
+              <div class="cpu-row" title="Sweep only builds released up to this many years AFTER the release. A build NEWER than the release cannot have made it, so this side can be small: the 31% of captures recorded against a newer build are byte-identical twins the sweep reached first. +3 is ample, +2 costs almost nothing more.">
+                <div class="lbl" style="min-width:auto">Years after</div>
+                <input type="range" id="year_after" min="0" max="20" step="1" value="0"
+                       oninput="yearWindowPreview()">
+                <div class="val" id="year_after_val">off</div>
+              </div>
+            </div>
+          </details>
+
           <div class="row" style="margin-top:2px;flex-wrap:wrap;row-gap:4px">
             <button class="btn btn-go" id="btn-scan" onclick="startScan()">Scan &amp; capture</button>
             <button class="btn btn-sm" id="btn-skip" onclick="skipFile()" disabled
@@ -294,19 +314,20 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
       </div>
 
       <!-- Rebuild -->
-      <div class="panel">
-        <div class="phdr"><span class="dot"></span>Rebuild from .rsr
-          <span style="margin-left:auto;display:flex;gap:4px">
+      <div class="panel tabpane" id="pane-rebuild">
+        <div class="phdr">
+          <span style="display:flex;gap:4px">
             <button class="btn btn-sm mode-tab on" id="tab-batch"
-                    onclick="rbMode('batch')">Batch</button>
+                    onclick="rbMode('batch')">Many releases</button>
             <button class="btn btn-sm mode-tab" id="tab-one"
-                    onclick="rbMode('one')">Single</button>
+                    onclick="rbMode('one')">One .rsr</button>
           </span>
         </div>
         <div class="pbody">
 
           <!-- Batch: point at content, the index finds the .rsr by hash -->
           <div id="rb-batch">
+            <div class="hint" style="margin-bottom:6px">Point at a folder of your files; each one is matched to its release by size + CRC32, not by name.</div>
             <div class="row">
               <div class="lbl">Content</div>
               <input class="txt" id="rb-root" placeholder="folder of files to rebuild (searched recursively)">
@@ -317,37 +338,41 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
               <input class="txt" id="rb-bout" placeholder="a folder per release is made here">
               <button class="btn btn-sm" onclick="pick('rb-bout')">…</button>
             </div>
-            <label class="chk-row"><input type="checkbox" id="delete_content"
-                     onchange="confirmDeleteContent(this)">
-              Delete the unpacked file once its release is rebuilt &amp; verified</label>
             <label class="chk-row"><input type="checkbox" id="skip_rebuilt" checked>
               Skip releases already rebuilt in the output folder</label>
-            <label class="chk-row"><input type="checkbox" id="clean_extras">
-              Tidy the content folder: remove loose nfo / diz / cue / sfv&hellip; that are
-              byte-identical to a file in a rebuilt release</label>
-            <details class="meta-pick" id="meta-pick"
-                     title="Releases with nothing to match on (nfo/dirfix-only, carried whole) are written straight from the store. Only the systems ticked here are written; none ticked = none written.">
-              <summary>Sidecar-only releases to write: <b id="meta-pick-sum">none</b></summary>
-              <div class="meta-list" id="meta-pick-list"></div>
-              <div class="row" style="margin-top:4px">
-                <button class="btn btn-sm" onclick="metaAll(true)">All</button>
-                <button class="btn btn-sm" onclick="metaAll(false)">None</button>
-              </div>
-            </details>
             <div class="cpu-row" title="How many releases to rebuild at the same time. Takes effect as slots free, even mid-rebuild. There is no core slider here: -mt is part of each release's recipe, so a rebuild has to pack at the thread count it was captured with.">
               <div class="lbl" style="min-width:auto">At once</div>
               <input type="range" id="rebuild_jobs" min="1" max="8" step="1" value="1"
                      oninput="rebuildJobsPreview()" onchange="rebuildJobsApply()">
               <span class="cpu-val" id="rebuild_jobs-val">1 release</span>
             </div>
-            <div class="row">
+            <details class="more" id="more-rebuild">
+              <summary>More options</summary>
+              <div class="more-body">
+                <label class="chk-row"><input type="checkbox" id="delete_content"
+                         onchange="confirmDeleteContent(this)">
+                  Delete the unpacked file once its release is rebuilt &amp; verified</label>
+                <label class="chk-row"><input type="checkbox" id="clean_extras">
+                  Tidy the content folder: remove loose nfo / diz / cue / sfv&hellip; that are
+                  byte-identical to a file in a rebuilt release</label>
+                <details class="meta-pick" id="meta-pick"
+                         title="Releases with nothing to match on (nfo/dirfix-only, carried whole) are written straight from the store. Only the systems ticked here are written; none ticked = none written.">
+                  <summary>Sidecar-only releases to write: <b id="meta-pick-sum">none</b></summary>
+                  <div class="meta-list" id="meta-pick-list"></div>
+                  <div class="row" style="margin-top:4px">
+                    <button class="btn btn-sm" onclick="metaAll(true)">All</button>
+                    <button class="btn btn-sm" onclick="metaAll(false)">None</button>
+                  </div>
+                </details>
+                <div class="row">
+                  <button class="btn btn-sm" onclick="exportBlocked()"
+                          title="Write rsr_blocked.txt and .csv — the releases this tool cannot capture, with the evidence for each. Anything since captured is marked resolved first.">Export won&rsquo;t-capture list</button>
+                  <span class="hint" id="blocked-hint">confirmed = agreed &middot; proposed = not yet reviewed</span>
+                </div>
+              </div>
+            </details>
+            <div class="row" style="margin-top:4px">
               <button class="btn btn-go" id="btn-rebuild" onclick="startBatch()">Rebuild all</button>
-              <span class="hint">matched on size + CRC32, not on name</span>
-            </div>
-            <div class="row" style="margin-top:6px">
-              <button class="btn btn-sm" onclick="exportBlocked()"
-                      title="Write rsr_blocked.txt and .csv — the releases this tool cannot capture, with the evidence for each. Anything since captured is marked resolved first.">Export won&rsquo;t-capture list</button>
-              <span class="hint" id="blocked-hint">confirmed = agreed &middot; proposed = not yet reviewed</span>
             </div>
           </div>
 
@@ -378,28 +403,32 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
       </div>
 
       <!-- Database -->
-      <div class="panel">
-        <div class="phdr"><span class="dot"></span>Database</div>
+      <div class="panel tabpane" id="pane-database">
         <div class="pbody">
           <div class="row">
             <input class="txt" id="db-q" placeholder="release, packed file name, or CRC32"
                    onkeydown="if(event.key==='Enter')dbSearch()">
             <button class="btn btn-sm" onclick="dbSearch()">Search</button>
           </div>
-          <div class="row">
-            <button class="btn btn-sm" id="btn-import" onclick="importPriors()">Import srrdb priors</button>
-            <span class="hint">seed recipe hints from the legacy rebuild results</span>
-          </div>
-          <div class="row">
-            <button class="btn btn-sm" id="btn-reindex" onclick="reindexStore()">Reindex store</button>
-            <span class="hint">re-read the Store folder; index any .rsr the db is missing</span>
-          </div>
+          <div class="db-list" id="db-list"></div>
           <div class="row">
             <button class="btn btn-sm" id="btn-packers" onclick="checkPackers()">Check packers</button>
             <button class="btn btn-sm" onclick="importPackers()">Import from folder…</button>
-            <span class="hint" id="packers-hint">are all the RAR / DOS builds here? import renames any you add</span>
           </div>
-          <div class="db-list" id="db-list"></div>
+          <div class="hint" id="packers-hint">are all the RAR / DOS builds here? import renames any you add</div>
+          <details class="more" id="more-database">
+            <summary>Maintenance</summary>
+            <div class="more-body">
+              <div class="row">
+                <button class="btn btn-sm" id="btn-reindex" onclick="reindexStore()">Reindex store</button>
+                <span class="hint">re-read the Store folder; index any .rsr the db is missing</span>
+              </div>
+              <div class="row">
+                <button class="btn btn-sm" id="btn-import" onclick="importPriors()">Import srrdb priors</button>
+                <span class="hint">seed recipe hints from the legacy rebuild results</span>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -466,6 +495,19 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 </div>
 
 <script>
+function showTab(t) {
+  for (const k of ['capture', 'rebuild', 'database']) {
+    document.getElementById('pane-' + k).classList.toggle('on', k === t);
+    document.getElementById('tab-' + k).classList.toggle('on', k === t);
+  }
+  try { localStorage.setItem('rsr_tab', t); } catch (e) {}
+}
+(function () {
+  let t = 'capture';
+  try { t = localStorage.getItem('rsr_tab') || 'capture'; } catch (e) {}
+  showTab(['capture', 'rebuild', 'database'].includes(t) ? t : 'capture');
+})();
+
 const $ = id => document.getElementById(id);
 // With "No copyrighted files" ticked, nothing packed inside an archive is
 // sized against the embed cap, so grey it out.

@@ -107,6 +107,12 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
 .warn-box{background:rgba(240,160,48,.08);border:1px solid rgba(240,160,48,.3);border-radius:3px;padding:5px 8px;font-size:10px;color:var(--warn)}
 .chevron{margin-left:auto;font-size:10px;transition:transform .2s}
 .collapsed-hdr .chevron{transform:rotate(-90deg)}
+.tabs{display:flex;gap:4px;flex-shrink:0;position:sticky;top:-8px;z-index:5;background:var(--bg0);padding:2px 0 4px}
+.tab{background:var(--bg1);border:1px solid var(--border);border-radius:5px;padding:5px 14px;color:var(--text2);font-family:var(--font);font-size:11px;font-weight:600;cursor:pointer}
+.tab:hover{color:var(--acc)}
+.tab.on{color:var(--acc);border-color:var(--acc);background:var(--bg2)}
+.tabpane{display:none;flex-direction:column;gap:6px}
+.tabpane.on{display:flex}
 </style>
 </head>
 <body>
@@ -119,20 +125,13 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
 
 <div class="main">
 
-  <!-- Folder Packer launcher -->
-  <div class="panel">
-    <div class="panel-body" style="flex-direction:row;align-items:center;gap:10px">
-      <div class="dot" style="background:var(--warn)"></div>
-      <span style="font-size:10px;color:var(--text3);flex:1">
-        Need to group loose archives or pack whole folders before uploading?
-        Use the <strong style="color:var(--warn)">IA Folder Packer</strong> —
-        letter-grouping, whole-folder, and depth-based packing strategies all
-        live there now.
-      </span>
-      <button class="btn" style="border-color:var(--warn);color:var(--warn)" onclick="window.pywebview.api.open_folder_packer()">Open Folder Packer</button>
-    </div>
+  <div class="tabs">
+    <button class="tab" id="tab-account" onclick="showTab('account')">Account</button>
+    <button class="tab" id="tab-item" onclick="showTab('item')">Item</button>
+    <button class="tab" id="tab-files" onclick="showTab('files')">Files</button>
   </div>
 
+  <div class="tabpane" id="pane-account">
   <!-- Upload Profiles -->
   <div class="panel">
     <div class="panel-hdr" onclick="togglePanel('prof'); loadProfiles()">
@@ -182,6 +181,9 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
     </div>
   </div>
 
+  </div>
+
+  <div class="tabpane" id="pane-item">
   <!-- Item + Metadata combined -->
   <div class="panel">
     <div class="panel-hdr" onclick="togglePanel('meta')">
@@ -215,6 +217,23 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
       <div class="row"><span class="lbl">Subjects</span><input class="txt" id="md-subj" placeholder="games, roms, retro (comma separated)"/></div>
       <div class="row"><span class="lbl">License URL</span><input class="txt" id="md-lic" placeholder="https://creativecommons.org/licenses/by/4.0/"/></div>
       <div class="row"><span class="lbl">Description</span><textarea class="ta" id="md-desc" placeholder="Item description..."></textarea></div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="tabpane" id="pane-files">
+  <!-- Folder Packer launcher -->
+  <div class="panel">
+    <div class="panel-body" style="flex-direction:row;align-items:center;gap:10px">
+      <div class="dot" style="background:var(--warn)"></div>
+      <span style="font-size:10px;color:var(--text3);flex:1">
+        Need to group loose archives or pack whole folders before uploading?
+        Use the <strong style="color:var(--warn)">IA Folder Packer</strong> —
+        letter-grouping, whole-folder, and depth-based packing strategies all
+        live there now.
+      </span>
+      <button class="btn" style="border-color:var(--warn);color:var(--warn)" onclick="window.pywebview.api.open_folder_packer()">Open Folder Packer</button>
     </div>
   </div>
 
@@ -280,6 +299,8 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
       </div>
       <div id="fixdat-status" class="hint">Load fixdat — files listed as incomplete in RomVault will be skipped</div>
     </div>
+  </div>
+
   </div>
 
   <!-- Options + Upload combined -->
@@ -366,6 +387,19 @@ body{background:var(--bg0);color:var(--text);font-family:var(--font);font-size:1
 </div>
 
 <script>
+function showTab(t) {
+  for (const k of ['account', 'item', 'files']) {
+    document.getElementById('pane-' + k).classList.toggle('on', k === t);
+    document.getElementById('tab-' + k).classList.toggle('on', k === t);
+  }
+  try { localStorage.setItem('ia_tab', t); } catch (e) {}
+}
+(function () {
+  let t = 'item';
+  try { t = localStorage.getItem('ia_tab') || t; } catch (e) {}
+  showTab(['account', 'item', 'files'].includes(t) ? t : 'item');
+})();
+
 let fileList = [];
 let srcFolder = "";  // root folder for relative path uploads
 

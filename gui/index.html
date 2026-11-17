@@ -150,6 +150,12 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 ::-webkit-scrollbar-track{background:var(--bg0)}
 ::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--border)}
+#panel-0:not(.active-panel),#panel-1:not(.active-panel),#panel-2:not(.active-panel),#panel-3:not(.active-panel){display:none}
+details.more{border-top:1px solid var(--border);padding-top:4px;margin:4px 0}
+details.more summary{cursor:pointer;font-size:11px;color:var(--text2);padding:3px 0;user-select:none}
+details.more summary:hover{color:var(--acc)}
+.more-body{display:flex;flex-direction:column;gap:8px;padding:6px 0 2px 0}
+details.extra-panels{border:1px solid var(--border);border-radius:6px;padding:4px 12px;background:var(--bg1)}
 </style>
 </head>
 <body>
@@ -236,6 +242,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
               <input class="path-input" id="m0-bad" placeholder="_BadArchives folder (corrupt + password-protected)" />
               <button class="browse-btn" onclick="browse('m0-bad')">Browse&hellip;</button>
             </div>
+            <details class="more"><summary>More options</summary><div class="more-body">
             <div class="row">
               <label>Passworded Dest</label>
               <input class="path-input" id="m0-pw" placeholder="Optional — password-protected archives (falls back to Bad Archive Dest)" />
@@ -261,6 +268,17 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
               Point the Nested Archive Dest above at archives with nested archives,
               then point this source at that same folder to fully flatten them.
             </div>
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Never delete after extract (keep originals):</div>
+            <div class="opt-row">
+              <label class="opt"><input type="checkbox" id="m0-no-del-iso" checked> Keep .iso</label>
+              <label class="opt"><input type="checkbox" id="m0-no-del-chd" checked> Keep .chd</label>
+              <label class="opt"><input type="checkbox" id="m0-no-del-dms" checked> Keep .dms</label>
+            </div>
+            <div style="padding:2px 0 4px;font-size:11px;color:var(--text3)">
+              .iso = copied as-is &bull; .chd = converted via chdman.exe (drop in app folder) &bull;
+              .dms = extracted via xdms.exe (drop in app folder). Falls back to copy if tools missing.
+            </div>
+            </div></details>
             <div style="font-size:11px;color:var(--text2);margin-bottom:4px;margin-top:4px">Formats to extract:</div>
             <div class="opt-row">
               <label class="opt"><input type="checkbox" id="m0-zip" checked> .zip</label>
@@ -276,16 +294,6 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
             <div class="opt-row">
               <label class="opt"><input type="checkbox" id="m0-del"> Delete archives after extract</label>
               <label class="opt"><input type="checkbox" id="m0-over"> Overwrite existing files</label>
-            </div>
-            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Never delete after extract (keep originals):</div>
-            <div class="opt-row">
-              <label class="opt"><input type="checkbox" id="m0-no-del-iso" checked> Keep .iso</label>
-              <label class="opt"><input type="checkbox" id="m0-no-del-chd" checked> Keep .chd</label>
-              <label class="opt"><input type="checkbox" id="m0-no-del-dms" checked> Keep .dms</label>
-            </div>
-            <div style="padding:2px 0 4px;font-size:11px;color:var(--text3)">
-              .iso = copied as-is &bull; .chd = converted via chdman.exe (drop in app folder) &bull;
-              .dms = extracted via xdms.exe (drop in app folder). Falls back to copy if tools missing.
             </div>
             <div class="progress-wrap">
               <div class="progress-label">
@@ -325,7 +333,6 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
                 <input type="checkbox" id="m1-rom-enable" checked onchange="toggleRomSection()">
                 &nbsp;Enable ROM Sorting
               </label>
-              <label class="opt" style="margin-top:4px"><input type="checkbox" id="m1-skip-recount"> Skip folder recount (faster start)</label>
               <span style="font-size:11px;color:var(--text3)">— known ROM/emulator extensions sorted separately in one pass</span>
             </div>
             <div id="rom-section">
@@ -338,6 +345,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
                 <label class="opt"><input type="checkbox" id="m1-companions" checked> Move companion &amp; media files (.cue .nfo .jpg .png .pdf .mp4&hellip;) to ROM Output</label>
                 <label class="opt"><input type="checkbox" id="m1-dry"> Dry run &mdash; count only, no moves</label>
               </div>
+              <details class="more"><summary>More options</summary><div class="more-body">
+              <div class="opt-row">
+                <label class="opt"><input type="checkbox" id="m1-skip-recount"> Skip folder recount (faster start)</label>
+              </div>
               <div class="opt-row">
                 <label class="opt" style="color:var(--danger)"><input type="checkbox" id="m1-known-only" onchange="toggleKnownOnly()"> Known extensions only &mdash; DELETE files with unknown extensions (no General Output)</label>
                 <label class="opt"><input type="checkbox" id="m1-keep-chip" checked> &hellip;but keep MAME chip dumps / split parts (.6e .u12 .001 .r00, no ext)</label>
@@ -347,6 +358,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
                 800+ extensions (rom_extensions.py): TOSEC &bull; No-Intro &bull; Redump &bull; MAME/CHD &bull; VGM &bull; artwork, video &amp; manuals.
                 ROM files &rarr; ROM Output. Everything else &rarr; General Output, or deleted in known-only mode (list saved to reports/).
               </div>
+              </div></details>
             </div>
             <div class="progress-wrap">
               <div class="progress-label"><span id="pstep-1">Waiting&hellip;</span><span id="ppct-1">0%</span></div>
@@ -404,7 +416,10 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           </div>
         </div>
 
-                <!-- REPORT SETTINGS -->
+        <details class="more extra-panels" id="more-pipeline">
+          <summary>Reports &amp; Watch mode</summary>
+          <div class="more-body">
+        <!-- REPORT SETTINGS -->
         <div class="panel" id="panel-report">
           <div class="panel-hdr">
             <div class="dot dot-blue"></div>
@@ -456,6 +471,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
             </div>
           </div>
         </div>
+          </div>
+        </details>
         <!-- LOG -->
         <div class="panel">
           <div class="panel-hdr">
@@ -570,6 +587,7 @@ function setModStatus(mod, state) {
   const [label, cls] = map[state] || ['?', 'pill-idle'];
   el.textContent = label;
   el.className = 'pill ' + cls;
+  if (state === 'running' && /^[0-3]$/.test(String(mod))) selectMod(Number(mod));
 }
 
 function setGlobalStatus(state) {
