@@ -3,6 +3,7 @@
 Reads the local store + index (never writes to them) and produces:
   <out>/rsr/<SYS>/<release>.rsr   public copy, only for "clean" releases
   <out>/catalog/<SYS>.jsonl       one line per release (page data)
+  <out>/extras/<SYS>/<release>/   the release's nfo/sfv/proof files (allow-listed)
 
 A release is public only when EVERY entry of its .rsr passes an allow-list:
   * recipe data: manifest, release.srr, deltas (4 KB in total at most: header-sized fixes only),
@@ -141,6 +142,22 @@ def withheld_reasons(z: zipfile.ZipFile, man: dict, rsr_sha256: str | None = Non
     return sorted(why)
 
 
+def sidecar_ok(name: str, data: bytes) -> bool:
+    """A release file that may be offered on its own: the allow-list above."""
+    ext = Path(name.split("\x00")[0]).suffix.lower()
+    if ext in SIDECAR_TEXT and is_text(data[:1 << 20]):
+        return True
+    return ext in SIDECAR_IMG and is_image(data) and len(data) <= IMG_MAX
+
+
+def safe_rel(name: str) -> str | None:
+    """The sidecar's path below the release folder, or None if it would escape."""
+    parts = [p for p in name.replace("\\", "/").split("/") if p not in ("", ".")]
+    if not parts or any(p == ".." or ":" in p or "\x00" in p for p in parts):
+        return None
+    return "/".join(parts)
+
+
 def nfo_text(raw: bytes) -> str:
     t = raw.decode("cp437")
     return t.replace("\r\n", "\n").replace("\r", "\n")
@@ -175,10 +192,23 @@ def one(row, out: Path, clash=frozenset()):
             "files": [[f["name"], f.get("size"), f.get("crc32")] for f in s.get("files", [])],
             "volumes": [[v["name"], v.get("size")] for v in s.get("volumes", [])],
         } for s in man.get("sets", [])],
-        "sidecars": [[c["name"], c.get("size"), c.get("crc32")] for c in man.get("sidecars", [])],
+        "sidecars": [[c["name"], c.get("size"), c.get("crc32"), 0] for c in man.get("sidecars", [])],
         "nfo": None, "nfo_name": None,
         "public": not reasons, "withheld": reasons,
     }
+    # The release's own nfo/sfv/proof files, downloadable one by one (public
+    # or withheld alike: they hold no archive data). 4th field = its path under extras/, or 0.
+    for k, c in enumerate(man.get("sidecars", [])):
+        rel = safe_rel(c["name"])
+        if not c.get("stored") or rel is None or c["stored"] not in z.namelist():
+            continue
+        data = z.read(c["stored"])
+        if not sidecar_ok(c["name"], data):
+            continue
+        dst = out / "extras" / sys_ / fname / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(data)
+        rec["sidecars"][k][3] = rel
     for c in man.get("sidecars", []):
         if c["name"].lower().endswith(".nfo") and c.get("stored"):
             raw = z.read(c["stored"])[:NFO_MAX]

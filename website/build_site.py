@@ -99,7 +99,7 @@ def page(title, body, depth, desc=""):
 <body>
 <header class="top"><div class="wrap">
 <a class="brand" href="{up}index.html"><span class="mark">▚</span> {SITE_NAME}</a>
-<nav><a href="{up}search.html">Search</a><a href="{up}get.html">Get the app</a><a href="{up}tools.html">Tools</a><a href="{up}about.html">About</a><a href="{up}disclaimer.html">Disclaimer</a></nav>
+<nav><a href="{up}search.html">Search</a><a href="{up}stats.html">Progress</a><a href="{up}get.html">Get the app</a><a href="{up}tools.html">Tools</a><a href="{up}about.html">About</a><a href="{up}disclaimer.html">Disclaimer</a></nav>
 </div></header>
 <main class="wrap">
 {body}
@@ -131,15 +131,19 @@ def release_page(rec):
              ("Packer", packer or None),
              ("Rebuild", VERIFY_LABEL.get(rec.get("verify"), rec.get("verify")))]
     fact_html = "".join(f"<dt>{k}</dt><dd>{e(str(v))}</dd>" for k, v in facts if v)
+    # the release's own nfo/sfv/proof files that can be downloaded one by one
+    extra = [(c[0], c[1], c[2], extra_url(rec, c[3])) for c in rec["sidecars"]]
+    links = [f'<a href="{u}" download>{e(n.rsplit("/", 1)[-1])}</a>' for n, _, _, u in extra if u]
+    extras_html = (f'<span class="extras">Release files: {" · ".join(links)}</span>' if links else "")
     if rec.get("public"):
         dl = (f'<div class="dl ok"><a class="btn" href="../../files/{quote(rec["sys"])}/{quote(rec["slug"])}.rsr" download>'
               f'Download .rsr</a><span>{human(rec["rsr_size"])}</span>'
-              f'<code class="sha" title="SHA-256">{rec["rsr_sha256"]}</code></div>')
+              f'<code class="sha" title="SHA-256">{rec["rsr_sha256"]}</code>{extras_html}</div>')
     else:
         why = ", ".join(rec.get("withheld") or [])
         dl = ('<div class="dl no"><strong>Rebuild data not hosted.</strong> '
               'This release\'s .rsr holds pieces of the original files, so it is listed for reference only.'
-              f'<span class="why">{e(why)}</span></div>')
+              f'<span class="why">{e(why)}</span>{extras_html}</div>')
     sets_html = []
     for s in rec["sets"]:
         files = s["files"]
@@ -159,8 +163,9 @@ def release_page(rec):
                          f'<tbody>{rows}</tbody></table>{more}{vol_html}</section>')
     side = ""
     if rec["sidecars"]:
-        srows = "".join(f"<tr><td>{e(n)}</td><td class=num>{human(sz)}</td><td class=mono>{crc(c)}</td></tr>"
-                        for n, sz, c in rec["sidecars"])
+        srows = "".join(f"<tr><td>{f'<a href=\"{u}\" download>{e(n)}</a>' if u else e(n)}</td>"
+                        f"<td class=num>{human(sz)}</td><td class=mono>{crc(c)}</td></tr>"
+                        for n, sz, c, u in extra)
         side = f'<h2>Release files</h2><table class="t"><tbody>{srows}</tbody></table>'
     nfo = ""
     if rec.get("nfo"):
@@ -170,6 +175,113 @@ def release_page(rec):
             f'<div class="relhead"><dl class="facts">{fact_html}</dl>{dl}</div>'
             f'<h2>Contents</h2>{"".join(sets_html)}{side}{nfo}')
     return page(rec["name"], body, 2, f'{rec["name"]} — {sys_name(rec["sys"])} scene release, rebuild data and file list.')
+
+
+# dats.site DAT names (the part before " Scene <year>") → names on the stats page
+DAT_SYSTEMS = {
+    "3DO": "3DO", "3DS": "Nintendo 3DS", "ATARI2600": "Atari 2600", "ATARI5200": "Atari 5200",
+    "ATARI7800": "Atari 7800", "Amiga": "Amiga", "C264": "Commodore 264", "C64": "Commodore 64",
+    "CD32": "Amiga CD32", "DC": "Dreamcast", "GB": "Game Boy", "GBA": "Game Boy Advance",
+    "GBC": "Game Boy Color", "GG": "Game Gear", "GIZ": "Gizmondo", "GP32": "GP32",
+    "Game OST": "Game soundtracks", "INTV": "Intellivision", "IQP": "iQue Player",
+    "JAG": "Atari Jaguar", "JAGCD": "Atari Jaguar CD", "LYNX": "Atari Lynx", "MCD": "Mega CD",
+    "MSX": "MSX", "Miscellaneous": "Miscellaneous", "N64": "Nintendo 64", "NDS": "Nintendo DS",
+    "NEOGEO": "Neo Geo", "NES": "NES", "NGAGE": "N-Gage", "NGC": "GameCube",
+    "NGPX": "Neo Geo Pocket", "NSW": "Nintendo Switch", "PC 0DAY Games": "PC 0-day games",
+    "PC DOX Games": "PC DOX", "PC iSO Games": "PC ISO games", "PCE": "PC Engine",
+    "POCKET": "Analogue Pocket", "PS2": "PlayStation 2", "PS3": "PlayStation 3",
+    "PS4": "PlayStation 4", "PS5": "PlayStation 5", "PSP Games": "PSP games",
+    "PSP PSX": "PSP PS1 classics", "PSP Video": "PSP video", "PSP nonScene": "PSP non-scene",
+    "PSV": "PlayStation Vita", "PSX": "PlayStation", "SAT": "Saturn", "SMD": "Mega Drive",
+    "SMS": "Master System", "SNES": "Super Nintendo", "ST": "Atari ST", "VVD": "VVD",
+    "WS": "WonderSwan", "WSC": "WonderSwan Color", "Wii": "Wii", "WiiU": "Wii U",
+    "XBOX": "Xbox", "XBOX360": "Xbox 360", "XBOXONE": "Xbox One", "ZDC": "ZDC",
+    "ZXS": "ZX Spectrum",
+}
+BUCKETS = (("public", "Rebuild data online"), ("withheld", "Listed, data not hosted"),
+           ("bad", "Damaged release"), ("toget", "Not captured yet"))
+
+
+def _sum(cs):
+    t = dict(public=0, withheld=0, bad=0, toget=0, bad_captured=0)
+    for c in cs:
+        for k in t:
+            t[k] += c.get(k, 0)
+    return t
+
+
+def _bar(c):
+    n = sum(c[k] for k, _ in BUCKETS) or 1
+    segs = "".join(f'<i class="b-{k}" style="width:{100 * c[k] / n:.3f}%"></i>'
+                   for k, _ in BUCKETS[:3] if c[k])
+    title = " · ".join(f"{lab}: {c[k]:,}" for k, lab in BUCKETS)
+    return f'<span class="bar" title="{e(title)}">{segs}</span>'
+
+
+def _pct(a, n):
+    if not n:
+        return "–"
+    p = 100 * a / n
+    return "100%" if a == n else (f"{p:.1f}%" if p >= 0.1 else ("<0.1%" if a else "0%"))
+
+
+def stats_page(data):
+    systems = {s: _sum(y.values()) for s, y in data["systems"].items()}
+    tot = _sum(systems.values())
+    n = sum(tot[k] for k, _ in BUCKETS)
+    cap = tot["public"] + tot["withheld"]
+    tiles = (f'<div class="tile"><b>{n:,}</b><span>releases in {data["dat_files"]} DATs</span></div>'
+             f'<div class="tile t-public"><b>{tot["public"]:,}</b><span>rebuild data online</span></div>'
+             f'<div class="tile t-withheld"><b>{tot["withheld"]:,}</b><span>listed, data not hosted</span></div>'
+             f'<div class="tile t-bad"><b>{tot["bad"]:,}</b><span>damaged releases</span></div>'
+             f'<div class="tile t-toget"><b>{tot["toget"]:,}</b><span>not captured yet</span></div>')
+    legend = "".join(f'<span><i class="b-{k}"></i>{lab}</span>' for k, lab in BUCKETS)
+    name = lambda s: DAT_SYSTEMS.get(s, s)
+    started = sorted((s for s, c in systems.items() if c["public"] + c["withheld"] + c["bad"]),
+                     key=lambda s: name(s).lower())
+    waiting = sorted((s for s in systems if s not in started), key=lambda s: -systems[s]["toget"])
+
+    def nums(c):
+        m = sum(c[k] for k, _ in BUCKETS)
+        cell = lambda k: (f'<span class="n c-{k}">{c[k]:,}</span>' if c[k]
+                          else f'<span class="n c-{k} z">–</span>')
+        return (f'<span class="n">{m:,}</span><span class="n pc">{_pct(c["public"] + c["withheld"], m)}</span>'
+                + "".join(cell(k) for k, _ in BUCKETS))
+    head = ('<div class="srow shead"><span>System</span><span></span><span class="n">Releases</span>'
+            '<span class="n">Captured</span><span class="n">Online</span><span class="n">Listed</span>'
+            '<span class="n">Damaged</span><span class="n">To get</span></div>')
+    rows = []
+    for s in started:
+        years = "".join(f'<div class="srow yrow"><span>{e(y)}</span>{_bar(c)}{nums(c)}</div>'
+                        for y, c in data["systems"][s].items())
+        rows.append(f'<details class="sys"><summary class="srow"><span class="sn">{e(name(s))}</span>'
+                    f'{_bar(systems[s])}{nums(systems[s])}</summary>{years}</details>')
+    wcards = "".join(f'<div class="card"><b>{e(name(s))}</b><span>{systems[s]["toget"]:,}</span></div>'
+                     for s in waiting)
+    wtot = sum(systems[s]["toget"] for s in waiting)
+    note_bad = (f' {tot["bad_captured"]:,} more damaged releases were captured exactly as they are and count as captured.'
+                if tot["bad_captured"] else "")
+    return f"""<h1>Progress</h1>
+<p class="lede">How much of the <a href="https://dats.site">dats.site</a> scene DATs this site can rebuild. Every number is a count of <b>releases</b>, one per game or set, however many archive volumes it has. Updated {e(data["generated"])}.</p>
+<div class="tiles">{tiles}</div>
+<div class="overall">{_bar(tot)}<p><b>{_pct(cap, n)}</b> of all DAT releases captured · <b>{_pct(cap, n - systems_total(systems, waiting))}</b> of the systems in progress</p></div>
+<div class="legend">{legend}</div>
+<h2>Systems in progress <span class="muted">· {len(started)} systems · click one for its years</span></h2>
+<div class="stable">{head}{"".join(rows)}</div>
+<p class="note">Damaged releases are ones whose own archives fail their checks (a bad volume in the original upload, a missing part, a password).{note_bad}</p>
+<h2>Not started yet <span class="muted">· {len(waiting)} systems · {wtot:,} releases</span></h2>
+<div class="grid">{wcards}</div>"""
+
+
+def systems_total(systems, which):
+    return sum(sum(systems[s][k] for k, _ in BUCKETS) for s in which)
+
+
+def extra_url(rec, rel):
+    """Link (from a release page) to one downloadable release file, or None."""
+    if not rel:
+        return None
+    return f"../../files/{quote(rec['sys'])}/{quote(rec['slug'])}/" + "/".join(quote(p) for p in rel.split("/"))
 
 
 def list_table(recs, depth):
@@ -224,7 +336,9 @@ def main():
         raise SystemExit(f"page names still clash: {clash[:5]}")
 
     # release pages + files
-    nfiles = 0
+    nfiles = nextra = 0
+    for r in recs:                        # older exports: no 4th field
+        r["sidecars"] = [list(c) + [0] * (4 - len(c)) for c in r["sidecars"]]
     for r in recs:
         p = site / "r" / r["sys"] / f"{r['slug']}.html"
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -240,6 +354,16 @@ def main():
             else:
                 shutil.copy2(src, dst)
             nfiles += 1
+        for c in r["sidecars"]:           # downloadable release files
+            if len(c) < 4 or not c[3]:
+                continue
+            src = exp / "extras" / r["store_sys"] / r.get("file", r["name"]) / c[3]
+            dst = site / "files" / r["sys"] / r["slug"] / c[3]
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                dst.unlink()
+            (os.link if a.link else shutil.copy2)(src, dst)
+            nextra += 1
 
     # system + year pages
     for s, rs in by_sys.items():
@@ -328,6 +452,13 @@ def main():
     body = body.replace("__SYSNAMES__", json.dumps(sysnames))
     (site / "search.html").write_text(page(f"Search — {SITE_NAME}", body, 0), encoding="utf-8")
 
+    sd = HERE / "stats_data.json"          # written by dat_stats.py
+    if sd.exists():
+        data = json.loads(sd.read_text(encoding="utf-8"))
+        (site / "stats.html").write_text(page(f"Progress — {SITE_NAME}", stats_page(data), 0,
+                                              "How many scene releases from the dats.site DATs can be rebuilt, by system."),
+                                         encoding="utf-8")
+
     get = (HERE / "get.html").read_text(encoding="utf-8")
     get = get.replace("__REPO_SHORT__", REPO.split("://", 1)[1]).replace("__REPO__", REPO)
     (site / "get.html").write_text(page(f"Get the app — {SITE_NAME}", get, 0), encoding="utf-8")
@@ -335,7 +466,7 @@ def main():
     (site / "about.html").write_text(page(f"About — {SITE_NAME}", about, 0), encoding="utf-8")
     disc = (HERE / "disclaimer.html").read_text(encoding="utf-8")
     (site / "disclaimer.html").write_text(page(f"Disclaimer — {SITE_NAME}", disc, 0), encoding="utf-8")
-    print(f"pages {len(recs)}  systems {len(by_sys)}  .rsr files {nfiles}")
+    print(f"pages {len(recs)}  systems {len(by_sys)}  .rsr files {nfiles}  release files {nextra}")
 
 
 if __name__ == "__main__":

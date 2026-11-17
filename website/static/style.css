@@ -148,3 +148,62 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 4px 0;
 .cta { display: inline-block; background: var(--accent); color: var(--accent-ink); padding: 10px 20px; border-radius: 6px; font-weight: 600; text-decoration: none; }
 .cta:hover { filter: brightness(1.08); }
 .small { font-size: 14px; color: var(--muted); }
+
+/* Progress page */
+:root { --c-public: #0f7b6c; --c-withheld: #c98a1b; --c-bad: #c2413a; --c-toget: #e2e0d8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --c-public: #3fc1aa; --c-withheld: #e0a640; --c-bad: #e26a5f; --c-toget: #2b3139; }
+}
+:root[data-theme="dark"] { --c-public: #3fc1aa; --c-withheld: #e0a640; --c-bad: #e26a5f; --c-toget: #2b3139; }
+.muted { color: var(--muted); font-weight: 400; font-size: 14px; }
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 8px 0 18px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.tile b { display: block; font: 700 24px/1.15 var(--sans); font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 13px; }
+.tile.t-public { border-top-color: var(--c-public); }
+.tile.t-withheld { border-top-color: var(--c-withheld); }
+.tile.t-bad { border-top-color: var(--c-bad); }
+.tile.t-toget { border-top-color: var(--c-toget); }
+.bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--c-toget); min-width: 60px; }
+.bar i { display: block; height: 100%; }
+.b-public { background: var(--c-public); }
+.b-withheld { background: var(--c-withheld); }
+.b-bad { background: var(--c-bad); }
+.b-toget { background: var(--c-toget); }
+.overall .bar { height: 18px; border-radius: 9px; }
+.overall p { margin: 8px 0 4px; color: var(--muted); }
+.overall p b { color: var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.stable { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 13px; }
+.srow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(60px, 1.6fr) repeat(6, 76px);
+  gap: 10px; align-items: center; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.srow .n { text-align: right; font-variant-numeric: tabular-nums; }
+.srow .pc { font-weight: 600; }
+.shead { color: var(--muted); font-weight: 600; background: var(--bg); }
+.stable details { margin: 0; }
+.stable details:last-child > summary { border-bottom: 0; }
+summary.srow { list-style: none; font-size: 13px; }
+summary.srow::-webkit-details-marker { display: none; }
+summary.srow .sn::before { content: "▸"; color: var(--muted); display: inline-block; width: 14px; }
+details[open] > summary.srow .sn::before { content: "▾"; }
+summary.srow:hover { background: var(--bg); }
+.yrow { background: var(--bg); color: var(--muted); padding-top: 4px; padding-bottom: 4px; }
+.yrow span:first-child { padding-left: 14px; }
+.c-public { color: var(--c-public); } .c-withheld { color: var(--c-withheld); } .c-bad { color: var(--c-bad); }
+.c-toget { color: var(--muted); }
+.srow .z { color: var(--muted); opacity: .45; }
+@media (max-width: 860px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiles .tile:first-child { grid-column: 1 / -1; }
+  .srow { grid-template-columns: minmax(0, 1fr) 64px 64px; row-gap: 4px; }
+  .srow .bar { grid-column: 1 / -1; grid-row: 2; }
+  .srow .c-public, .srow .c-withheld, .srow .c-bad, .srow .c-toget,
+  .shead span:nth-child(n+5), .shead span:nth-child(2) { display: none; }
+  .top .wrap { height: auto; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+  .top nav { display: flex; flex-wrap: wrap; gap: 4px 14px; min-width: 0; }
+  .top nav a { margin: 0; }
+}
+.dl .extras { display: block; width: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.dl.no .extras { color: var(--warn-ink); margin-top: 8px; }
+.dl .extras a { font-weight: 600; }

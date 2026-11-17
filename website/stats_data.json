@@ -1,0 +1,4087 @@
+{
+ "generated": "2026-11-17",
+ "dat_files": 566,
+ "systems": {
+  "3DO": {
+   "2017": {
+    "public": 80,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 106,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "3DS": {
+   "2011": {
+    "public": 44,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 186,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 346,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 941,
+    "withheld": 10,
+    "bad": 1,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 565,
+    "withheld": 9,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 226,
+    "withheld": 6,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 187,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 78,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 18,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 53,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 58,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 15,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "ATARI2600": {
+   "2024": {
+    "public": 4,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 13,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 31,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   }
+  },
+  "ATARI5200": {
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "ATARI7800": {
+   "2025": {
+    "public": 0,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "Amiga": {
+   "2018": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 1,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 52,
+    "withheld": 7,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 269,
+    "withheld": 60,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   }
+  },
+  "C264": {
+   "2016": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "C64": {
+   "2016": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 6,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 8,
+    "bad_captured": 0
+   }
+  },
+  "CD32": {
+   "2019": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 4,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 9,
+    "withheld": 4,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "DC": {
+   "1999": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 550,
+    "withheld": 35,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 1
+   },
+   "2001": {
+    "public": 733,
+    "withheld": 58,
+    "bad": 3,
+    "toget": 4,
+    "bad_captured": 1
+   },
+   "2002": {
+    "public": 160,
+    "withheld": 14,
+    "bad": 1,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 194,
+    "withheld": 13,
+    "bad": 0,
+    "toget": 92,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 92,
+    "withheld": 6,
+    "bad": 0,
+    "toget": 85,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 72,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 60,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 20,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 79,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 18,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 46,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 61,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 10,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 23,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 13,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 11,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 7,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 6,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 6,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 11,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 29,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 17,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 5,
+    "bad_captured": 0
+   }
+  },
+  "GB": {
+   "2019": {
+    "public": 7,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 7,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 26,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 36,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 256,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 120,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 55,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 7,
+    "bad_captured": 0
+   }
+  },
+  "GBA": {
+   "2000": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 518,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 822,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 1
+   },
+   "2003": {
+    "public": 482,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 516,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 459,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 354,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 155,
+    "withheld": 0,
+    "bad": 1,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 16,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 11,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 8,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 81,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 14,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 30,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   }
+  },
+  "GBC": {
+   "2022": {
+    "public": 24,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 70,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 212,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 207,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 147,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 9,
+    "bad_captured": 0
+   }
+  },
+  "GG": {
+   "2026": {
+    "public": 3,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "GIZ": {
+   "2006": {
+    "public": 29,
+    "withheld": 4,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "GP32": {
+   "2002": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 12,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 80,
+    "withheld": 7,
+    "bad": 0,
+    "toget": 7,
+    "bad_captured": 0
+   }
+  },
+  "Game OST": {
+   "1999": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 8,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 8,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 32,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 98,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 113,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 105,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 113,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 78,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 82,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 64,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 70,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 53,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 73,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 90,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 28,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 108,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 344,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 91,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 183,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 133,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 248,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 76,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 124,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 90,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 105,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 41,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "INTV": {
+   "2025": {
+    "public": 0,
+    "withheld": 29,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "IQP": {
+   "2018": {
+    "public": 15,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "JAG": {
+   "2024": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "JAGCD": {
+   "2024": {
+    "public": 0,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "LYNX": {
+   "2024": {
+    "public": 0,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "MCD": {
+   "2018": {
+    "public": 41,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "MSX": {
+   "2025": {
+    "public": 11,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 33,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "Miscellaneous": {
+   "1999": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 27,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 12,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 116,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 28,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 360,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 11,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 267,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 41,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 165,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 26,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 230,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 105,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 110,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 89,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 57,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 23,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 53,
+    "withheld": 18,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 31,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 17,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 1,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "N64": {
+   "1995": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1996": {
+    "public": 162,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "1997": {
+    "public": 184,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1998": {
+    "public": 334,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1999": {
+    "public": 479,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 4,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 268,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 62,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 24,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 12,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 12,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "NDS": {
+   "2004": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 497,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 1
+   },
+   "2006": {
+    "public": 656,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 1268,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 1480,
+    "withheld": 1,
+    "bad": 2,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 2441,
+    "withheld": 3,
+    "bad": 1,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 1188,
+    "withheld": 1,
+    "bad": 2,
+    "toget": 8,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 703,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 220,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 150,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 191,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 193,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 156,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 49,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 61,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 37,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   }
+  },
+  "NEOGEO": {
+   "2024": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 34,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 8,
+    "bad_captured": 0
+   }
+  },
+  "NES": {
+   "2018": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 8,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 54,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 207,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 118,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 151,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 5,
+    "bad_captured": 0
+   }
+  },
+  "NGAGE": {
+   "2003": {
+    "public": 17,
+    "withheld": 6,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 42,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 46,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 6,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 25,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "NGC": {
+   "2001": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 544,
+    "withheld": 12,
+    "bad": 4,
+    "toget": 32,
+    "bad_captured": 2
+   },
+   "2004": {
+    "public": 348,
+    "withheld": 1,
+    "bad": 2,
+    "toget": 91,
+    "bad_captured": 1
+   },
+   "2005": {
+    "public": 441,
+    "withheld": 16,
+    "bad": 0,
+    "toget": 108,
+    "bad_captured": 2
+   },
+   "2006": {
+    "public": 232,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 88,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 180,
+    "withheld": 2,
+    "bad": 5,
+    "toget": 7,
+    "bad_captured": 1
+   },
+   "2008": {
+    "public": 51,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 391,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 4,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 284,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 115,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 78,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 190,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "NGPX": {
+   "1999": {
+    "public": 16,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 96,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 3,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "NSW": {
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 76,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1716,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2572,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2808,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2970,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3830,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4036,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4979,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4450,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3679,
+    "bad_captured": 0
+   }
+  },
+  "PC 0DAY Games": {
+   "1998": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3672,
+    "bad_captured": 0
+   },
+   "1999": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2309,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3977,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4395,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4716,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4811,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3683,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3316,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3248,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2788,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2407,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2152,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2638,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2105,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3002,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2800,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3232,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2972,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2702,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2275,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2809,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2734,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2496,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1828,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1131,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1003,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 695,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 577,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 713,
+    "bad_captured": 0
+   }
+  },
+  "PC DOX Games": {
+   "1998": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   },
+   "1999": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 147,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 351,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 504,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1425,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1911,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1721,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1376,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1392,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1402,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 779,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 754,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 751,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 482,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 424,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 500,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 392,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 545,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 776,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1248,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1607,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1705,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1608,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1100,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 645,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2290,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2511,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2860,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2300,
+    "bad_captured": 0
+   }
+  },
+  "PC iSO Games": {
+   "1998": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 301,
+    "bad_captured": 0
+   },
+   "1999": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 987,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1115,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1576,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2031,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2522,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2260,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2040,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2138,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1814,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1317,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1343,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1292,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1093,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1128,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1285,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1451,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1896,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1936,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2090,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2200,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2443,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2785,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3444,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2755,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3586,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4016,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3935,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2534,
+    "bad_captured": 0
+   }
+  },
+  "PCE": {
+   "2018": {
+    "public": 83,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 35,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 32,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "POCKET": {
+   "2024": {
+    "public": 82,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 67,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 51,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "PS2": {
+   "2000": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 174,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 830,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1287,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1607,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1634,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1467,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1016,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 761,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 499,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 304,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 78,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 27,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 8,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 9,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 5,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "PS3": {
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 22,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 177,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 267,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 250,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1237,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 958,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 824,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 549,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 360,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 153,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 91,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 25,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   }
+  },
+  "PS4": {
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 162,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 71,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 140,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 117,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1348,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 257,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 746,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 839,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 743,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 586,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 13,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 165,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   }
+  },
+  "PS5": {
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 14,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 33,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 19,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 21,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 97,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 139,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 357,
+    "bad_captured": 0
+   }
+  },
+  "PSP Games": {
+   "2005": {
+    "public": 651,
+    "withheld": 26,
+    "bad": 0,
+    "toget": 54,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 1087,
+    "withheld": 112,
+    "bad": 1,
+    "toget": 192,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 878,
+    "withheld": 39,
+    "bad": 4,
+    "toget": 115,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 480,
+    "withheld": 27,
+    "bad": 0,
+    "toget": 65,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 493,
+    "withheld": 68,
+    "bad": 1,
+    "toget": 6,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 542,
+    "withheld": 46,
+    "bad": 2,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 893,
+    "withheld": 20,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 498,
+    "withheld": 20,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 308,
+    "withheld": 8,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 98,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 39,
+    "withheld": 4,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 23,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 7,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 11,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 4,
+    "bad_captured": 0
+   }
+  },
+  "PSP PSX": {
+   "2006": {
+    "public": 173,
+    "withheld": 7,
+    "bad": 0,
+    "toget": 26,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 354,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 201,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 28,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 17,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "PSP Video": {
+   "2005": {
+    "public": 54,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 30,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 81,
+    "withheld": 4,
+    "bad": 0,
+    "toget": 41,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 16,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 16,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 34,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 13,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "PSP nonScene": {
+   "2005": {
+    "public": 20,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 33,
+    "withheld": 5,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 65,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 10,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 25,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 7,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 16,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 8,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "PSV": {
+   "2014": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 310,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 31,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 104,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 41,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 8,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 14,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 1,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "PSX": {
+   "1995": {
+    "public": 24,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1996": {
+    "public": 493,
+    "withheld": 6,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1997": {
+    "public": 40,
+    "withheld": 6,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1998": {
+    "public": 8,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1999": {
+    "public": 206,
+    "withheld": 5,
+    "bad": 0,
+    "toget": 520,
+    "bad_captured": 0
+   },
+   "2000": {
+    "public": 899,
+    "withheld": 74,
+    "bad": 0,
+    "toget": 15,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 807,
+    "withheld": 35,
+    "bad": 3,
+    "toget": 1,
+    "bad_captured": 2
+   },
+   "2002": {
+    "public": 299,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 148,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 10,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 20,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 113,
+    "bad_captured": 0
+   },
+   "2005": {
+    "public": 11,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 107,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 7,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 179,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 10,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 84,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 19,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 5,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 8,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 43,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 82,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 5,
+    "withheld": 2,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 11,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   }
+  },
+  "SAT": {
+   "1996": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   },
+   "1997": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "1998": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "1999": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2001": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 7,
+    "bad_captured": 0
+   },
+   "2002": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2003": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 12,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 10,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "SMD": {
+   "2017": {
+    "public": 0,
+    "withheld": 5,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 7,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 73,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 104,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 76,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 28,
+    "bad_captured": 0
+   }
+  },
+  "SMS": {
+   "2024": {
+    "public": 18,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 13,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 18,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   }
+  },
+  "SNES": {
+   "2017": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2021": {
+    "public": 8,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2023": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 24,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 7,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 10,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3,
+    "bad_captured": 0
+   }
+  },
+  "ST": {
+   "2024": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   }
+  },
+  "VVD": {
+   "2018": {
+    "public": 18,
+    "withheld": 4,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "WS": {
+   "2017": {
+    "public": 4,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 8,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "WSC": {
+   "2018": {
+    "public": 9,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 5,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2025": {
+    "public": 1,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "Wii": {
+   "2006": {
+    "public": 6,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 10,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 272,
+    "withheld": 22,
+    "bad": 0,
+    "toget": 343,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1640,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 3161,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1577,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 758,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 359,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 161,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 40,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 87,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 50,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 67,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 93,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 21,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 3,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 2,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "WiiU": {
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 69,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 94,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 237,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 150,
+    "bad_captured": 0
+   },
+   "2018": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 86,
+    "bad_captured": 0
+   },
+   "2019": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 31,
+    "bad_captured": 0
+   },
+   "2020": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2024": {
+    "public": 0,
+    "withheld": 1,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "XBOX": {
+   "2002": {
+    "public": 806,
+    "withheld": 13,
+    "bad": 0,
+    "toget": 52,
+    "bad_captured": 2
+   },
+   "2003": {
+    "public": 974,
+    "withheld": 16,
+    "bad": 0,
+    "toget": 139,
+    "bad_captured": 0
+   },
+   "2004": {
+    "public": 946,
+    "withheld": 16,
+    "bad": 1,
+    "toget": 114,
+    "bad_captured": 3
+   },
+   "2005": {
+    "public": 858,
+    "withheld": 20,
+    "bad": 4,
+    "toget": 100,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 275,
+    "withheld": 3,
+    "bad": 0,
+    "toget": 98,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 58,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 53,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 21,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 6,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 6,
+    "bad_captured": 0
+   }
+  },
+  "XBOX360": {
+   "2005": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 44,
+    "bad_captured": 0
+   },
+   "2006": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 645,
+    "bad_captured": 0
+   },
+   "2007": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 574,
+    "bad_captured": 0
+   },
+   "2008": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 587,
+    "bad_captured": 0
+   },
+   "2009": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 634,
+    "bad_captured": 0
+   },
+   "2010": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2324,
+    "bad_captured": 0
+   },
+   "2011": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1089,
+    "bad_captured": 0
+   },
+   "2012": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 857,
+    "bad_captured": 0
+   },
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 748,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 266,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 118,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 43,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 5,
+    "bad_captured": 0
+   },
+   "2022": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 44,
+    "bad_captured": 0
+   }
+  },
+  "XBOXONE": {
+   "2013": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 1,
+    "bad_captured": 0
+   },
+   "2014": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 68,
+    "bad_captured": 0
+   },
+   "2015": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 37,
+    "bad_captured": 0
+   },
+   "2016": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 58,
+    "bad_captured": 0
+   },
+   "2017": {
+    "public": 0,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 7,
+    "bad_captured": 0
+   }
+  },
+  "ZDC": {
+   "2006": {
+    "public": 0,
+    "withheld": 17,
+    "bad": 0,
+    "toget": 0,
+    "bad_captured": 0
+   }
+  },
+  "ZXS": {
+   "2025": {
+    "public": 97,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 2,
+    "bad_captured": 0
+   },
+   "2026": {
+    "public": 278,
+    "withheld": 0,
+    "bad": 0,
+    "toget": 38,
+    "bad_captured": 0
+   }
+  }
+ }
+}
