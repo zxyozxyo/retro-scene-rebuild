@@ -143,3 +143,7 @@ sfv_templates.json
 
 # Private Python environment made by the installer
 .venv/
+
+# retroscenerebuild.com lookups and downloaded .rsr (RSR tool batch rebuild)
+site_cache/
+site_rsr/

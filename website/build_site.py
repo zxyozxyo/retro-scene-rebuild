@@ -390,6 +390,32 @@ def main():
            for r in recs]
     (site / "assets" / "index.json").write_text(json.dumps(idx, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
+    # hash lookup for the app: content file (size, CRC32) -> release
+    #   assets/hash/sizes.json  every content size (the app's free first filter)
+    #   assets/hash/<xx>.json   {"<size>-<crc8>": [[sys, page name, public], ...]}
+    #                           for every CRC32 starting with hex <xx>
+    if any("content" in r for r in recs):
+        hdir = site / "assets" / "hash"
+        if hdir.exists():
+            shutil.rmtree(hdir)
+        hdir.mkdir(parents=True)
+        shards, sizes = defaultdict(lambda: defaultdict(list)), set()
+        for r in recs:
+            for size, c in r.get("content") or ():
+                c &= 0xFFFFFFFF
+                k = f"{size}-{c:08x}"
+                ent = [r["sys"], r["slug"], 1 if r.get("public") else 0]
+                if ent not in shards[k[-8:-6]][k]:
+                    shards[k[-8:-6]][k].append(ent)
+                sizes.add(size)
+        for x in (f"{i:02x}" for i in range(256)):
+            (hdir / f"{x}.json").write_text(json.dumps(shards.get(x, {}), separators=(",", ":"),
+                                                       ensure_ascii=False), encoding="utf-8")
+        (hdir / "sizes.json").write_text(json.dumps(sorted(sizes), separators=(",", ":")), encoding="utf-8")
+        print(f"hash index: {sum(len(v) for v in shards.values()):,} content files, {len(sizes):,} sizes")
+    else:
+        print("hash index: skipped (export has no content lists; re-export)")
+
     # tools list
     man = json.loads((HERE.parent / "apps_manifest.json").read_text(encoding="utf-8"))
     counts = {g["title"]: len(g["files"]) for g in man["groups"]}

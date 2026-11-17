@@ -338,6 +338,8 @@ details.more summary:hover{color:var(--acc)}
               <input class="txt" id="rb-bout" placeholder="a folder per release is made here">
               <button class="btn btn-sm" onclick="pick('rb-bout')">…</button>
             </div>
+            <label class="chk-row" title="Files whose release isn't in your own store are looked up on retroscenerebuild.com by size + CRC32; the release's .rsr (with its nfo/sfv/proof files) is downloaded into site_rsr\ and rebuilt like any other. Stays under the site's download limit."><input type="checkbox" id="use_site" checked onchange="try{localStorage.setItem('rsr_use_site',this.checked?'1':'0')}catch(e){}">
+              Fetch missing releases from retroscenerebuild.com</label>
             <label class="chk-row"><input type="checkbox" id="skip_rebuilt" checked>
               Skip releases already rebuilt in the output folder</label>
             <div class="cpu-row" title="How many releases to rebuild at the same time. Takes effect as slots free, even mid-rebuild. There is no core slider here: -mt is part of each release's recipe, so a rebuild has to pack at the thread count it was captured with.">
@@ -502,6 +504,7 @@ function showTab(t) {
   }
   try { localStorage.setItem('rsr_tab', t); } catch (e) {}
 }
+try { if (localStorage.getItem('rsr_use_site') === '0') document.getElementById('use_site').checked = false; } catch (e) {}
 (function () {
   let t = 'capture';
   try { t = localStorage.getItem('rsr_tab') || 'capture'; } catch (e) {}
@@ -903,6 +906,7 @@ async function startBatch() {
     meta_systems: metaSelected(),
     skip_rebuilt: $('skip_rebuilt').checked,
     clean_extras: $('clean_extras').checked,
+    use_site: $('use_site').checked,
   });
   if (!r.ok) { log('✗ ' + r.error, 'err'); setBusy(false); }
 }

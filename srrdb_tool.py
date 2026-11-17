@@ -5922,7 +5922,7 @@ class SrrdbToolAPI:
             fresh = idx_f.is_file() and time.time() - idx_f.stat().st_mtime < 86400
             if not fresh:
                 with urlopen(Request(f"{self._SITE}/assets/index.json",
-                                     headers={"User-Agent": _UA}), timeout=30) as r:
+                                     headers={"User-Agent": _UA, "Referer": self._SITE + "/"}), timeout=30) as r:
                     data = r.read()
                 json.loads(data)                        # only keep a valid index
                 idx_f.parent.mkdir(parents=True, exist_ok=True)
@@ -5938,7 +5938,7 @@ class SrrdbToolAPI:
         slug = hit[4] if len(hit) > 4 else hit[0]
         url = f"{self._SITE}/files/{quote(hit[1])}/{quote(slug)}.rsr"
         try:
-            with urlopen(Request(url, headers={"User-Agent": _UA}), timeout=120) as r:
+            with urlopen(Request(url, headers={"User-Agent": _UA, "Referer": self._SITE + "/"}), timeout=120) as r:
                 data = r.read()
         except Exception as e:
             self._log(f"  Could not download the .rsr from retroscenerebuild.com: {e}", "warn")

@@ -193,6 +193,11 @@ def one(row, out: Path, clash=frozenset()):
             "volumes": [[v["name"], v.get("size")] for v in s.get("volumes", [])],
         } for s in man.get("sets", [])],
         "sidecars": [[c["name"], c.get("size"), c.get("crc32"), 0] for c in man.get("sidecars", [])],
+        # The files a user supplies (size, CRC32): what the app looks up on
+        # the site to find this release from the files alone.
+        "content": sorted({(f.get("size"), f.get("crc32")) for s in man.get("sets", [])
+                           for f in s.get("files", []) if f.get("source") == "content"
+                           and f.get("size") is not None and f.get("crc32") is not None}),
         "nfo": None, "nfo_name": None,
         "public": not reasons, "withheld": reasons,
     }

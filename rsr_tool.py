@@ -15123,8 +15123,12 @@ class RsrToolAPI:
             # re-walked as candidates on the next run.
             return {"ok": False,
                     "error": "Output must not be the content folder"}
-        if not self._db_path.is_file():
-            return {"ok": False, "error": "No .rsr index yet — capture first"}
+        # Default ON: releases this PC never captured are found on
+        # retroscenerebuild.com by their files and fetched first.
+        use_site = bool((cfg or {}).get("use_site", True))
+        if not use_site and not self._db_path.is_file():
+            return {"ok": False, "error": "No .rsr index yet — capture first, "
+                                          "or tick “Fetch from retroscenerebuild.com”"}
         delete_content = bool((cfg or {}).get("delete_content"))
         # Default ON: without it these releases are simply unreachable from
         # this screen, and a set is not complete without them.
@@ -15145,7 +15149,8 @@ class RsrToolAPI:
             try:
                 self._rebuild_batch_run(root, out, delete_content, with_meta,
                                         skip_rebuilt, clean_extras,
-                                        meta_systems=meta_systems)
+                                        meta_systems=meta_systems,
+                                        use_site=use_site)
             except Exception as e:
                 self._log(f"Batch rebuild error: {e}", "err")
                 self._log(traceback.format_exc(), "dim")
@@ -15162,6 +15167,168 @@ class RsrToolAPI:
         threading.Thread(target=_bg, daemon=True).start()
         return {"ok": True, "started": True}
 
+    # ── retroscenerebuild.com: find releases by the files alone ───────────────
+    # The site publishes every public release's content files as (size, CRC32)
+    # under assets/hash/ (sizes.json + 256 files keyed by the CRC32's first two
+    # hex digits). Files here the local index doesn't know are looked up there,
+    # their .rsr downloaded into site_rsr/ and indexed, and the batch then runs
+    # exactly as for a captured release. The site blocks an address that
+    # downloads too much (100 an hour / 300 a day), so this stays under it.
+    SITE_URL = "https://retroscenerebuild.com"
+    SITE_PER_HOUR, SITE_PER_DAY = 90, 280
+
+    def _site_get(self, path: str, timeout: int = 60) -> bytes:
+        import urllib.request
+        req = urllib.request.Request(self.SITE_URL + path, headers={
+            "User-Agent": "RetroSceneRebuild-app",
+            "Referer": self.SITE_URL + "/"})
+        with urllib.request.urlopen(req, timeout=timeout) as fh:
+            return fh.read()
+
+    def _site_json(self, name: str, max_age: int = 86400):
+        """assets/hash/<name>, cached for a day under site_cache/."""
+        cache = self._app_dir / "site_cache" / name
+        try:
+            if cache.is_file() and time.time() - cache.stat().st_mtime < max_age:
+                return json.loads(cache.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        data = self._site_get("/assets/hash/" + name)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, cache)
+        return json.loads(data.decode("utf-8"))
+
+    def _site_budget(self) -> tuple[list, Path]:
+        """Download times in the last day (persisted, so restarts count)."""
+        f = self._app_dir / "site_cache" / "downloads.json"
+        try:
+            ts = [t for t in json.loads(f.read_text(encoding="utf-8"))
+                  if time.time() - t < 86400]
+        except (OSError, ValueError):
+            ts = []
+        return ts, f
+
+    def _site_fetch(self, root: Path) -> int:
+        """Download and index the .rsr of every release whose content is in
+        `root` but not in the local index. Returns how many were added."""
+        try:
+            site_sizes = set(self._site_json("sizes.json"))
+        except Exception as e:
+            self._log(f"  retroscenerebuild.com not reachable ({e}); "
+                      "using the local index only.", "warn")
+            return 0
+        con = self._db()
+        try:
+            known = {(int(sz), int(cr) & 0xFFFFFFFF) for sz, cr in con.execute(
+                "SELECT size, crc32 FROM files WHERE source='content'")}
+            have = {r[0].lower() for r in con.execute("SELECT name FROM releases")}
+        finally:
+            con.close()
+        files = []
+        for p in root.rglob("*"):
+            try:
+                if p.is_file() and p.suffix.lower() != ".rsr" \
+                        and p.stat().st_size in site_sizes:
+                    files.append(p)
+            except OSError:
+                continue
+        if not files:
+            return 0
+        self._log(f"  checking {len(files)} file(s) against retroscenerebuild.com …", "dim")
+        want: dict = {}                 # (sys, page) -> first file that matched
+        hosted_not = set()
+        shards: dict = {}
+        for i, p in enumerate(files, 1):
+            if self._stop.is_set():
+                return 0
+            self._progress(f"site lookup: hashing {i}/{len(files)} · {p.name}")
+            try:
+                key = (p.stat().st_size, _file_crc32_memo(p) & 0xFFFFFFFF)
+            except OSError:
+                continue
+            if key in known:
+                continue
+            x = f"{key[1]:08x}"
+            try:
+                if x[:2] not in shards:
+                    shards[x[:2]] = self._site_json(x[:2] + ".json")
+            except Exception as e:
+                self._log(f"  site lookup failed ({e}); stopping lookups.", "warn")
+                break
+            for sys_, page, public in shards[x[:2]].get(f"{key[0]}-{x}", ()):
+                if page.lower() in have or (self._app_dir / "site_rsr" / sys_ / f"{page}.rsr").is_file():
+                    continue
+                if public:
+                    want.setdefault((sys_, page), p)
+                else:
+                    hosted_not.add(page)
+        self._progress("")
+        for page in sorted(hosted_not)[:10]:
+            self._log(f"  · {page}: your file matches, but its rebuild data "
+                      "isn't hosted on the site", "dim")
+        if len(hosted_not) > 10:
+            self._log(f"    …and {len(hosted_not) - 10} more like that", "dim")
+        if not want:
+            self._log("  nothing new to fetch from the site.", "dim")
+            return 0
+        self._log(f"  {len(want)} release(s) to fetch from retroscenerebuild.com", "info")
+        dest = self._app_dir / "site_rsr"
+        added = 0
+        for n, (sys_, page) in enumerate(sorted(want), 1):
+            ts, tf = self._site_budget()
+            if len(ts) >= self.SITE_PER_DAY:
+                self._log(f"  daily download limit reached; {len(want) - n + 1} "
+                          "release(s) left for the next run (tomorrow).", "warn")
+                break
+            hour = [t for t in ts if time.time() - t < 3600]
+            if len(hour) >= self.SITE_PER_HOUR:
+                wait = int(min(hour) + 3600 - time.time()) + 5
+                self._log(f"  pausing {wait // 60 + 1} min to stay under the "
+                          "site's hourly download limit …", "dim")
+                while wait > 0 and not self._stop.is_set():
+                    self._progress(f"site download pause: {wait // 60}:{wait % 60:02d}")
+                    time.sleep(1)
+                    wait -= 1
+                self._progress("")
+                if self._stop.is_set():
+                    return added
+            from urllib.parse import quote
+            self._progress(f"downloading {n}/{len(want)} · {page}.rsr")
+            try:
+                data = self._site_get(f"/files/{quote(sys_)}/{quote(page)}.rsr", timeout=300)
+            except Exception as e:
+                self._log(f"  ✗ {page}: download failed ({e})", "err")
+                continue
+            ts.append(time.time())
+            try:
+                tf.parent.mkdir(parents=True, exist_ok=True)
+                tf.write_text(json.dumps(ts), encoding="utf-8")
+            except OSError:
+                pass
+            if not data.startswith(b"PK"):
+                self._log(f"  ✗ {page}: the site did not send an .rsr", "err")
+                continue
+            out = dest / sys_ / f"{page}.rsr"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            tmp = out.with_suffix(".rsr.tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, out)
+            try:
+                manifest, z = self.read_rsr(out)
+                z.close()
+                manifest.setdefault("release", page)
+                self._db_record(manifest, out)
+            except Exception as e:
+                self._log(f"  ✗ {page}: downloaded but could not be indexed ({e})", "err")
+                continue
+            added += 1
+            self._log(f"  ↓ {page}", "ok")
+        self._progress("")
+        self._size_map_cache = {}
+        return added
+
     def _content_sizes(self) -> set[int]:
         """Every file size the index knows as content."""
         con = self._db()
@@ -15176,7 +15343,8 @@ class RsrToolAPI:
                            with_meta: bool = True,
                            skip_rebuilt: bool = True,
                            clean_extras: bool = False,
-                           meta_systems=None):
+                           meta_systems=None,
+                           use_site: bool = False):
         self._log("══ BATCH REBUILD ══", "info")
         self._content_root = root
         # A re-run in the same session must see files added since the last one
@@ -15199,6 +15367,11 @@ class RsrToolAPI:
         # drive: nothing can match unless its size matches a captured content
         # file exactly, and that check throws out everything that isn't even a
         # candidate before a single byte is read.
+        if use_site:
+            self._site_fetch(root)
+            if self._stop.is_set():
+                self._log("Stopped.", "warn")
+                return
         sizes = self._content_sizes()
         looked = skipped_size = 0
         cands = []
