@@ -496,6 +496,17 @@ def main():
     (site / "about.html").write_text(page(f"About — {SITE_NAME}", about, 0), encoding="utf-8")
     disc = (HERE / "disclaimer.html").read_text(encoding="utf-8")
     (site / "disclaimer.html").write_text(page(f"Disclaimer — {SITE_NAME}", disc, 0), encoding="utf-8")
+    # Leech protection: crawlers keep out of the downloads; the server answers
+    # a download without a link from this site (or past the daily cap) with 403.
+    (site / "robots.txt").write_text("User-agent: *\nDisallow: /files/\n", encoding="utf-8")
+    (site / "403.html").write_text(page(f"Download from the release page — {SITE_NAME}",
+        "<h1>Please download from the release page</h1>\n"
+        "<p>Files can only be downloaded from their release page on this site. "
+        "Use <a href=\"/search.html\">Search</a> to find the release, then use its download link.</p>\n"
+        "<p>If you have downloaded a very large number of files, downloads are paused for a day.</p>\n", 0)
+        # served at the blocked download's URL (/files/...), so relative links need a root base
+        .replace("<head>", '<head>\n<base href="/">', 1),
+        encoding="utf-8")
     print(f"pages {len(recs)}  systems {len(by_sys)}  .rsr files {nfiles}  release files {nextra}")
 
 
