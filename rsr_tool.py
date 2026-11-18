@@ -967,6 +967,112 @@ def _oem_name(info, flags: int) -> str | None:
     return None
 
 
+def _fs_name(path: Path) -> str:
+    """The file system of the drive holding `path` ("NTFS", "FAT32", "exFAT"),
+    or "" when it cannot be told."""
+    if os.name != "nt":
+        return ""
+    try:
+        import ctypes
+        root = Path(path).resolve().anchor
+        buf = ctypes.create_unicode_buffer(64)
+        if ctypes.windll.kernel32.GetVolumeInformationW(
+                root, None, 0, None, None, None, buf, len(buf)):
+            return buf.value
+    except Exception:
+        pass
+    return ""
+
+
+def _space_problem(manifest: dict, work: Path, out: Path) -> str | None:
+    """Why this rebuild cannot fit on the PC's drives, or None.
+
+    Checked before anything is packed: running a drive full mid-pack fails
+    late and vaguely (RAR 2.0x can even hang on it), and a FAT32 drive cannot
+    hold a file of 4 GiB or more -- an XBOX or PS2 image will not fit on one."""
+    import shutil
+    work_need = out_need = 0
+    big_out = big_work = 0
+    for st in manifest.get("sets") or []:
+        files = [int(f.get("size") or 0) for f in st.get("files") or []]
+        vols = [int(v.get("size") or 0) for v in st.get("volumes") or []]
+        if st.get("format") == "LOOSE" and not vols:
+            vols = files
+        work_need = max(work_need, sum(files) + sum(vols))
+        if not st.get("inner"):
+            out_need += sum(vols)
+        big_out = max([big_out] + vols)
+        big_work = max([big_work] + files + vols)
+    for f in (manifest.get("sidecars") or []):
+        if isinstance(f, dict):
+            out_need += int(f.get("size") or 0)
+    def _near(p):
+        p = Path(p).resolve()
+        while not p.exists() and p.parent != p:
+            p = p.parent
+        return p
+    out, work = _near(out), _near(work)
+    gib4 = 4 << 30
+    for where, big in ((out, big_out), (work, big_work)):
+        if big >= gib4 and _fs_name(where).upper().startswith("FAT"):
+            return (f"{where} is on a {_fs_name(where)} drive, which cannot "
+                    f"hold a file of 4 GB or more, and this release needs one "
+                    f"of {big / (1 << 30):.1f} GB. Choose a folder on an NTFS "
+                    f"or exFAT drive.")
+    try:
+        same = Path(work).resolve().anchor.lower() == Path(out).resolve().anchor.lower()
+        spare = 64 << 20
+        if same:
+            free = shutil.disk_usage(out).free
+            need = work_need + out_need + spare
+            if free < need:
+                return (f"not enough free space on {Path(out).resolve().anchor} "
+                        f"— this rebuild needs about {need / (1 << 30):.1f} GB "
+                        f"(working copy + output), {free / (1 << 30):.1f} GB is free.")
+        else:
+            for where, need in ((out, out_need + spare), (work, work_need + spare)):
+                free = shutil.disk_usage(where).free
+                if free < need:
+                    return (f"not enough free space for {where} — it needs about "
+                            f"{need / (1 << 30):.1f} GB, "
+                            f"{free / (1 << 30):.1f} GB is free.")
+    except OSError:
+        pass
+    return None
+
+
+# Every capture so far was made on a Windows PC with OEM code page 850.
+CAPTURE_OEM_CP = 850
+
+
+def _cp_sensitive_names(st, recipe, dos_mark: str):
+    """(this PC's OEM code page, [names]) when a Windows RAR 1.x-4.x replay here
+    would write some packed names in different bytes than the capture PC did,
+    else None. Those headers keep names in the OEM code page; DOS builds run
+    under DOSBox's own fixed page and are not affected."""
+    if os.name != "nt" or st.get("format") != "RAR4":
+        return None
+    if dos_mark in [str(x) for x in (recipe.get("mc") or [])]:
+        return None
+    try:
+        import ctypes
+        cp = int(ctypes.windll.kernel32.GetOEMCP())
+    except Exception:
+        return None
+    if cp == CAPTURE_OEM_CP:
+        return None
+
+    def enc(s, c):
+        try:
+            return s.encode(f"cp{c}")
+        except (UnicodeEncodeError, LookupError):
+            return None
+    bad = [str(f.get("name") or "") for f in st.get("files") or []
+           if not str(f.get("name") or "").isascii()]
+    bad = [n for n in bad if enc(n, cp) != enc(n, CAPTURE_OEM_CP)]
+    return (cp, bad) if bad else None
+
+
 def _win_attrs(path: Path) -> int | None:
     """Windows file attribute mask, or None off Windows. RAR stores it in the
     file header, so a rebuild that ignores it can differ by a byte."""
@@ -3014,6 +3120,42 @@ def _now_bias_shift_ns(epoch_ns: int) -> int:
     b_then = -(time.altzone if then else time.timezone)
     b_now = -(time.altzone if now else time.timezone)
     return (b_then - b_now) * 10**9
+
+
+def _here_mtime_ns(mt: int, date_time, how: str) -> int:
+    """The file time to stage on THIS PC so the packer writes the local time
+    the original archive holds (`date_time`, read from its header).
+
+    RAR 1.x-4.x headers hold LOCAL time, which the packer works out from the
+    file's UTC time with this PC's time zone. A capture records the UTC time
+    on the capturing PC, so a rebuild in another time zone came out an hour
+    or more off in every header -- Omega_Boost_USA-KALISTO (DOS RAR 2.00)
+    failed on a tester's French PC and rebuilt fine in the UK. `how` is how
+    the build turns UTC into local time: "date" = the offset on the file's
+    date (DOS under DOSBox, 5.10+), "now" = the offset in force today
+    (Windows 2.00-5.01). Where this PC already writes the recorded time --
+    the capturing PC, or any PC in the same zone -- `mt` comes back as is."""
+    if not date_time or len(date_time) < 6:
+        return mt
+    import calendar
+    want = calendar.timegm(tuple(int(x) for x in date_time[:6]) + (0, 0, 0))
+    want -= want % 2                  # DOS time keeps even seconds only
+    cur = mt
+    for _ in range(3):                # a shift can cross a DST change: re-check
+        sec = cur // 10**9
+        try:
+            if how == "now":
+                bias = -(time.altzone if time.localtime().tm_isdst > 0 else time.timezone)
+                wrote = sec + bias
+            else:
+                wrote = calendar.timegm(time.localtime(sec)[:6] + (0, 0, 0))
+        except (OverflowError, OSError, ValueError):
+            return mt
+        wrote -= wrote % 2
+        if wrote == want:
+            return cur
+        cur += (want - wrote) * 10**9
+    return mt
 
 
 def _ext_mtime_extra(hdr: bytes, flags: int, nlen: int) -> int:
@@ -5100,6 +5242,7 @@ class RsrToolAPI:
                     beat = now
                     self._progress(f"{heartbeat} · {now - started:,.0f}s")
                 if now > deadline:
+                    self._tl.timed_out = True
                     p.kill()
                     return False
                 time.sleep(0.05)
@@ -5186,6 +5329,8 @@ class RsrToolAPI:
                     self._progress(f"{heartbeat} · {now - started:,.0f}s")
                 if (self._stop.is_set() or self._skip.is_set()
                         or now > deadline):
+                    if now > deadline:
+                        self._tl.timed_out = True
                     try:
                         p.kill()
                         p.wait(timeout=10)
@@ -5486,6 +5631,17 @@ class RsrToolAPI:
         temp drive is the one with room for that -- or, when it has not, the
         "Work folder" setting moves all of it to another drive (_temp_base)."""
         root = _temp_base() / "rsr-work"
+        if os.name == "nt" and not str(root).isascii():
+            # The old packers are the only programs that see this path, and
+            # they cannot open one that is not plain ASCII -- under
+            # C:\Users\山田\... every Windows RAR replay "produced nothing",
+            # and DOSBox fails even on an é. Same drive, plain name.
+            alt = Path(root.anchor) / "rsr-work"
+            try:
+                alt.mkdir(parents=True, exist_ok=True)
+                return alt
+            except OSError:
+                pass
         root.mkdir(parents=True, exist_ok=True)
         return root
 
@@ -11467,6 +11623,20 @@ class RsrToolAPI:
         if box is None:
             return False
         bigbox = big >= self.DOS_BIG_SOURCE
+        # DOSBox cannot open a folder whose path is not plain ASCII: with the
+        # work folder under C:\Users\Hélène\... every DOS pack "produced
+        # nothing". Such folders are handed to it through a short ASCII
+        # junction instead, removed again when the pack is done.
+        aliases = []
+
+        def _ascii(p):
+            if os.name != "nt" or str(p).isascii():
+                return p
+            j = _junction_alias(p)
+            if j is None:
+                return p
+            aliases.append(j)
+            return j
         try:
             if wdir.exists():
                 _rmtree(wdir)
@@ -11581,9 +11751,10 @@ class RsrToolAPI:
                    + " ".join(names) + " > RARLOG.TXT\r\n"
                    "echo RSRDONE >> RARLOG.TXT\r\n")
             (wdir / "GO.BAT").write_bytes(bat.encode("ascii", "replace"))
-            mounts = f"mount c \"{wdir}\"\n"
+            box_wdir = _ascii(wdir)
+            mounts = f"mount c \"{box_wdir}\"\n"
             if srcdir is not None:
-                mounts += f"mount d \"{srcdir}\" -t dir\n"
+                mounts += f"mount d \"{_ascii(srcdir)}\" -t dir\n"
             # RAR/DOS32 gets real memory. DOSBox's default machine has 16 MB,
             # and a 4 MB dictionary's match finder does not fit in it: RSX
             # pages to disk instead and the pack crawls. Measured 2026-10-11
@@ -11622,7 +11793,8 @@ class RsrToolAPI:
             # machine. The dummy SDL driver removes the window and changes
             # nothing about the output.
             env = dict(os.environ, SDL_VIDEODRIVER="dummy")
-            argv = [str(box), "-conf", str(cfg), "-noconsole"]
+            argv = [str(box), "-conf", str(Path(box_wdir) / cfg.name),
+                    "-noconsole"]
             if bigbox:
                 # Its built-in defaults under our conf -- no dosbox-x.conf
                 # beside the exe or in the profile -- and no folder prompt.
@@ -11688,6 +11860,9 @@ class RsrToolAPI:
             return b"RSRDONE" in raw
         except Exception:
             return False
+        finally:
+            for j in aliases:
+                _drop_junction(j)
 
     def _log_dos(self, ex: Path, raw: bytes) -> None:
         """Echo the DOS archiver's own words, minus the progress spam.
@@ -13769,6 +13944,19 @@ class RsrToolAPI:
                     + ["-r", str(target), "*"]]
         return cmds
 
+    def _log_time_limit(self, limit: int) -> None:
+        """Say so when a replay was killed by its time limit, not by Stop/Skip:
+        otherwise a slow PC (or an antivirus scanning every write) only ever
+        sees a vague failure further down."""
+        if (self._stop.is_set() or self._skip.is_set()
+                or not getattr(self._tl, "timed_out", False)):
+            return
+        self._log(f"    ✗ the pack did not finish within its time limit "
+                  f"({limit // 60:,} min) and was stopped — a slow PC, or an "
+                  f"antivirus scanning every file the packer writes, can do "
+                  f"this. Try again with the PC otherwise idle, or exclude "
+                  f"the tool's folder from real-time scanning.", "err")
+
     def _replay(self, recipe: dict, src_files, work: Path, comment,
                 fmt: str, base=None) -> list[Path] | None:
         """Run the original command again and return the volumes it produced,
@@ -13809,6 +13997,7 @@ class RsrToolAPI:
                 _mb = sum(Path(q).stat().st_size for q in src_files) / (1 << 20)
             except OSError:
                 _mb = 0
+            self._tl.timed_out = False
             if not self._run_dos_pack(dex, out, recipe["level"],
                                       recipe["solid"],
                                       [str(q) for q in src_files],
@@ -13819,6 +14008,7 @@ class RsrToolAPI:
                                       rr_sectors=(
                                           int(recipe.get("rr_sectors") or 0)
                                           if recipe.get("rr_pct") else -1)):
+                self._log_time_limit(max(3600, min(4 * 3600, int(_mb * 6))))
                 return None
             dmade = sorted(q for q in out.iterdir()
                            if q.is_file() and _classify_volume(q.name)
@@ -13878,11 +14068,13 @@ class RsrToolAPI:
             rc = 0
             for c in cmds:
                 self._tl.last_rc = 0
+                self._tl.timed_out = False
                 if not self._run(c, timeout=max(3600, min(4 * 3600, int(mb * 12))),
                                  heartbeat=f"replaying {recipe['version']} "
                                            f"{_mt_label(recipe.get('exe', ''), recipe['mt'])}"
                                            f" over {mb:,.0f} MB",
                                  cwd=base, keep_output=True):
+                    self._log_time_limit(max(3600, min(4 * 3600, int(mb * 12))))
                     return None
                 if getattr(self._tl, "last_rc", 0) and self._stop.is_set():
                     # Stop kills rar mid-pack; its exit code says nothing
@@ -16483,6 +16675,7 @@ class RsrToolAPI:
         Returns whether any fraction was taken from the .srr, so a failed
         rebuild knows a replay WITHOUT them is worth trying (see the caller)."""
         dts = dict(recipe.get("dir_times") or {})
+        dos_build = self.DOS_MARK in [str(x) for x in (recipe.get("mc") or [])]
         rsr = getattr(self._tl, "rebuild_rsr", None)
         srr = rsr.with_suffix(".srr") if rsr else None
         filled = False
@@ -16524,7 +16717,15 @@ class RsrToolAPI:
             if not p.is_dir():
                 continue
             try:
-                ns = int(_dos_to_rar_epoch(int(dos))) * 10**9 + extra * 100
+                if dos_build:
+                    # DOS under DOSBox turns the folder's time into local time
+                    # with the offset on its own date, not today's
+                    d, t = int(dos) >> 16, int(dos) & 0xFFFF
+                    ns = int(time.mktime(((d >> 9) + 1980, (d >> 5) & 15, d & 31,
+                                          t >> 11, (t >> 5) & 63, (t & 31) * 2,
+                                          0, 0, -1))) * 10**9 + extra * 100
+                else:
+                    ns = int(_dos_to_rar_epoch(int(dos))) * 10**9 + extra * 100
                 os.utime(p, ns=(ns, ns))
                 _set_win_attrs(p, int(attr) or 0x10)
                 n += 1
@@ -16554,6 +16755,10 @@ class RsrToolAPI:
             # go to the output.
             self._tl.inner_dir = work / "inner"
             try:
+                problem = _space_problem(manifest, work, out)
+                if problem:
+                    self._log(f"  ✗ {problem}", "err")
+                    return {"ok": False, "stopped": False}
                 for st in manifest.get("sets", []):
                     if self._stop.is_set():
                         self._log("Stopped.", "warn")
@@ -16611,6 +16816,17 @@ class RsrToolAPI:
                   f"{_mt_label(recipe.get('exe', ''), recipe['mt'])} "
                   f"(-m{recipe['level']} -md{recipe['dict_kb']}KB {_sw}"
                   + (f" {_rest}" if _rest else "") + f"){_dos}", "info")
+
+        cp_names = _cp_sensitive_names(st, recipe, self.DOS_MARK)
+        if cp_names:
+            cp, ex = cp_names
+            self._log(f"    ⚠ {len(ex)} file name(s) here, e.g. {ex[0][:60]!r}, "
+                      f"are written differently by Windows code page {cp} "
+                      f"than by {CAPTURE_OEM_CP}, the one this release was "
+                      f"recorded under — the rebuild may end in a hash "
+                      f"mismatch. If it does, run the tool under a "
+                      f"Western-European locale (e.g. Locale Emulator, "
+                      f"code page {CAPTURE_OEM_CP}).", "warn")
 
         # Gather sources: loose content from the user's folder, archive-only
         # extras straight out of the container.
@@ -16703,6 +16919,11 @@ class RsrToolAPI:
                     mt = f["mtime_ns"]
                     if recipe.get("ftimes") == "now_bias":
                         mt += _now_bias_shift_ns(mt)
+                    if st.get("format") == "RAR4" and f.get("date_time"):
+                        dos = self.DOS_MARK in [str(x) for x in (recipe.get("mc") or [])]
+                        how = ("now" if not dos and _now_bias_build(recipe.get("exe", ""))
+                               else "date")
+                        mt = _here_mtime_ns(mt, f["date_time"], how)
                     os.utime(dst, ns=(mt, mt))
                     # A -tsc recipe writes the creation time into the
                     # header too; the copy just got today's.
