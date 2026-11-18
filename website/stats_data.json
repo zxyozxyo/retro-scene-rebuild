@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-17",
+ "generated": "2026-11-18",
  "dat_files": 566,
  "systems": {
   "3DO": {
@@ -41,36 +41,36 @@
     "bad_captured": 0
    },
    "2014": {
-    "public": 941,
-    "withheld": 10,
+    "public": 943,
+    "withheld": 8,
     "bad": 1,
     "toget": 0,
     "bad_captured": 0
    },
    "2015": {
-    "public": 565,
-    "withheld": 9,
+    "public": 567,
+    "withheld": 7,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
    },
    "2016": {
-    "public": 226,
-    "withheld": 6,
+    "public": 232,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
    },
    "2017": {
-    "public": 187,
-    "withheld": 1,
+    "public": 188,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
    },
    "2018": {
-    "public": 78,
-    "withheld": 1,
+    "public": 79,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -152,8 +152,8 @@
   },
   "ATARI7800": {
    "2025": {
-    "public": 0,
-    "withheld": 2,
+    "public": 2,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -182,15 +182,15 @@
     "bad_captured": 0
    },
    "2022": {
-    "public": 52,
-    "withheld": 7,
+    "public": 53,
+    "withheld": 6,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
    },
    "2023": {
-    "public": 269,
-    "withheld": 60,
+    "public": 284,
+    "withheld": 45,
     "bad": 0,
     "toget": 2,
     "bad_captured": 0
@@ -272,15 +272,15 @@
     "bad_captured": 0
    },
    "2022": {
-    "public": 4,
-    "withheld": 1,
+    "public": 5,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
    },
    "2023": {
-    "public": 9,
-    "withheld": 4,
+    "public": 11,
+    "withheld": 2,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -295,29 +295,29 @@
     "bad_captured": 0
    },
    "2000": {
-    "public": 550,
-    "withheld": 35,
+    "public": 559,
+    "withheld": 26,
     "bad": 0,
     "toget": 1,
     "bad_captured": 1
    },
    "2001": {
-    "public": 733,
-    "withheld": 58,
+    "public": 766,
+    "withheld": 25,
     "bad": 3,
     "toget": 4,
     "bad_captured": 1
    },
    "2002": {
-    "public": 160,
-    "withheld": 14,
+    "public": 161,
+    "withheld": 13,
     "bad": 1,
     "toget": 1,
     "bad_captured": 0
    },
    "2003": {
-    "public": 194,
-    "withheld": 13,
+    "public": 195,
+    "withheld": 12,
     "bad": 0,
     "toget": 92,
     "bad_captured": 0
@@ -351,8 +351,8 @@
     "bad_captured": 0
    },
    "2008": {
-    "public": 61,
-    "withheld": 1,
+    "public": 62,
+    "withheld": 0,
     "bad": 0,
     "toget": 10,
     "bad_captured": 0
@@ -653,8 +653,8 @@
   },
   "GG": {
    "2026": {
-    "public": 3,
-    "withheld": 1,
+    "public": 4,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -662,8 +662,8 @@
   },
   "GIZ": {
    "2006": {
-    "public": 29,
-    "withheld": 4,
+    "public": 30,
+    "withheld": 3,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -899,8 +899,8 @@
   },
   "INTV": {
    "2025": {
-    "public": 0,
-    "withheld": 29,
+    "public": 29,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -908,8 +908,8 @@
   },
   "IQP": {
    "2018": {
-    "public": 15,
-    "withheld": 2,
+    "public": 16,
+    "withheld": 1,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -949,8 +949,8 @@
   },
   "LYNX": {
    "2024": {
-    "public": 0,
-    "withheld": 2,
+    "public": 2,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -1081,8 +1081,8 @@
     "bad_captured": 0
    },
    "2012": {
-    "public": 53,
-    "withheld": 18,
+    "public": 71,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -1274,8 +1274,8 @@
     "bad_captured": 1
    },
    "2006": {
-    "public": 656,
-    "withheld": 2,
+    "public": 657,
+    "withheld": 1,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -1358,8 +1358,8 @@
     "bad_captured": 0
    },
    "2018": {
-    "public": 61,
-    "withheld": 1,
+    "public": 62,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -1555,8 +1555,8 @@
     "bad_captured": 0
    },
    "2003": {
-    "public": 544,
-    "withheld": 12,
+    "public": 548,
+    "withheld": 8,
     "bad": 4,
     "toget": 32,
     "bad_captured": 2
@@ -1569,8 +1569,8 @@
     "bad_captured": 1
    },
    "2005": {
-    "public": 441,
-    "withheld": 16,
+    "public": 453,
+    "withheld": 4,
     "bad": 0,
     "toget": 108,
     "bad_captured": 2
@@ -1676,8 +1676,8 @@
     "bad_captured": 0
    },
    "2025": {
-    "public": 3,
-    "withheld": 1,
+    "public": 4,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -2811,15 +2811,15 @@
   },
   "PSP Games": {
    "2005": {
-    "public": 651,
-    "withheld": 26,
+    "public": 652,
+    "withheld": 25,
     "bad": 0,
     "toget": 54,
     "bad_captured": 0
    },
    "2006": {
-    "public": 1087,
-    "withheld": 112,
+    "public": 1125,
+    "withheld": 74,
     "bad": 1,
     "toget": 192,
     "bad_captured": 0
@@ -2832,8 +2832,8 @@
     "bad_captured": 0
    },
    "2008": {
-    "public": 480,
-    "withheld": 27,
+    "public": 481,
+    "withheld": 26,
     "bad": 0,
     "toget": 65,
     "bad_captured": 0
@@ -2946,8 +2946,8 @@
     "bad_captured": 0
    },
    "2007": {
-    "public": 354,
-    "withheld": 3,
+    "public": 355,
+    "withheld": 2,
     "bad": 0,
     "toget": 201,
     "bad_captured": 0
@@ -2983,8 +2983,8 @@
     "bad_captured": 0
    },
    "2006": {
-    "public": 81,
-    "withheld": 4,
+    "public": 84,
+    "withheld": 1,
     "bad": 0,
     "toget": 41,
     "bad_captured": 0
@@ -3171,8 +3171,8 @@
     "bad_captured": 0
    },
    "1996": {
-    "public": 493,
-    "withheld": 6,
+    "public": 494,
+    "withheld": 5,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -3199,15 +3199,15 @@
     "bad_captured": 0
    },
    "2000": {
-    "public": 899,
-    "withheld": 74,
+    "public": 944,
+    "withheld": 29,
     "bad": 0,
     "toget": 15,
     "bad_captured": 0
    },
    "2001": {
-    "public": 807,
-    "withheld": 35,
+    "public": 826,
+    "withheld": 16,
     "bad": 3,
     "toget": 1,
     "bad_captured": 2
@@ -3248,8 +3248,8 @@
     "bad_captured": 0
    },
    "2007": {
-    "public": 10,
-    "withheld": 1,
+    "public": 11,
+    "withheld": 0,
     "bad": 0,
     "toget": 84,
     "bad_captured": 0
@@ -3318,8 +3318,8 @@
     "bad_captured": 0
    },
    "2024": {
-    "public": 5,
-    "withheld": 2,
+    "public": 7,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -3617,8 +3617,8 @@
   },
   "VVD": {
    "2018": {
-    "public": 18,
-    "withheld": 4,
+    "public": 22,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -3849,8 +3849,8 @@
     "bad_captured": 0
    },
    "2024": {
-    "public": 0,
-    "withheld": 1,
+    "public": 1,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
@@ -3858,15 +3858,15 @@
   },
   "XBOX": {
    "2002": {
-    "public": 806,
-    "withheld": 13,
+    "public": 807,
+    "withheld": 12,
     "bad": 0,
     "toget": 52,
     "bad_captured": 2
    },
    "2003": {
-    "public": 974,
-    "withheld": 16,
+    "public": 975,
+    "withheld": 15,
     "bad": 0,
     "toget": 139,
     "bad_captured": 0
@@ -3879,8 +3879,8 @@
     "bad_captured": 3
    },
    "2005": {
-    "public": 858,
-    "withheld": 20,
+    "public": 859,
+    "withheld": 19,
     "bad": 4,
     "toget": 100,
     "bad_captured": 0
@@ -4060,8 +4060,8 @@
   },
   "ZDC": {
    "2006": {
-    "public": 0,
-    "withheld": 17,
+    "public": 17,
+    "withheld": 0,
     "bad": 0,
     "toget": 0,
     "bad_captured": 0
