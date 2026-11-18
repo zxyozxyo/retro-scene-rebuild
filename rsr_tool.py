@@ -15239,6 +15239,7 @@ class RsrToolAPI:
         self._log(f"  checking {len(files)} file(s) against retroscenerebuild.com …", "dim")
         want: dict = {}                 # (sys, page) -> first file that matched
         hosted_not = set()
+        wkeys: dict = {}                # (sys, page) -> (size, crc hex) that found it
         shards: dict = {}
         for i, p in enumerate(files, 1):
             if self._stop.is_set():
@@ -15262,6 +15263,7 @@ class RsrToolAPI:
                     continue
                 if public:
                     want.setdefault((sys_, page), p)
+                    wkeys.setdefault((sys_, page), (key[0], x))
                 else:
                     hosted_not.add(page)
         self._progress("")
@@ -15299,8 +15301,22 @@ class RsrToolAPI:
             try:
                 data = self._site_get(f"/files/{quote(sys_)}/{quote(page)}.rsr", timeout=300)
             except Exception as e:
-                self._log(f"  ✗ {page}: download failed ({e})", "err")
-                continue
+                # The site may have filed the release under another system since
+                # the cached lookup was fetched: look it up again, once.
+                moved = None
+                try:
+                    sz, x = wkeys[(sys_, page)]
+                    fresh = self._site_json(x[:2] + ".json", max_age=0)
+                    moved = next((s2 for s2, p2, pub in fresh.get(f"{sz}-{x}", ())
+                                  if p2 == page and pub and s2 != sys_), None)
+                    if moved:
+                        data = self._site_get(f"/files/{quote(moved)}/{quote(page)}.rsr", timeout=300)
+                        sys_ = moved
+                except Exception:
+                    moved = None
+                if not moved:
+                    self._log(f"  ✗ {page}: download failed ({e})", "err")
+                    continue
             ts.append(time.time())
             try:
                 tf.parent.mkdir(parents=True, exist_ok=True)

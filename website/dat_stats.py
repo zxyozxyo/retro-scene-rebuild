@@ -67,6 +67,7 @@ def main():
     bad = bad_names(Path(a.bad) if a.bad else None)
     counts = defaultdict(lambda: defaultdict(lambda: dict(public=0, withheld=0, bad=0, toget=0, bad_captured=0)))
     seen = set()
+    place = defaultdict(list)     # release -> every (DAT system, year) that lists it
     for f in sorted(Path(a.dats).glob("*.dat")):
         text = f.read_text(encoding="utf-8", errors="replace")
         m = HEAD.search(text)
@@ -80,6 +81,8 @@ def main():
         c = counts[system][year]
         for g in GAME.findall(text):
             k = key(html.unescape(g))
+            if k in store and [system, year] not in place[k]:
+                place[k].append([system, year])
             if k in seen:          # the same release in two DATs counts once
                 continue
             seen.add(k)
@@ -94,13 +97,17 @@ def main():
             "dat_files": len(list(Path(a.dats).glob("*.dat"))),
             "systems": {s: dict(sorted(y.items())) for s, y in sorted(counts.items())}}
     Path(a.out).write_text(json.dumps(data, indent=1), encoding="utf-8")
+    # where each captured release sits in the DATs; build_site.py files the
+    # release pages by it. Holds names, so it lives in the export, not git.
+    (Path(a.export) / "dat_place.json").write_text(json.dumps(place, indent=0), encoding="utf-8")
     tot = defaultdict(int)
     for y in counts.values():
         for c in y.values():
             for k2, v in c.items():
                 tot[k2] += v
     print(f"releases {len(seen):,}  " + "  ".join(f"{k2} {v:,}" for k2, v in tot.items()))
-    print("store releases in no DAT:", sum(1 for k in store if k not in seen))
+    print("store releases in no DAT:", sum(1 for k in store if k not in seen),
+          " in more than one DAT system:", sum(1 for v in place.values() if len({x[0] for x in v}) > 1))
 
 
 if __name__ == "__main__":

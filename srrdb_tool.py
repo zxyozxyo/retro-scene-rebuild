@@ -5907,7 +5907,7 @@ class SrrdbToolAPI:
 
     _SITE = "https://retroscenerebuild.com"
 
-    def _site_rsr(self, names: set) -> Path | None:
+    def _site_rsr(self, names: set, _retry: bool = True) -> Path | None:
         """The release's public .rsr from retroscenerebuild.com, downloaded once
         into srr_cache/rsr/. None when the site does not publish it or can't
         be reached -- the srrdb route then runs as before."""
@@ -5941,6 +5941,14 @@ class SrrdbToolAPI:
             with urlopen(Request(url, headers={"User-Agent": _UA, "Referer": self._SITE + "/"}), timeout=120) as r:
                 data = r.read()
         except Exception as e:
+            if _retry and fresh:
+                # the cached index may predate the release moving to another
+                # system on the site: fetch the index again and retry once
+                try:
+                    idx_f.unlink()
+                except OSError:
+                    pass
+                return self._site_rsr(names, False)
             self._log(f"  Could not download the .rsr from retroscenerebuild.com: {e}", "warn")
             return None
         if not data.startswith(b"PK"):

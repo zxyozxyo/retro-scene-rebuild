@@ -41,11 +41,31 @@ SYSTEM_NAMES = {
 TAG_SYS = {"NES": "NES", "NESMINI": "NES", "ZXS": "ZXS", "SMD": "SMD", "POCKET": "POCKET",
            "PCECD": "PCECD", "PCED": "PCECD", "NGPC": "NGPC", "NGP": "NGP", "SNES": "SNES",
            "SMS": "SMS", "MSX": "MSX", "VVD": "VVD", "SATURN": "SATURN", "NEOGEO": "NEOGEO",
-           "NGCD": "NGCD", "WSC": "WSC", "WS": "WS", "ST": "ATARIST", "ATARIST": "ATARIST"}
+           "NGCD": "NGCD", "WSC": "WSC", "WS": "WS", "ST": "ATARIST", "ATARIST": "ATARIST",
+           "XBMC": "XBOX"}
 
 
 # Store folders that are one system on the site.
 MERGE_SYS = {"PS1": "PSX"}
+
+
+# DAT system (as dat_stats.py names it) -> section code on the site; codes
+# already in use keep their URLs, the rest are the DAT name without spaces.
+DAT_CODE = {"Amiga": "AMIGA", "Wii": "WII", "WiiU": "WIIU", "NSW": "SWITCH", "SAT": "SATURN",
+            "ST": "ATARIST", "NGPX": "NGP", "Miscellaneous": "MISC", "Game OST": "OST",
+            "PC 0DAY Games": "PC0DAY", "PC DOX Games": "PCDOX", "PC iSO Games": "PCISO",
+            "PSP Games": "PSP", "PSP PSX": "PSPPSX", "PSP Video": "PSPVIDEO",
+            "PSP nonScene": "PSPNONSCENE"}
+DAT_PREFIX = re.compile(r"^(\[nuked\]\s*)?(\d{4}-\d{2}-\d{2}-)?", re.I)
+
+
+def dat_code(dat_sys):
+    return DAT_CODE.get(dat_sys, dat_sys.upper().replace(" ", ""))
+
+
+def dat_key(name):
+    """Same name matching as dat_stats.key()."""
+    return DAT_PREFIX.sub("", name.strip()).lower()
 
 
 def place_unknown(name):
@@ -64,7 +84,10 @@ e = html.escape
 
 
 def sys_name(s):
-    return SYSTEM_NAMES.get(s.upper(), s)
+    for d, code in DAT_CODE.items():
+        if code == s.upper():
+            return DAT_SYSTEMS.get(d, d)
+    return DAT_SYSTEMS.get(s.upper(), SYSTEM_NAMES.get(s.upper(), s))
 
 
 def human(n):
@@ -195,7 +218,7 @@ DAT_SYSTEMS = {
     "PSV": "PlayStation Vita", "PSX": "PlayStation", "SAT": "Saturn", "SMD": "Mega Drive",
     "SMS": "Master System", "SNES": "Super Nintendo", "ST": "Atari ST", "VVD": "VVD",
     "WS": "WonderSwan", "WSC": "WonderSwan Color", "Wii": "Wii", "WiiU": "Wii U",
-    "XBOX": "Xbox", "XBOX360": "Xbox 360", "XBOXONE": "Xbox One", "ZDC": "ZDC",
+    "XBOX": "Xbox", "XBOX360": "Xbox 360", "XBOXONE": "Xbox One", "ZDC": "Tapwave Zodiac",
     "ZXS": "ZX Spectrum",
 }
 BUCKETS = (("public", "Rebuild data online"), ("withheld", "Listed, data not hosted"),
@@ -306,12 +329,27 @@ def main():
     for f in sorted((exp / "catalog").glob("*.jsonl")):
         with open(f, encoding="utf-8") as fh:
             recs += [json.loads(l) for l in fh]
+    # File every release where the dats.site DATs list it (system + year);
+    # the store's own folder is only a fallback for releases in no DAT.
+    pf = exp / "dat_place.json"           # written by dat_stats.py
+    place = json.loads(pf.read_text(encoding="utf-8")) if pf.exists() else {}
+    if not place:
+        print("WARNING: no dat_place.json - run dat_stats.py first; using store folders")
+    nodat = 0
     for r in recs:
         r["store_sys"] = r["sys"]
         if r["sys"] == "Unknown":
             r["sys"] = place_unknown(r["name"])
         elif r["sys"] in MERGE_SYS:
             r["sys"] = MERGE_SYS[r["sys"]]
+        hits = place.get(dat_key(r["name"]))
+        if hits:
+            # a release in two DAT systems stays with the one its store folder names
+            sys_, year = next((h for h in hits if dat_code(h[0]) == r["sys"]), hits[0])
+            r["sys"], r["year"] = dat_code(sys_), year
+        else:
+            nodat += 1
+    print("filed by the DATs:", len(recs) - nodat, " not in any DAT (store folder):", nodat)
     print("releases", len(recs))
     (site / "assets").mkdir(parents=True, exist_ok=True)
     for f in (HERE / "static").iterdir():
