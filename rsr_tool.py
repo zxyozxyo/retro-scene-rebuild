@@ -6556,8 +6556,17 @@ class RsrToolAPI:
                           heartbeat=f"rebuild test: extracting {zp.name}")
             # Zips that hold the volumes of a RAR set (see _capture_nested):
             # its unpacked files are what a rebuild is given, so gather the
-            # volumes and unpack them as well.
-            if zips and any(zip_rar_members(zp) for zp in zips):
+            # volumes and unpack them as well -- but only when the .rsr was
+            # captured that way. M.A.C.E._AMIGA-QTX zips its RAR volumes as
+            # plain content: hiding them failed it on "missing source:
+            # QTX-MACE.part01.RAR" though the rebuild itself is exact.
+            try:
+                with zipfile.ZipFile(rsr) as rz:
+                    _inner = any(s.get("inner") for s in json.loads(
+                        rz.read("manifest.json")).get("sets", []))
+            except Exception:
+                _inner = True
+            if zips and _inner and any(zip_rar_members(zp) for zp in zips):
                 vols = content / "_inner_volumes"
                 vols.mkdir(exist_ok=True)
                 for p in list(content.rglob("*")):
