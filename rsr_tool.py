@@ -1895,6 +1895,11 @@ BIT_PATCH_SHARE = 20
 DOS_EARLY_SPLICE = 32 << 20
 
 
+def _combo_key(c) -> tuple:
+    """A sweep combo as a hashable key: (exe name, -mt, switches)."""
+    return (c[0].name, c[1], tuple(str(x) for x in (c[2] if len(c) > 2 else ())))
+
+
 def _near_miss_allowance(total_packed: int) -> int:
     return max(NEAR_MISS_BYTES, min(NEAR_MISS_CEIL, total_packed // NEAR_MISS_SHARE))
 
@@ -12385,6 +12390,50 @@ class RsrToolAPI:
         # unaffected, and this is the only caller.
         return matched
 
+    # A Windows combo that ran at least this far into the original's stream
+    # before parting is the right compressor family: wrong builds part inside
+    # the first megabyte (that is what the first look relies on).
+    NEAR_FOLLOW_BYTES = 1 << 20
+
+    def _promote_near(self, combos, idx, best, followed):
+        """Move the not-yet-tried relatives of a deep near miss to the front of
+        what is left: the same thread count and switches on other Windows
+        builds, nearest release date first; then the same build at other
+        thread counts. Only the ORDER changes -- every combo still runs if
+        nothing matches. Returns (combos, n_moved) or None.
+
+        Rapala.Tournament.Fishing.PAL.Wii-WiiD parked on its 60 min budget
+        after 515 of 4,768 combos, with 3.60 -mt2 49 MB deep and the other
+        3.6x-4.x -mt2 builds still queued thousands of combos later."""
+        depth, exe, mt, sw = best[0], best[1], best[2], tuple(best[3] or ())
+        if depth < self.NEAR_FOLLOW_BYTES or (sw and sw[0] == self.DOS_MARK):
+            return None
+        key = (exe, mt, sw)
+        if key in followed:
+            return None
+        followed.add(key)
+
+        def _sw(c):
+            return tuple(str(x) for x in (c[2] if len(c) > 2 else ()))
+
+        def _day(name):
+            m = re.match(r"(\d{4})-(\d\d)-(\d\d)", name)
+            return (int(m.group(1)) * 372 + int(m.group(2)) * 31
+                    + int(m.group(3))) if m else 0
+
+        d0 = _day(exe)
+        rest = combos[idx:]
+        same_mt = [c for c in rest if c[1] == mt and _sw(c) == sw
+                   and c[0].name != exe and not (_sw(c) and _sw(c)[0] == self.DOS_MARK)]
+        same_mt.sort(key=lambda c: abs(_day(c[0].name) - d0))
+        same_exe = [c for c in rest if c[0].name == exe and _sw(c) == sw
+                    and c[1] != mt]
+        lead = same_mt + same_exe
+        if not lead:
+            return None
+        ids = {id(c) for c in lead}
+        return combos[:idx] + lead + [c for c in rest if id(c) not in ids], len(lead)
+
     def _sweep_recipe(self, fmt, exes, level, dict_kb, solid, src_files,
                       targets, work, max_mt, year=0, grp="",
                       deadline=None, rel="", vol_bytes=0,
@@ -13128,6 +13177,12 @@ class RsrToolAPI:
         # you get must not depend on which core happened to finish first.
         idx = 0
         last_budget = 0
+        # Near-miss follow-up (see _promote_near). The order can change part
+        # way, so the resume point is kept in terms of the ORIGINAL order.
+        orig_order = list(combos)
+        tried_set: set = set()
+        followed: set = set()
+        promoted = False
         while idx < len(combos):
             # Re-read every chunk rather than once per sweep. A sweep can run
             # for hours, and the whole point of the setting is to be able to
@@ -13164,7 +13219,15 @@ class RsrToolAPI:
             if (tried and deadline and not self._budget_free(rel)
                     and time.monotonic() > deadline):
                 self._budget_hit = True
-                self._sweep_pos = (start + tried, sig)
+                if promoted:
+                    # Resuming skips a PREFIX of the original order, so only
+                    # the leading run that was really all tried may count.
+                    k = 0
+                    while k < len(orig_order) and _combo_key(orig_order[k]) in tried_set:
+                        k += 1
+                    self._sweep_pos = (start + k, sig)
+                else:
+                    self._sweep_pos = (start + tried, sig)
                 # "resumes from here" was a promise the tool cannot keep: the
                 # saved position is only reusable while the combo ORDER is
                 # unchanged, and every recipe learned in the meantime re-orders
@@ -13375,6 +13438,18 @@ class RsrToolAPI:
                             "_packed": str(probe_dir / f"w{s}")}
             tried += len(chunk)
             idx += len(chunk)
+            for c in chunk:
+                tried_set.add(_combo_key(c))
+            bd_ = (getattr(self._tl, "depth_box", None) or {}).get("best")
+            if bd_ and idx < len(combos):
+                new = self._promote_near(combos, idx, bd_, followed)
+                if new is not None:
+                    combos, moved = new
+                    promoted = True
+                    self._log(f"    ◐ {_exe_label(bd_[1])} -mt{bd_[2]} matched "
+                              f"{bd_[0]:,} B before parting — trying its "
+                              f"{moved} nearest relative(s) next (same thread "
+                              f"count and switches; nothing is skipped).", "dim")
 
             now = time.monotonic()
             # The first estimate is measured on the FIRST CHUNK, which carries
