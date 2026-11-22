@@ -98,6 +98,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
                 font-size:12px;line-height:1;padding:0 2px}
 .src-row button:hover{color:var(--danger)}
 .warn-line{color:var(--warn);font-size:10px;margin:0 0 2px 62px;display:none}
+.danger-line{color:var(--danger);font-weight:600;font-size:10.5px;margin:2px 0 4px 62px;display:none}
+.danger-line.in-box{margin-left:20px}
 /* Parked is unfinished work, not a pass — it has to read differently from the
    grey of "skipped" at a glance, and differently from a red error. */
 .qs-parked{color:var(--warn);font-weight:600}
@@ -229,19 +231,20 @@ details.more summary:hover{color:var(--acc)}
           </div>
           <div class="row">
             <div class="lbl">Proven sets</div>
-            <input class="txt" id="proven_dir" placeholder="blank = off (no rebuild test)"
+            <input class="txt" id="proven_dir" oninput="dangerLines()" placeholder="blank = off (no rebuild test)"
                    title="After each capture, rebuild the release from its new .rsr in the work folder. If every volume comes back hash-exact, the ORIGINAL release folder is moved (or copied — see Proven action) here straight away and the test copy is deleted. A release that fails stays where it is, and so do a fix release (RARFIX...) and the set beside it that it fixes."
                    onchange="save()">
             <button class="btn btn-sm" onclick="pick('proven_dir')">…</button>
           </div>
           <div class="row">
             <div class="lbl">Proven action</div>
-            <select class="sel" id="proven_mode" onchange="save()"
+            <select class="sel" id="proven_mode" onchange="save(); dangerLines()"
                     title="Move: the original release folder goes to the Proven sets folder (handy for test copies). Copy: the original stays where it is and a copy goes to the Proven sets folder (for scanning a whole collection in place).">
               <option value="move">Move the proven release there</option>
               <option value="copy">Copy the proven release there (original stays)</option>
             </select>
           </div>
+          <div class="danger-line" id="proven-warn">⚠ Careful — file-moving setting: each proven release folder is MOVED out of the folder you scan. Choose Copy to leave your collection untouched.</div>
           <label class="chk-row"><input type="checkbox" id="skip_done" checked>
             Skip releases already captured</label>
           <div class="cpu-row" title="rar threads the sweep may use at once. Takes effect immediately, even mid-scan.">
@@ -362,9 +365,12 @@ details.more summary:hover{color:var(--acc)}
                 <label class="chk-row"><input type="checkbox" id="delete_content"
                          onchange="confirmDeleteContent(this)">
                   Delete the unpacked file once its release is rebuilt &amp; verified</label>
-                <label class="chk-row"><input type="checkbox" id="clean_extras">
+                <div class="danger-line in-box" id="delete-warn">⚠ Careful — file deletion setting is ON: verified source files will be permanently deleted.</div>
+                <label class="chk-row"><input type="checkbox" id="clean_extras"
+                         onchange="confirmCleanExtras(this)">
                   Tidy the content folder: remove loose nfo / diz / cue / sfv&hellip; that are
                   byte-identical to a file in a rebuilt release</label>
+                <div class="danger-line in-box" id="clean-warn">⚠ Careful — file deletion setting is ON: loose sidecar files in the content folder will be deleted.</div>
                 <details class="meta-pick" id="meta-pick"
                          title="Releases with nothing to match on (nfo/dirfix-only, carried whole) are written straight from the store. Only the systems ticked here are written; none ticked = none written.">
                   <summary>Sidecar-only releases to write: <b id="meta-pick-sum">none</b></summary>
@@ -547,6 +553,7 @@ window.addEventListener('pywebviewready', async () => {
   $('work_dir').value = s.work_dir || '';
   $('proven_dir').value = s.proven_dir || '';
   $('proven_mode').value = s.proven_mode === 'copy' ? 'copy' : 'move';
+  dangerLines();
   $('max_mt').value = s.max_mt;
   $('embed_max_mb').value = s.embed_max_mb;
   $('wall_carry_mb').value = s.wall_carry_mb || 0;
@@ -863,6 +870,19 @@ async function startScanInner() {
        'Scan anyway?'].join('\n'));
     if (!ok) return;
   }
+  if ($('proven_dir').value.trim() && $('proven_mode').value !== 'copy') {
+    const ok = confirm(
+      ['Careful — file-moving setting is ON.',
+       '',
+       'Every release that proves complete will be MOVED out of the folder you are '
+       + 'scanning into:',
+       '  ' + $('proven_dir').value.trim(),
+       '',
+       'Choose "Copy" under Proven action to leave your collection where it is.',
+       '',
+       'Scan and move proven releases?'].join('\n'));
+    if (!ok) return;
+  }
   if (srcs.length > 1) log(srcs.length + ' folders will be scanned.', 'dim');
   clearQueue();
   setBusy(true);
@@ -902,11 +922,44 @@ function confirmDeleteContent(el) {
      '',
      'This cannot be undone.'].join('\n'));
   if (!ok) el.checked = false;
+  dangerLines();
+}
+
+function confirmCleanExtras(el) {
+  if (el.checked) {
+    const ok = confirm(
+      ['Delete loose sidecar files from the content folder?',
+       '',
+       'Loose nfo / diz / cue / sfv files that are byte-identical to a file in a '
+       + 'rebuilt release will be permanently deleted from the content folder.',
+       '',
+       'This cannot be undone.'].join('\n'));
+    if (!ok) el.checked = false;
+  }
+  dangerLines();
+}
+
+// Red "Careful" lines stay on screen for as long as a setting that moves or
+// deletes the user's own files is switched on.
+function dangerLines() {
+  const show = (id, on) => { const e = $(id); if (e) e.style.display = on ? 'block' : 'none'; };
+  show('proven-warn', !!$('proven_dir').value.trim() && $('proven_mode').value !== 'copy');
+  show('delete-warn', $('delete_content').checked);
+  show('clean-warn', $('clean_extras').checked);
 }
 
 async function startBatch() {
   if (!$('rb-root').value.trim()) { log('Pick a content folder first.', 'warn'); return; }
   if (!$('rb-bout').value.trim()) { log('Pick an output folder first.', 'warn'); return; }
+  if ($('delete_content').checked || $('clean_extras').checked) {
+    const what = [];
+    if ($('delete_content').checked) what.push('• unpacked source files, once their release is rebuilt and verified');
+    if ($('clean_extras').checked) what.push('• loose nfo / diz / cue / sfv files identical to a rebuilt release');
+    const ok = confirm(['Careful — file deletion setting is ON.', '',
+                        'This run will permanently delete from ' + $('rb-root').value.trim() + ':']
+                       .concat(what, ['', 'This cannot be undone. Start the rebuild?']).join('\n'));
+    if (!ok) return;
+  }
   clearQueue();
   setBusy(true);
   const r = await window.pywebview.api.rebuild_batch_start({
