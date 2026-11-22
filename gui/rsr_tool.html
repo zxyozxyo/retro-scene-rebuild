@@ -230,9 +230,17 @@ details.more summary:hover{color:var(--acc)}
           <div class="row">
             <div class="lbl">Proven sets</div>
             <input class="txt" id="proven_dir" placeholder="blank = off (no rebuild test)"
-                   title="After each capture, rebuild the release from its new .rsr in the work folder. If every volume comes back hash-exact, the ORIGINAL release folder is moved here straight away and the test copy is deleted. A release that fails stays where it is, and so do a fix release (RARFIX...) and the set beside it that it fixes."
+                   title="After each capture, rebuild the release from its new .rsr in the work folder. If every volume comes back hash-exact, the ORIGINAL release folder is moved (or copied — see Proven action) here straight away and the test copy is deleted. A release that fails stays where it is, and so do a fix release (RARFIX...) and the set beside it that it fixes."
                    onchange="save()">
             <button class="btn btn-sm" onclick="pick('proven_dir')">…</button>
+          </div>
+          <div class="row">
+            <div class="lbl">Proven action</div>
+            <select class="sel" id="proven_mode" onchange="save()"
+                    title="Move: the original release folder goes to the Proven sets folder (handy for test copies). Copy: the original stays where it is and a copy goes to the Proven sets folder (for scanning a whole collection in place).">
+              <option value="move">Move the proven release there</option>
+              <option value="copy">Copy the proven release there (original stays)</option>
+            </select>
           </div>
           <label class="chk-row"><input type="checkbox" id="skip_done" checked>
             Skip releases already captured</label>
@@ -538,6 +546,7 @@ window.addEventListener('pywebviewready', async () => {
   checkStore();
   $('work_dir').value = s.work_dir || '';
   $('proven_dir').value = s.proven_dir || '';
+  $('proven_mode').value = s.proven_mode === 'copy' ? 'copy' : 'move';
   $('max_mt').value = s.max_mt;
   $('embed_max_mb').value = s.embed_max_mb;
   $('wall_carry_mb').value = s.wall_carry_mb || 0;
@@ -654,6 +663,7 @@ function cfg() {
     store: $('store').value.trim(),
     work_dir: $('work_dir').value.trim(),
     proven_dir: $('proven_dir').value.trim(),
+    proven_mode: $('proven_mode').value,
     max_mt: $('max_mt').value,
     embed_max_mb: $('embed_max_mb').value,
     wall_carry_mb: $('wall_carry_mb').value,

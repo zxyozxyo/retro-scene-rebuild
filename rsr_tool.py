@@ -5374,6 +5374,10 @@ class RsrToolAPI:
             # After a capture, rebuild the release from its new .rsr; when it
             # comes back complete the ORIGINAL folder is moved here. "" = off.
             "proven_dir": str(cfg.get("proven_dir") or "").strip(),
+            # What happens to a proven release: "move" it there (a test copy
+            # brought over for scanning) or "copy" it (scanning a full
+            # collection in place, the original stays put).
+            "proven_mode": "copy" if cfg.get("proven_mode") == "copy" else "move",
             "max_mt": _num(cfg.get("max_mt"), 16, int),
             "embed_extras": bool(cfg.get("embed_extras", True)),
             "embed_max_mb": _num(cfg.get("embed_max_mb"), 16, int),
@@ -5447,6 +5451,8 @@ class RsrToolAPI:
                             else cur["work_dir"]).strip(),
             "proven_dir": str(s["proven_dir"] if "proven_dir" in s
                               else cur["proven_dir"]).strip(),
+            "proven_mode": ("copy" if s.get("proven_mode", cur["proven_mode"]) == "copy"
+                            else "move"),
             "max_mt": max(0, min(32, _num(s.get("max_mt"), cur["max_mt"], int))),
             "embed_extras": bool(s.get("embed_extras", cur["embed_extras"])),
             "embed_max_mb": max(0, min(4096, _num(s.get("embed_max_mb"),
@@ -6212,7 +6218,8 @@ class RsrToolAPI:
                           f"{'it is a fix for' if _FIX_RE.search(rel) else 'it has a fix beside it,'} "
                           f"{_release_name(mate)}.", "dim")
                 return
-            self._move_proven([folder], roots, Path(proven_dir))
+            self._move_proven([folder], roots, Path(proven_dir),
+                              copy=s.get("proven_mode") == "copy")
 
         def _one(i, folder):
             rel_short = _release_name(folder)[:22]
@@ -6712,9 +6719,11 @@ class RsrToolAPI:
                 continue
         return None
 
-    def _move_proven(self, folders: list[Path], roots, dest: Path):
-        """Move each proven release folder under `dest`, keeping its path
-        below the scan root it came from (system / year folders and all)."""
+    def _move_proven(self, folders: list[Path], roots, dest: Path, copy: bool = False):
+        """Move (or, with copy=True, copy) each proven release folder under
+        `dest`, keeping its path below the scan root it came from (system /
+        year folders and all). A copy leaves the original untouched."""
+        verb, done_verb = ("copied", "copied") if copy else ("moved", "moved")
         moved = 0
         for folder in folders:
             rel_path = Path(folder.name)
@@ -6730,17 +6739,24 @@ class RsrToolAPI:
                 rel_path = Path(folder.parent.name) / folder.name
             tgt = dest / rel_path
             if tgt.exists():
-                self._log(f"  Proven sets: not moved — {tgt.parent} already "
+                self._log(f"  Proven sets: not {verb} — {tgt.parent} already "
                           f"has a folder called {folder.name}. Compare the two "
-                          f"and remove one, then re-run to move it.", "warn")
+                          f"and remove one, then re-run to {'copy' if copy else 'move'} it.", "warn")
                 continue
             try:
                 tgt.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(folder), str(tgt))
+                if copy:
+                    shutil.copytree(str(folder), str(tgt), copy_function=shutil.copy2)
+                else:
+                    shutil.move(str(folder), str(tgt))
                 moved += 1
-                self._log(f"  Proven sets: moved to {tgt.parent}.", "ok")
+                self._log(f"  Proven sets: {done_verb} to {tgt.parent}.", "ok")
             except OSError as e:
-                self._log(f"  Proven sets: could not move {folder.name} "
+                if copy and tgt.exists():
+                    # our own half-made copy (tgt did not exist before): drop it
+                    # so a re-run can try again; the original is untouched
+                    shutil.rmtree(tgt, ignore_errors=True)
+                self._log(f"  Proven sets: could not {'copy' if copy else 'move'} {folder.name} "
                           f"({e}).", "err")
         return moved
 
