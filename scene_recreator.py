@@ -2838,11 +2838,50 @@ def _crc_tail_target(prefix_crc: int, tail_len: int, final_crc: int):
     return final_crc ^ zlib.crc32(z, prefix_crc) ^ zlib.crc32(z)
 
 
+def _frame_padded(b: bytes):
+    """An nfo whose text lines were typed into its ASCII frame but never
+    closed: most lines inside the box end on the same right border at the
+    same width, a few stop short. Pad those with spaces and the border, as
+    the finished nfo has them (Number_10_C64-bADkARMA: 4 story lines, +85 B,
+    the DAT's version). Returns the padded text or None."""
+    import collections
+    eol = b'\r\n' if b'\r\n' in b else b'\n'
+    lines = b.split(eol)
+    # framed lines: same width, ending in a border of non-space, non-alnum marks
+    shape = collections.Counter()
+    for l in lines:
+        m = re.search(rb' ([|:!\]](?: *[|:!\]])*)$', l) if len(l) >= 40 else None
+        if m:
+            shape[(len(l), m.group(1))] += 1
+    if not shape:
+        return None
+    (width, border), n = shape.most_common(1)[0]
+    if n < 5:
+        return None
+    lefts = collections.Counter(l[:len(border) + 3] for l in lines if len(l) == width and l.endswith(border))
+    left = lefts.most_common(1)[0][0].rstrip(b' ') if lefts else b''
+    if not left:
+        return None
+    changed = False
+    out = []
+    for l in lines:
+        if l.startswith(left) and not l.rstrip(b' ').endswith(border.rstrip(b' ')) \
+                and len(l) < width - len(border) + 1 and l.strip(b' ') != left.strip(b' '):
+            l = l + b' ' * (width - len(border) - len(l)) + border
+            changed = True
+        out.append(l)
+    return eol.join(out) if changed else None
+
+
 def _text_forms(b: bytes):
-    yield b
-    unix = b.replace(b'\r\n', b'\n')
-    yield unix
-    yield unix.replace(b'\n', b'\r\n')
+    seen = set()
+    padded = _frame_padded(b)
+    for base in ([b, padded] if padded else [b]):
+        unix = base.replace(b'\r\n', b'\n')
+        for f in (base, unix, unix.replace(b'\n', b'\r\n')):
+            if f not in seen:
+                seen.add(f)
+                yield f
 
 
 def stale_sidecar_note(data: bytes, cand: dict, sources: dict):
@@ -3318,7 +3357,15 @@ def repair_loose_text_file(data: bytes, target_crc: str) -> RepairAttempt:
                 f"normalised to {mode.upper()} line endings"
             )
 
-    return RepairAttempt("line_ending_fix", False, detail="tried CRLF/LF, no match")
+    # Text lines left open in the nfo's frame (see _frame_padded)
+    padded = _frame_padded(data)
+    if padded:
+        for candidate in _text_forms(padded):
+            if crc32_of(candidate) == target_crc:
+                return RepairAttempt("frame_border_fix", True, candidate,
+                                     "closed the frame's right border on short text lines")
+
+    return RepairAttempt("line_ending_fix", False, detail="tried CRLF/LF and frame-border padding, no match")
 
 
 TECHNIQUES = [
