@@ -2845,6 +2845,45 @@ def _text_forms(b: bytes):
     yield unix.replace(b'\n', b'\r\n')
 
 
+def stale_sidecar_note(data: bytes, cand: dict, sources: dict):
+    """A .nfo/.diz inside the zip that is a different version from the one
+    the DAT lists beside it, with no copy of the DAT's version anywhere we
+    looked. Such a zip is usually fixable (sidecar_revision re-packs the
+    right text) but only once that text exists, so say which file is needed
+    rather than blaming the zipper. Returns a message or None."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        inner = {Path(i.filename).name.lower(): i for i in zf.infolist()
+                 if i.filename.lower().endswith(_EDITABLE_TEXT_EXTS)}
+    except Exception:
+        return None
+    need = []
+    for rom in cand.get('sibling_roms') or []:
+        rn = (rom.get('name') or '').strip()
+        want = (rom.get('crc') or '').lower()
+        info = inner.get(Path(rn).name.lower())
+        if info is None or not want:
+            continue
+        try:
+            own = zf.read(info)
+        except Exception:
+            continue
+        crcs = lambda t: {f'{zlib.crc32(f) & 0xFFFFFFFF:08x}' for f in _text_forms(t)}
+        if want in crcs(own):
+            continue        # inner text already is the DAT's version
+        if any(want in crcs(t) for _, t in sources.get(rn.lower(), [])):
+            continue        # the right text was found and tried
+        need.append(f'{rn} (DAT: {rom.get("size")} B, CRC {want}; the copy inside the zip is '
+                    f'{info.file_size} B, CRC {info.CRC:08x})')
+    if not need:
+        return None
+    return ('NEEDS THE DAT\'S SIDECAR: the text inside the zip is an older/other version of '
+            + '; '.join(need) + '. No copy of the DAT\'s version was found next to the zip, in the '
+            'sidecar folders or the RSR store. Put the DAT-verified file (e.g. from the dats.site '
+            'extras) next to the zip or in a sidecar folder and run again — the zip is rebuilt '
+            'with that text re-packed and every other entry carried over byte-for-byte.')
+
+
 def technique_sidecar_revision(data: bytes, cand: dict, sources: dict) -> RepairAttempt:
     """Undo an edit to the .nfo/.diz inside a zip (see EDITED SIDECARS).
 
@@ -4863,6 +4902,7 @@ class SceneRecreatorAPI:
                 fixed = False
                 attempt_log = []
                 last_diagnosis = ""
+                stale_note = ""     # set when the zip only lacks the DAT's nfo/diz text
 
                 store_hit = self._try_rsr_store(zpath, data, candidates, rsr_index)
                 if store_hit:
@@ -5016,8 +5056,10 @@ class SceneRecreatorAPI:
                     # real text from anywhere it survives, re-deflated, its
                     # header and save time restored (technique_sidecar_revision)
                     if not fixed and config.get('sidecar_revision', True):
-                        rev = technique_sidecar_revision(
-                            data, cand, self._revision_sources(cand, zpath, loose_sidecar_index, config))
+                        rev_sources = self._revision_sources(cand, zpath, loose_sidecar_index, config)
+                        rev = technique_sidecar_revision(data, cand, rev_sources)
+                        if not rev.success and not stale_note:
+                            stale_note = stale_sidecar_note(data, cand, rev_sources) or ''
                         attempt_log.append(f"{rev.technique}: "
                                            f"{'MATCH' if rev.success else 'no match'} — {rev.detail}")
                         self._log(f'    [{rev.technique}] {"✓ MATCH" if rev.success else "no match"} '
@@ -5176,6 +5218,14 @@ class SceneRecreatorAPI:
                         stats['skipped'] = stats.get('skipped', 0) + 1
                         details['skipped'].append({'file': zpath.name})
                         self._log(f'⏭ {zpath.name}: skipped by user', 'warn')
+                    elif stale_note:
+                        # Outranks the foreign-packer guess: the zipper is not
+                        # the problem when a sidecar text inside is the wrong version
+                        last_diagnosis = stale_note
+                        attempt_log.append(f'DIAGNOSIS: {stale_note}')
+                        stats['unresolved'] += 1
+                        details['unresolved'].append({'file': zpath.name, 'diagnosis': stale_note})
+                        self._log(f'✗ {zpath.name}: unresolved — {stale_note}', 'warn')
                     elif 'LIKELY FOREIGN PACKER' in last_diagnosis:
                         stats['foreign_packer'] = stats.get('foreign_packer', 0) + 1
                         details['foreign_packer'].append({'file': zpath.name, 'diagnosis': last_diagnosis})
