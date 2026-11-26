@@ -95,37 +95,48 @@ details.more summary:hover{color:var(--acc)}
        every tuning option sits under "More options", every explanation
        under "How it works". Element ids are unchanged. -->
   <div class="tabs">
-    <button class="tab" id="tab-zips" onclick="showTab('zips')">Fix ZIP files</button>
-    <button class="tab" id="tab-sidecars" onclick="showTab('sidecars')">Fix .sfv / .nfo / .diz / .jpg</button>
+    <span class="tab on" style="cursor:default">Fix releases</span>
     <label class="opt tab-dry" title="Detect and report only. Nothing is written, copied, moved or replaced."><input type="checkbox" id="dry_run"> Test only (change nothing)</label>
   </div>
 
-  <!-- ZIPs -->
-  <div class="panel" id="pane-zips">
+  <!-- One run: zips first, then .sfv/.nfo/.diz/.jpg, against the same DATs -->
+  <div class="panel" id="pane-all">
     <div class="panel-body">
-      <div class="lede">Repairs scene .zip files so they match the DAT exactly. Your originals are never changed: fixed copies go to the output folder.</div>
+      <div class="lede">Makes every release in a folder match its DAT: repairs the scene .zip files, then finds or repairs each .sfv, .nfo, .diz and .jpg (including ones that have to be pulled out of the zip). Only files that match the DAT exactly are written.</div>
       <div class="row">
-        <span class="lbl">1. Scene ZIPs</span>
-        <input class="txt" id="src" placeholder="Folder with the .zip files to check (subfolders included)"/>
-        <button class="btn" onclick="browseSrc()">Browse</button>
+        <span class="lbl">1. Folder</span>
+        <input class="txt" id="folder" placeholder="The releases to fix, e.g. your RomVault folder (subfolders included)" oninput="updateModeRows()"/>
+        <button class="btn" onclick="browseInto('folder')">Browse</button>
       </div>
       <div class="row">
-        <span class="lbl">2. DAT folder</span>
-        <input class="txt" id="dat_dir" placeholder="Folder with the DAT/XML file(s) for these releases"/>
-        <button class="btn" onclick="browseDat()">Browse</button>
+        <span class="lbl">2. DATs</span>
+        <input class="txt" id="dat_dir" placeholder="Folder with the DAT/XML file(s). Leave empty to use the DATs inside the folder above"/>
+        <button class="btn" onclick="browseInto('dat_dir')">Browse</button>
       </div>
-      <div class="row">
-        <span class="lbl">3. Output</span>
-        <input class="txt" id="dst" placeholder="Where the fixed / confirmed copies are written"/>
-        <button class="btn" onclick="browseDst()">Browse</button>
+      <div class="row" style="gap:16px;flex-wrap:wrap">
+        <span class="lbl">3. Fixed files</span>
+        <label class="opt"><input type="radio" name="out_mode" id="mode_inplace" value="inplace" checked onchange="updateModeRows()"> Fix in place</label>
+        <label class="opt"><input type="radio" name="out_mode" id="mode_copy" value="copy" onchange="updateModeRows()"> Copy to an output folder</label>
+        <label class="opt"><input type="radio" name="out_mode" id="mode_move" value="move" onchange="updateModeRows()"> Move to an output folder</label>
       </div>
+      <div class="row" id="row-dst" style="display:none">
+        <span class="lbl">Output</span>
+        <input class="txt" id="dst" placeholder="Where fixed and confirmed files go, one folder per release (must be outside the folder above)"/>
+        <button class="btn" onclick="browseInto('dst')">Browse</button>
+      </div>
+      <div class="row" id="row-backup">
+        <span class="lbl">Backup</span>
+        <input class="txt" id="sc_backup" placeholder="Where each replaced original goes"/>
+        <button class="btn" onclick="browseInto('sc_backup')">Browse</button>
+      </div>
+      <div class="hint" id="mode-hint" style="margin:-2px 0 4px 96px"></div>
       <div class="row" style="gap:16px">
-        <span class="lbl">Confirmed files</span>
-        <label class="opt"><input type="radio" name="move_mode" id="mode_copy" value="copy" checked> Copy (keep originals)</label>
-        <label class="opt"><input type="radio" name="move_mode" id="mode_move" value="move"> Move</label>
+        <span class="lbl">Fix</span>
+        <label class="opt"><input type="checkbox" id="fix_zips" checked> Zips</label>
+        <label class="opt"><input type="checkbox" id="fix_sidecars" checked> .sfv / .nfo / .diz / .jpg</label>
       </div>
       <div class="row" style="gap:6px">
-        <button class="btn btn-acc btn-big" id="btn-start" onclick="startRun()">▶ Fix ZIPs</button>
+        <button class="btn btn-acc btn-big" id="btn-start" onclick="startRun()">▶ Fix releases</button>
       </div>
 
       <details class="more">
@@ -136,110 +147,33 @@ details.more summary:hover{color:var(--acc)}
             <div style="flex:1;display:flex;flex-direction:column;gap:4px">
               <div id="ref-list" style="display:flex;flex-direction:column;gap:4px"></div>
               <button class="btn" style="align-self:flex-start" onclick="addRefFolder()">+ Add reference folder</button>
-              <div class="hint">Optional: folders of known-good zips from the same groups. They teach the tool each group's settings, so fixes are found faster.</div>
+              <div class="hint">Optional: folders of known-good zips from the same groups. They teach the tool each group's settings, so zip fixes are found faster.</div>
             </div>
           </div>
           <div class="row">
             <span class="lbl">Sidecar folders</span>
-            <input class="txt" id="sidecar_dirs" placeholder="Optional, e.g. Q:\RomRoot: where the releases' real .nfo/.diz live (separate several with ;)"/>
+            <input class="txt" id="sidecar_dirs" placeholder="Optional, e.g. Q:\RomRoot: where the releases' real .nfo/.diz live, looked up by release name (separate several with ;)"/>
             <button class="btn" onclick="addSidecarDir()">+ Add</button>
+          </div>
+          <div class="row">
+            <span class="lbl">Extras</span>
+            <input class="txt" id="sc_extras" placeholder="Optional: folders of loose sidecars, or zips / rars / 7z of them, read in full (separate several with ;)"/>
+            <button class="btn" onclick="browseScExtras()">+ Add</button>
           </div>
           <div class="row" style="gap:8px">
             <span class="lbl">Time per zip</span>
             <input class="txt" id="zip_budget_s" value="120" style="width:60px;flex:none;text-align:right"/>
             <span style="font-size:10px;color:var(--text2)">seconds (0 = no limit)</span>
           </div>
-          <label class="opt"><input type="checkbox" id="use_rsr_store" checked> Check the RSR store first (rebuilds any zip RSR has captured, byte-exact)</label>
+          <label class="opt"><input type="checkbox" id="use_rsr_store" checked> Check the RSR store first (rebuilds any zip RSR has captured, byte-exact; also a sidecar source)</label>
           <label class="opt"><input type="checkbox" id="deep_search" checked> Deep search (slower; tries every compression setting and zipper)</label>
           <label class="opt"><input type="checkbox" id="sidecar_revision" checked> Put back the real .nfo/.diz when the one inside a zip was edited</label>
-          <label class="opt"><input type="checkbox" id="auto_retry" checked> Retry unresolved files without suspect reference zips</label>
+          <label class="opt"><input type="checkbox" id="auto_retry" checked> Retry unresolved zips without suspect reference zips</label>
           <div class="row" style="gap:8px">
             <label class="opt" style="flex:1"><input type="checkbox" id="use_fp_db" checked> Remember what each group's zips look like between runs</label>
             <button class="btn btn-danger" style="padding:1px 8px;font-size:9px" onclick="resetFingerprintDb()">Forget</button>
           </div>
-        </div>
-      </details>
-
-      <details class="more">
-        <summary>How it works</summary>
-        <div class="more-body">
-          <div class="hint">
-        Originals in the Scene ZIPs folder are <strong style="color:var(--acc)">never modified</strong>.
-        All repair work happens on copies written to the Output folder.
-        Reference folder files are also never modified — they're copied to a temp
-        location before any inspection. Reference zips are matched against the DAT
-        the same way as the main scan (literal name, release name, or date-stripped
-        release name), then CRC/MD5/SHA1-verified before being trusted as a reference.
-        Each verified reference teaches the tool that release group's actual packer
-        settings (compression level/strategy, entry order) AND its exact set of
-        legitimate entry names — any file in a broken zip absent from every verified
-        reference for that group is treated as junk regardless of its name, catching
-        injected files that pattern-matching alone would miss. Both are tried first —
-        much faster and more reliable than blind searching — before falling back to
-        the general techniques. You can add several reference folders (e.g. specific
-        subfolders) instead of one huge parent folder, to speed up the scan.
-      </div>
-          <div class="hint">
-        If the RSR store has captured the release, it is rebuilt from there first. Then the
-        techniques, in order per file: EOCD comment strip → grow-append truncation →
-        line-ending fix (.nfo/.diz) → junk-file removal → compression variants (STORE +
-        DEFLATE levels 0-9) → faithful rebuild (original headers preserved, searches entry
-        order + ALL compression levels 0-9 + zlib strategy) → heuristic junk removal (strips
-        likely FTP-script adverts/courier tags by name pattern, including folder names) →
-        strip to essentials (last resort: keeps only the largest file + .nfo/.diz, discards
-        everything else regardless of name) → foreign-packer diagnosis. Every structural
-        technique re-runs the full order/encoder search &mdash; entries whose content did not
-        change keep their existing compressed bytes first, then the group's learned encoder,
-        RSR's history for the group, the encoders most scene zips used, and (deep search)
-        every zlib setting and zipper; any rebuild that cannot add up to the DAT's size is
-        skipped unassembled &mdash; rather than trying one default rebuild, since the right fix is often a
-        structural change AND a specific compression setting together. Matching stops at the
-        first technique that hits the DAT's target CRC32, then MD5/SHA1 are verified before
-        accepting the fix. If nothing matches but every entry's internal CRC checks out, it's
-        flagged as "likely foreign packer" &mdash; content is probably correct but was packed by a
-        tool whose exact compressed bytes can't be reproduced. RSR's measurements say that is
-        most scene zips (PKZIP-era deflate): a re-packed copy of one of those can only be fixed
-        when its original compressed bytes survived.
-      </div>
-          <div class="hint">
-        Output is organised by DAT release name: <code>output/&lt;game name&gt;/&lt;filename&gt;</code>.
-        Sidecar .nfo/.diz files next to a confirmed .zip are also checked — if the DAT's
-        same release block has a hash entry for them they're verified/fixed and placed
-        alongside the .zip; otherwise they're left untouched in source.
-        Only hash-confirmed files are moved or copied — unresolved files always stay in place.
-      </div>
-        </div>
-      </details>
-    </div>
-  </div>
-
-  <!-- Sidecars -->
-  <div class="panel" id="pane-sidecars" style="display:none">
-    <div class="panel-body">
-      <div class="lede">Finds or repairs each release's .sfv, .nfo, .diz and .jpg so they match the DAT. A replaced file goes to a backup folder; nothing is deleted.</div>
-      <div class="row">
-        <span class="lbl">Work folder</span>
-        <input class="txt" id="sc_folder" placeholder="The scene sets that need sidecars, plus their DAT(s)"/>
-        <button class="btn" onclick="browseScFolder()">Browse</button>
-      </div>
-      <div class="row" style="gap:6px">
-        <button class="btn btn-acc btn-big" id="btn-sc-start" onclick="startSidecarRun()">▶ Fix sidecars</button>
-      </div>
-
-      <details class="more">
-        <summary>More options</summary>
-        <div class="more-body">
-          <div class="row">
-            <span class="lbl">Extras</span>
-            <input class="txt" id="sc_extras" placeholder="Optional: folders of loose sidecars, or zips / rars / 7z of them (separate several with ;)"/>
-            <button class="btn" onclick="browseScExtras()">+ Add</button>
-          </div>
-          <div class="row">
-            <span class="lbl">Backup</span>
-            <input class="txt" id="sc_backup" placeholder="Where replaced files go (default: _sidecar_backup inside the work folder)"/>
-            <button class="btn" onclick="browseScBackup()">Browse</button>
-          </div>
-          <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the set is missing</label>
+          <label class="opt"><input type="checkbox" id="sc_add_missing" checked> Add sidecars the DAT lists but the release is missing</label>
           <label class="opt"><input type="checkbox" id="sc_make_sfv" checked> Make an .sfv when no copy can be found or repaired</label>
           <label class="opt"><input type="checkbox" id="sc_update_rsr" checked> Update the RSR store with the matched sidecars (old .rsr backed up)</label>
           <label class="opt"><input type="checkbox" id="sc_use_extras" checked> Look in the srrdb extras store</label>
@@ -251,31 +185,35 @@ details.more summary:hover{color:var(--acc)}
         <summary>How it works</summary>
         <div class="more-body">
           <div class="hint">
-        The DATs are read from the work folder itself (loose, or in a subfolder with no archives) and are the
-        only judge: a sidecar counts as found when its size, CRC32 and the DAT's MD5/SHA1 all match. Each set is
-        matched to its DAT entry by folder name (with or without the date prefix) or by its archive names; a loose
-        incorrect copy goes to the set whose DAT lists its name, whose volumes it lists, or whose archive stem it
-        carries. For each sidecar that is missing or wrong, in order: the incorrect copies in the work folder, as they
-        are then repaired &rarr; inside the set's own zip/rar &rarr; the extras folder &rarr; the RSR store and extras
-        store &rarr; srrdb (its copies repaired too) &rarr; a made .sfv. Repairs: line endings (CRLF, LF, CR CR LF,
-        double-spaced), BOM, trailing ^Z/newline, cp437&harr;UTF-8, trailing blanks; an .sfv keeps the incorrect
-        copy's header and has its entries rebuilt from the DAT, its time re-searched and a zipscript site tag solved.
-        The Dry run and RSR store options below apply; every step is logged; a replaced file is moved to the backup
-        folder, never deleted. A CSV report goes to <code>reports/</code>.
+        <strong style="color:var(--acc)">One run, two steps, the DAT is the only judge.</strong>
+        Step 1 checks every .zip in the folder against the DATs and repairs the ones that differ. Step 2 matches
+        each release folder to its DAT entry (by folder name, or by its archive names) and makes every .sfv/.nfo/.diz/.jpg
+        the DAT lists right. A file is only written when its size, CRC32 and the DAT's MD5/SHA1 all match.
+      </div>
+          <div class="hint">
+        <strong>Fix in place</strong> (for a RomVault folder): a fixed file is written beside the wrong one and read back,
+        then the wrong one is moved to the Backup folder (same sub-path, never overwriting an older backup) and the fixed
+        copy takes its place. Nothing is deleted. Files that are already right are not touched. The default backup folder
+        sits <em>beside</em> the folder, not inside it, so RomVault never sees the old copies as unknown files.
+        Zips are fixed first, so an .nfo/.diz the DAT wants loose can then be taken out of the corrected zip.
+      </div>
+          <div class="hint">
+        <strong>Copy / Move</strong>: the folder is left as it is; every fixed or already-right file goes to
+        <code>Output\&lt;release&gt;\</code>, with the release's other files that match the DAT (rar volumes and the like).
+        In Move mode the originals are removed only after both steps have finished, so step 2 can still read the zips
+        and loose sidecars step 1 used. Files that cannot be fixed always stay where they are.
+      </div>
+          <div class="hint">
+        Zip repairs, in order: the RSR store (a captured release rebuilds byte-exact) &rarr; a verified loose .nfo/.diz put into
+        the zip &rarr; the real text of an edited .nfo/.diz &rarr; a sidecar the zip lost &rarr; the group's learned settings from
+        reference zips &rarr; comment strip, truncation, line endings, junk removal, compression variants, faithful rebuild,
+        heuristic junk removal, strip to essentials &rarr; foreign-packer diagnosis. Sidecar sources, in order: wrong copies in
+        the folder, repaired &rarr; inside the release's own zip/rar/7z &rarr; the Extras folders &rarr; the RSR store and
+        srrdb extras store &rarr; srrdb &rarr; a made .sfv (the DAT's CRCs in the group's own layout). A CSV report of the sidecar
+        step goes to <code>reports/</code>.
       </div>
         </div>
       </details>
-
-      <div id="sc-stats" style="display:none">
-        <div class="stats-grid">
-          <div class="stat-box"><div class="num" id="sc-st-ok" style="color:var(--acc)">0</div><div class="lbl2">Already Right</div></div>
-          <div class="stat-box stat-clickable" data-cat="sc_fixed"><div class="num" id="sc-st-fixed" style="color:var(--info)">0</div><div class="lbl2">Fixed</div></div>
-          <div class="stat-box stat-clickable" data-cat="sc_added"><div class="num" id="sc-st-added" style="color:var(--info)">0</div><div class="lbl2">Added</div></div>
-          <div class="stat-box stat-clickable" data-cat="sc_not_found"><div class="num" id="sc-st-nf" style="color:var(--danger)">0</div><div class="lbl2">Not Found</div></div>
-          <div class="stat-box stat-clickable" data-cat="sc_extra"><div class="num" id="sc-st-extra" style="color:var(--text3)">0</div><div class="lbl2">Not In DAT</div></div>
-        </div>
-        <div id="sc-detail" style="display:none;margin-top:8px"></div>
-      </div>
     </div>
   </div>
 
@@ -299,7 +237,7 @@ details.more summary:hover{color:var(--acc)}
       <button class="btn" style="margin-left:auto;padding:1px 7px;font-size:9px" onclick="clearResults()">Clear</button>
     </div>
     <div class="panel-body">
-      <div class="stats-grid">
+      <div class="stats-grid" id="zip-stats">
         <div class="stat-box stat-clickable" data-cat="already_match"><div class="num" id="st-match" style="color:var(--acc)">0</div><div class="lbl2">Already Match</div></div>
         <div class="stat-box stat-clickable" data-cat="fixed"><div class="num" id="st-fixed" style="color:var(--info)">0</div><div class="lbl2">Fixed</div></div>
         <div class="stat-box stat-clickable" data-cat="unresolved"><div class="num" id="st-unresolved" style="color:var(--danger)">0</div><div class="lbl2">Unresolved</div></div>
@@ -311,6 +249,17 @@ details.more summary:hover{color:var(--acc)}
         <div class="stat-box stat-clickable" data-cat="sidecar_fixed"><div class="num" id="st-sidecar-fixed" style="color:var(--info)">0</div><div class="lbl2">Sidecar Fixed</div></div>
       </div>
       <div id="stat-detail" style="display:none;margin-top:8px"></div>
+      <div id="sc-stats" style="display:none;margin-top:10px">
+        <div style="font-size:10px;color:var(--text2);margin-bottom:4px">.sfv / .nfo / .diz / .jpg</div>
+        <div class="stats-grid">
+          <div class="stat-box"><div class="num" id="sc-st-ok" style="color:var(--acc)">0</div><div class="lbl2">Already Right</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_fixed"><div class="num" id="sc-st-fixed" style="color:var(--info)">0</div><div class="lbl2">Fixed</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_added"><div class="num" id="sc-st-added" style="color:var(--info)">0</div><div class="lbl2">Added</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_not_found"><div class="num" id="sc-st-nf" style="color:var(--danger)">0</div><div class="lbl2">Not Found</div></div>
+          <div class="stat-box stat-clickable" data-cat="sc_extra"><div class="num" id="sc-st-extra" style="color:var(--text3)">0</div><div class="lbl2">Not In DAT</div></div>
+        </div>
+        <div id="sc-detail" style="display:none;margin-top:8px"></div>
+      </div>
     </div>
   </div>
 
@@ -328,24 +277,13 @@ details.more summary:hover{color:var(--acc)}
 </div>
 
 <script>
-function showTab(t) {
-  for (const k of ['zips', 'sidecars']) {
-    document.getElementById('pane-' + k).style.display = k === t ? '' : 'none';
-    document.getElementById('tab-' + k).classList.toggle('on', k === t);
-  }
-  try { localStorage.setItem('sr_tab', t); } catch (e) {}
-}
-document.addEventListener('DOMContentLoaded', () => {
-  let t = 'zips';
-  try { t = localStorage.getItem('sr_tab') || 'zips'; } catch (e) {}
-  showTab(t === 'sidecars' ? 'sidecars' : 'zips');
-});
 let refFolders = [];
 let lastDetails = {};
 
 window.addEventListener('pywebviewready', async () => {
   const cfg = await window.pywebview.api.load_config();
-  if (cfg.src)     document.getElementById('src').value = cfg.src;
+  const fld = cfg.folder || cfg.src || cfg.sc_folder || '';
+  if (fld) document.getElementById('folder').value = fld;
   if (cfg.dat_dir) document.getElementById('dat_dir').value = cfg.dat_dir;
   if (cfg.dst)      document.getElementById('dst').value = cfg.dst;
   if (cfg.dry_run)  document.getElementById('dry_run').checked = cfg.dry_run;
@@ -356,8 +294,11 @@ window.addEventListener('pywebviewready', async () => {
   if (cfg.sidecar_revision === false) document.getElementById('sidecar_revision').checked = false;
   if (Array.isArray(cfg.sidecar_dirs)) document.getElementById('sidecar_dirs').value = cfg.sidecar_dirs.join('; ');
   if (cfg.zip_budget_s !== undefined) document.getElementById('zip_budget_s').value = cfg.zip_budget_s;
-  if (cfg.move_mode) document.getElementById('mode_move').checked = true;
-  else document.getElementById('mode_copy').checked = true;
+  const om = cfg.output_mode || 'inplace';
+  const omEl = document.getElementById('mode_' + om);
+  if (omEl) omEl.checked = true;
+  if (cfg.fix_zips === false) document.getElementById('fix_zips').checked = false;
+  if (cfg.fix_sidecars === false) document.getElementById('fix_sidecars').checked = false;
 
   // Load reference folders — supports the new list format and the
   // older single ref_dir key for backwards compatibility with configs
@@ -368,7 +309,6 @@ window.addEventListener('pywebviewready', async () => {
     refFolders = [cfg.ref_dir];
   }
   renderRefFolders();
-  if (cfg.sc_folder || cfg.sc_releases) document.getElementById('sc_folder').value = cfg.sc_folder || cfg.sc_releases;
   if (cfg.sc_extras) document.getElementById('sc_extras').value = cfg.sc_extras;
   if (cfg.sc_backup) document.getElementById('sc_backup').value = cfg.sc_backup;
   if (cfg.sc_make_sfv === false) document.getElementById('sc_make_sfv').checked = false;
@@ -377,6 +317,7 @@ window.addEventListener('pywebviewready', async () => {
   if (cfg.sc_use_extras === false) document.getElementById('sc_use_extras').checked = false;
   if (cfg.sc_use_srrdb === false) document.getElementById('sc_use_srrdb').checked = false;
 
+  updateModeRows();
   // Wire up the clickable stat boxes once, at load time
   document.querySelectorAll('.stat-clickable').forEach(box => {
     box.addEventListener('click', () => showStatDetail(box.dataset.cat, box));
@@ -397,15 +338,33 @@ window.srEvent = function(event, data) {
     if (data.state === 'running') {
       pill.textContent = 'RUNNING'; pill.className = 'pill pill-run';
       bst.disabled = true; bsp.disabled = false; bsk.disabled = false;
-      document.getElementById('btn-sc-start').disabled = true;
       document.getElementById('stats-panel').style.display = 'none';
       document.getElementById('stat-detail').style.display = 'none';
     } else if (data.state === 'done') {
       pill.textContent = 'DONE'; pill.className = 'pill pill-ok';
       bst.disabled = false; bsp.disabled = true; bsk.disabled = true;
-      document.getElementById('btn-sc-start').disabled = false;
       lastDetails = data.details || {};
-      if (data.mode === 'sidecars') {
+      if (data.mode === 'all') {
+        const z = data.stats || {}, s = data.sc_stats || {};
+        document.getElementById('stats-panel').style.display = '';
+        document.getElementById('zip-stats').style.display = data.has_zips ? '' : 'none';
+        document.getElementById('st-match').textContent = z.already_match ?? 0;
+        document.getElementById('st-fixed').textContent = z.fixed ?? 0;
+        document.getElementById('st-unresolved').textContent = z.unresolved ?? 0;
+        document.getElementById('st-foreign').textContent = z.foreign_packer ?? 0;
+        document.getElementById('st-nodat').textContent = z.no_dat_entry ?? 0;
+        document.getElementById('st-leftovers').textContent = z.leftovers_only ?? 0;
+        document.getElementById('st-skipped').textContent = z.skipped ?? 0;
+        document.getElementById('st-sidecar-match').textContent = z.sidecar_matched ?? 0;
+        document.getElementById('st-sidecar-fixed').textContent = z.sidecar_fixed ?? 0;
+        document.getElementById('sc-stats').style.display = data.has_sidecars ? '' : 'none';
+        document.getElementById('sc-st-ok').textContent = s.ok ?? 0;
+        document.getElementById('sc-st-fixed').textContent = s.fixed ?? 0;
+        document.getElementById('sc-st-added').textContent = s.added ?? 0;
+        document.getElementById('sc-st-nf').textContent = s.not_found ?? 0;
+        document.getElementById('sc-st-extra').textContent = (lastDetails.sc_extra || []).length;
+        document.getElementById('sc-detail').style.display = 'none';
+      } else if (data.mode === 'sidecars') {
         const s = data.stats || {};
         document.getElementById('sc-stats').style.display = '';
         document.getElementById('sc-st-ok').textContent = s.ok ?? 0;
@@ -431,7 +390,6 @@ window.srEvent = function(event, data) {
     } else {
       pill.textContent = 'ERROR'; pill.className = 'pill pill-err';
       bst.disabled = false; bsp.disabled = true; bsk.disabled = true;
-      document.getElementById('btn-sc-start').disabled = false;
     }
   }
 };
@@ -570,13 +528,29 @@ function showStatDetail(cat, boxEl) {
 }
 
 
-async function browseSrc() {
+async function browseInto(id) {
   const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('src').value = p;
+  if (p) { document.getElementById(id).value = p; updateModeRows(); }
 }
-async function browseDat() {
-  const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('dat_dir').value = p;
+function outMode() {
+  const el = document.querySelector('input[name="out_mode"]:checked');
+  return el ? el.value : 'inplace';
+}
+async function updateModeRows() {
+  const m = outMode();
+  document.getElementById('row-dst').style.display = m === 'inplace' ? 'none' : '';
+  document.getElementById('row-backup').style.display = '';
+  const folder = document.getElementById('folder').value.trim();
+  let def = '';
+  try { def = folder ? await window.pywebview.api.default_backup_dir(folder) : ''; } catch (e) {}
+  document.getElementById('sc_backup').placeholder = def
+    ? 'Empty = ' + def : 'Where each replaced original goes (empty = beside the folder)';
+  const hint = {
+    inplace: 'Fixed files replace the wrong ones where they are. Every replaced original is moved to the backup folder first; nothing is deleted.',
+    copy: 'The folder is not changed. Fixed and already-right files are copied to the output folder, one folder per release.',
+    move: 'Like copy, then the originals that reached the output are removed at the end of the run. Wrong originals go to the backup folder.',
+  }[m];
+  document.getElementById('mode-hint').textContent = hint;
 }
 async function addRefFolder() {
   const p = await window.pywebview.api.browse_folder();
@@ -615,39 +589,37 @@ function renderRefFolders() {
     list.appendChild(row);
   });
 }
-async function browseDst() {
-  const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('dst').value = p;
-}
-
 async function startRun() {
-  const src     = document.getElementById('src').value.trim();
-  const dat_dir = document.getElementById('dat_dir').value.trim();
-  const ref_dirs = refFolders.slice();
-  const dst     = document.getElementById('dst').value.trim();
+  const folder = document.getElementById('folder').value.trim();
+  const output_mode = outMode();
+  const dst = document.getElementById('dst').value.trim();
   const dry_run = document.getElementById('dry_run').checked;
-  const move_mode = document.getElementById('mode_move').checked;
-  const use_fingerprint_db = document.getElementById('use_fp_db').checked;
-  const auto_retry_excluding_suspect_refs = document.getElementById('auto_retry').checked;
-  const deep_search = document.getElementById('deep_search').checked;
-  const use_rsr_store = document.getElementById('use_rsr_store').checked;
-  const zip_budget_s = Math.max(0, parseFloat(document.getElementById('zip_budget_s').value) || 0);
-  const sidecar_revision = document.getElementById('sidecar_revision').checked;
-  const sidecar_dirs = sidecarDirs();
-
-  if (!src)     { addLog('Select the Scene ZIPs folder.', 'warn'); return; }
-  if (!dat_dir) { addLog('Select the DAT folder.', 'warn'); return; }
-  if (!dry_run && !dst) { addLog('Select an Output folder (or enable Dry Run).', 'warn'); return; }
-
-  const run_cfg = { src, dat_dir, ref_dirs, dst, dry_run, move_mode, use_fingerprint_db,
-                    auto_retry_excluding_suspect_refs, deep_search, use_rsr_store, zip_budget_s,
-                    sidecar_revision, sidecar_dirs, ...sidecarFields() };
+  if (!folder) { addLog('Select the folder to fix.', 'warn'); return; }
+  if (output_mode !== 'inplace' && !dry_run && !dst) { addLog('Select an output folder (or pick "Fix in place").', 'warn'); return; }
+  const run_cfg = {
+    folder, output_mode, dst, dry_run,
+    dat_dir: document.getElementById('dat_dir').value.trim(),
+    backup_dir: document.getElementById('sc_backup').value.trim(),
+    fix_zips: document.getElementById('fix_zips').checked,
+    fix_sidecars: document.getElementById('fix_sidecars').checked,
+    ref_dirs: refFolders.slice(),
+    use_fingerprint_db: document.getElementById('use_fp_db').checked,
+    auto_retry_excluding_suspect_refs: document.getElementById('auto_retry').checked,
+    deep_search: document.getElementById('deep_search').checked,
+    use_rsr_store: document.getElementById('use_rsr_store').checked,
+    zip_budget_s: Math.max(0, parseFloat(document.getElementById('zip_budget_s').value) || 0),
+    sidecar_revision: document.getElementById('sidecar_revision').checked,
+    sidecar_dirs: sidecarDirs(),
+    ...sidecarFields() };
+  if (output_mode === 'inplace' && !dry_run) {
+    const ok = confirm('Fix in place:\n' + folder + '\n\nWrong files that can be fixed are replaced. ' +
+      'Each replaced original is moved to the backup folder first; nothing is deleted.\n\nGo ahead?');
+    if (!ok) return;
+  }
   await window.pywebview.api.save_config(run_cfg);
-
   document.getElementById('prog-bar').style.width = '0%';
   document.getElementById('prog-label').textContent = '—';
-
-  await window.pywebview.api.start_run(run_cfg);
+  await window.pywebview.api.start_all_run(run_cfg);
 }
 
 function sidecarDirs() {
@@ -664,7 +636,6 @@ async function addSidecarDir() {
 // Sidecar-fixer settings, saved with every run so neither run drops the other's
 function sidecarFields() {
   return {
-    sc_folder: document.getElementById('sc_folder').value.trim(),
     sc_extras: document.getElementById('sc_extras').value.trim(),
     sc_backup: document.getElementById('sc_backup').value.trim(),
     sc_add_missing: document.getElementById('sc_add_missing').checked,
@@ -674,10 +645,6 @@ function sidecarFields() {
     sc_use_srrdb: document.getElementById('sc_use_srrdb').checked,
   };
 }
-async function browseScFolder() {
-  const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('sc_folder').value = p;
-}
 async function browseScExtras() {
   const p = await window.pywebview.api.browse_folder();
   if (!p) return;
@@ -686,29 +653,6 @@ async function browseScExtras() {
   if (!dirs.includes(p)) dirs.push(p);
   el.value = dirs.join('; ');
 }
-async function browseScBackup() {
-  const p = await window.pywebview.api.browse_folder();
-  if (p) document.getElementById('sc_backup').value = p;
-}
-async function startSidecarRun() {
-  const sc = sidecarFields();
-  if (!sc.sc_folder) { addLog('Select the Work folder (the sets and their DATs).', 'warn'); return; }
-  const cfg = await window.pywebview.api.load_config();
-  Object.assign(cfg, sc, {
-    dry_run: document.getElementById('dry_run').checked,
-    use_rsr_store: document.getElementById('use_rsr_store').checked });
-  await window.pywebview.api.save_config(cfg);
-  document.getElementById('prog-bar').style.width = '0%';
-  document.getElementById('prog-label').textContent = '—';
-  await window.pywebview.api.start_sidecar_run({
-    folder: sc.sc_folder,
-    extras_dirs: sc.sc_extras.split(';').map(s => s.trim()).filter(Boolean), backup_dir: sc.sc_backup,
-    dry_run: cfg.dry_run, add_missing: sc.sc_add_missing, make_sfv: sc.sc_make_sfv,
-    update_rsr_store: sc.sc_update_rsr,
-    use_rsr_store: cfg.use_rsr_store, use_extras_store: sc.sc_use_extras,
-    use_srrdb: sc.sc_use_srrdb });
-}
-
 async function stopRun() {
   document.getElementById('btn-stop').disabled = true;
   document.getElementById('btn-skip').disabled = true;

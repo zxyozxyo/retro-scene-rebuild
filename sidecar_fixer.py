@@ -556,15 +556,17 @@ class DatIndex:
         return None
 
 
-def find_releases(root: Path, index: DatIndex, should_stop=lambda: False):
+def find_releases(root: Path, index: DatIndex, should_stop=lambda: False, skip=()):
     """[(folder, game idx, how)]. A folder named after a release claims its
     whole subtree. Any other folder holding archives is matched by their
-    names; a release split over CD1/CD2 folders resolves to their parent."""
+    names; a release split over CD1/CD2 folders resolves to their parent.
+    Folders in `skip` (a backup folder inside the root) are never entered."""
     found, by_contents = [], {}
     stack = [root]
+    skip = {Path(x) for x in skip}
     while stack and not should_stop():
         d = stack.pop()
-        if d.name == BACKUP_DIR_NAME:
+        if d.name == BACKUP_DIR_NAME or d in skip:
             continue
         g = index.by_folder_name(d.name)
         if g is not None:
@@ -1189,6 +1191,52 @@ def update_store(folder: Path, release: str, targets: list, backup: Path, dry: b
 # THE RUN
 # ═══════════════════════════════════════════════════════════════════════
 
+def safe_dir_name(name: str) -> str:
+    """A DAT game name as a Windows folder name (same rule as the zip fixer's
+    output folders, so both write a release into ONE folder)."""
+    return re.sub(r'[<>:"/\\|?*]', '_', name or 'Unknown').strip()
+
+
+def _backup_slot(dst: Path) -> Path:
+    """dst, or dst with ' (2)', ' (3)'... when an earlier run already backed
+    up a file of that name: a backup is never overwritten."""
+    if not dst.exists():
+        return dst
+    for i in range(2, 10000):
+        q = dst.with_name(f'{dst.stem} ({i}){dst.suffix}')
+        if not q.exists():
+            return q
+    return dst
+
+
+def _file_crc(p: Path) -> str:
+    c = 0
+    with open(p, 'rb') as f:
+        while True:
+            b = f.read(8 << 20)
+            if not b:
+                break
+            c = zlib.crc32(b, c)
+    return f'{c & 0xFFFFFFFF:08x}'
+
+
+def _copy_verified(src: Path, dst: Path) -> bool:
+    """Copy src to dst and check the copy's size; False (and no dst left
+    behind) if it went wrong."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(src, dst)
+        if dst.stat().st_size == src.stat().st_size:
+            return True
+    except OSError:
+        pass
+    try:
+        dst.unlink()
+    except OSError:
+        pass
+    return False
+
+
 def run(config: dict, log=print, progress=lambda pct, label='': None,
         should_stop=lambda: False) -> dict:
     """Fix every set in config['folder'] against the DATs in it.
@@ -1198,12 +1246,27 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
     dat_dir (optional: DATs somewhere else), backup_dir (default
     <folder>/_sidecar_backup), dry_run, add_missing, use_rsr_store,
     use_extras_store, use_srrdb, make_sfv.
+
+    Output mode (the combined "Fix releases" run): out_dir set means the sets
+    are left as they are and every right or fixed sidecar is written to
+    out_dir/<DAT game name>/; with copy_other_files the set's other files
+    that match the DAT (size + CRC32) go there too (skip_zip_files leaves
+    .zip to the zip fixer). out_mode 'move' adds each original that reached
+    the output to the caller's moved_out list (the caller removes them once
+    every pass is done) and moves a wrong original to the backup folder.
+    only_dat_dir: read the DATs from dat_dir only, not from the folder;
+    dat_files: an explicit list of DAT files (overrides both).
     Returns {'stats': {...}, 'details': {category: [rows]}, 'report': path}."""
     root = Path(config.get('folder') or config.get('releases') or '').expanduser()
     dry = bool(config.get('dry_run', False))
     add_missing = bool(config.get('add_missing', True))
     backup = Path(config.get('backup_dir') or (root / BACKUP_DIR_NAME))
-    stats = dict(releases=0, ok=0, fixed=0, added=0, not_found=0, rsr_updated=0)
+    out_dir = Path(config['out_dir']).expanduser() if config.get('out_dir') else None
+    out_move = out_dir is not None and config.get('out_mode') == 'move'
+    moved_out = config['moved_out'] if isinstance(config.get('moved_out'), list) else []
+    copy_others = out_dir is not None and config.get('copy_other_files', True)
+    skip_zip_files = bool(config.get('skip_zip_files'))
+    stats = dict(releases=0, ok=0, fixed=0, added=0, not_found=0, rsr_updated=0, copied=0)
     details = {k: [] for k in ('fixed', 'added', 'not_found', 'extra', 'rsr')}
 
     if parse_dat_file is None:
@@ -1213,8 +1276,11 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
         log('ERROR: choose the folder holding the sets and their DATs.', 'err')
         return {'stats': stats, 'details': details}
 
-    dats = find_dats(root)
-    if config.get('dat_dir'):
+    if config.get('dat_files'):
+        dats = [Path(x) for x in config['dat_files']]
+    else:
+        dats = [] if config.get('dat_dir') and config.get('only_dat_dir') else find_dats(root)
+    if config.get('dat_dir') and not config.get('dat_files'):
         d = Path(config['dat_dir']).expanduser()
         dats += [d] if d.is_file() else [p for p in d.rglob('*') if p.suffix.lower() in ('.dat', '.xml')]
     if not dats:
@@ -1224,7 +1290,21 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
         + (' ...' if len(dats) > 6 else ''), 'info')
     index = DatIndex(load_games(dats))
     log(f'  {len(index.games):,} DAT release(s) list sidecars', 'dim')
-    releases = find_releases(root, index, should_stop)
+    try:
+        backup_res = backup.resolve()
+    except OSError:
+        backup_res = backup
+
+    def in_backup(p: Path) -> bool:
+        if BACKUP_DIR_NAME in p.parts:
+            return True
+        try:
+            p.resolve().relative_to(backup_res)
+            return True
+        except (ValueError, OSError):
+            return False
+
+    releases = find_releases(root, index, should_stop, skip=(backup_res,))
     log(f'{len(releases):,} set(s) found in {root}', 'info')
     if not releases:
         return {'stats': stats, 'details': details}
@@ -1232,7 +1312,7 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
     claimed = {f.resolve() for f, _g, _h in releases}
     loose = []
     for p in root.rglob('*'):
-        if p.is_file() and is_sidecar(p.name) and BACKUP_DIR_NAME not in p.parts and \
+        if p.is_file() and is_sidecar(p.name) and not in_backup(p) and \
                 not any(a.resolve() in claimed for a in p.parents):
             loose.append(p)
     if loose:
@@ -1274,21 +1354,50 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
             for rel in sorted(set(local) - dat_names):
                 details['extra'].append({'file': rel, 'game_name': game})
 
+            gdir = out_dir / safe_dir_name(game) if out_dir else None
             todo, right = [], []
             for t in targets:
                 p = folder / t.name
                 if p.is_file() and p.stat().st_size == t.size and t.matches(p.read_bytes()):
                     stats['ok'] += 1
                     right.append(t.name)
+                    if gdir and not dry:
+                        if _copy_verified(p, gdir / t.name):
+                            if out_move:
+                                moved_out.append(p)
+                        else:
+                            log(f'  ERROR: could not copy {t.name} to {gdir}', 'err')
                 elif p.is_file() or add_missing:
                     todo.append(t)
             via = '' if how_matched == 'folder name' else f' (matched by {how_matched} to {game})'
             log(f'[{n}/{len(releases)}] {folder.name}{via}', 'info')
             if right:
-                log(f'  already right: {", ".join(right)}', 'dim')
+                log(f'  already right: {", ".join(right)}'
+                    + (f' ({"moving" if out_move else "copied"} to the output)' if gdir else ''), 'dim')
+            if copy_others:
+                # The set's other DAT files (rar volumes, images...), checked
+                # by size and CRC32, so the output holds the whole release
+                for r in roms:
+                    t = _target_of(r)
+                    if not t or is_sidecar(t.name) or (skip_zip_files and t.ext == '.zip'):
+                        continue
+                    p = folder / t.name
+                    if not p.is_file() or p.stat().st_size != t.size:
+                        continue
+                    if _file_crc(p) != t.crc:
+                        log(f'  {t.name}: CRC differs from the DAT, not copied', 'warn')
+                        continue
+                    stats['copied'] += 1
+                    if not dry:
+                        if _copy_verified(p, gdir / t.name):
+                            if out_move:
+                                moved_out.append(p)
+                        else:
+                            log(f'  ERROR: could not copy {t.name} to {gdir}', 'err')
+            store_dir = gdir if gdir else folder
             if not todo:
                 if config.get('update_rsr_store'):
-                    update_store(folder, game, targets, backup, dry, stats, details, log)
+                    update_store(store_dir, game, targets, backup, dry, stats, details, log)
                 continue
             rwork = work / f'r{n}'
             rwork.mkdir()
@@ -1339,8 +1448,19 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
                     f'(size, CRC32{", MD5" if t.md5 else ""}{", SHA1" if t.sha1 else ""} match)', 'ok')
                 if dry:
                     continue
+                if gdir:
+                    q = gdir / t.name
+                    q.parent.mkdir(parents=True, exist_ok=True)
+                    q.write_bytes(data)
+                    log(f'    written to {q}', 'dim')
+                    if existed and out_move:
+                        dst = _backup_slot(backup / folder.name / t.name)
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(p), str(dst))
+                        log(f'    the wrong copy moved to {dst}', 'dim')
+                    continue
                 if existed:
-                    dst = backup / folder.name / t.name
+                    dst = _backup_slot(backup / folder.name / t.name)
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(p), str(dst))
                     log(f'    the wrong copy moved to {dst}', 'dim')
@@ -1348,7 +1468,7 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
                 p.write_bytes(data)
                 local[t.name.lower()] = p
             if config.get('update_rsr_store'):
-                update_store(folder, game, targets, backup, dry, stats, details, log)
+                update_store(store_dir, game, targets, backup, dry, stats, details, log)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -1366,6 +1486,8 @@ def run(config: dict, log=print, progress=lambda pct, label='': None,
                 w.writerow({k: r.get(k, '') for k in w.fieldnames})
     log(f'Done: {stats["releases"]} set(s), {stats["ok"]} sidecar(s) already right, '
         f'{stats["fixed"]} fixed, {stats["added"]} added, {stats["not_found"]} not found'
+        + (f', {stats["copied"]} other file(s) {"would be " if dry else ""}copied to the output'
+           if copy_others else '')
         + (f'; {stats["rsr_updated"]} .rsr {"would be " if dry else ""}updated in the RSR store'
            if config.get('update_rsr_store') else '')
         + (f'; {src.srrdb_calls} srrdb request(s)' if src.srrdb_calls else '')

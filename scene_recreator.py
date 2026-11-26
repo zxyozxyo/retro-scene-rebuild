@@ -3467,7 +3467,10 @@ def build_dat_index(dat_folder: Path) -> dict:
         if candidate not in bucket:
             bucket.append(candidate)
 
-    dat_files = list(dat_folder.rglob('*.dat')) + list(dat_folder.rglob('*.xml'))
+    if isinstance(dat_folder, (list, tuple)):
+        dat_files = [Path(x) for x in dat_folder]
+    else:
+        dat_files = list(dat_folder.rglob('*.dat')) + list(dat_folder.rglob('*.xml'))
     for dat_path in dat_files:
         try:
             header, entries = parse_dat_file(dat_path)
@@ -4410,6 +4413,11 @@ class SceneRecreatorAPI:
         self._running = False
         self._stop_flag = threading.Event()
         self._skip_flag = threading.Event()
+        # Set by the combined "Fix releases" run (start_all_run):
+        self._inplace = False        # fixed files replace the originals
+        self._scan_root = None       # the folder being fixed
+        self._backup_root = None     # where a replaced original goes
+        self._deferred = None        # move mode: originals removed at the end
 
     def set_window(self, w):
         self._window = w
@@ -4499,6 +4507,197 @@ class SceneRecreatorAPI:
         self._running = False
         self._emit('status', {'state': 'done', 'mode': 'sidecars', 'stats': res['stats'],
                               'details': {'sc_' + k: v for k, v in res['details'].items()}})
+
+    def start_all_run(self, config: dict) -> bool:
+        """The combined run: fix the zips, then the .sfv/.nfo/.diz/.jpg, of
+        one folder against its DATs. config['output_mode'] is 'inplace'
+        (fixed files replace the originals, each original moved to the
+        backup folder first), 'copy' or 'move' (fixed and confirmed files go
+        to config['dst']/<DAT game name>/)."""
+        if self._running:
+            self._log('Already running.', 'warn')
+            return False
+        self._stop_flag.clear()
+        threading.Thread(target=self._all_run, args=(config,), daemon=True).start()
+        return True
+
+    def default_backup_dir(self, folder: str) -> str:
+        """The backup folder used when none is chosen: beside the folder, not
+        in it, so RomVault never sees the old copies as unknown files."""
+        f = Path(folder or '').expanduser()
+        if not str(folder or '').strip():
+            return ''
+        if f.parent == f:            # a drive root has no beside
+            return str(f / '_recreator_backup')
+        return str(f.parent / (f.name + '_recreator_backup'))
+
+    @staticmethod
+    def _inside(a: Path, b: Path) -> bool:
+        """True when a is b or lies under it."""
+        try:
+            a.resolve().relative_to(b.resolve())
+            return True
+        except (ValueError, OSError):
+            return False
+
+    def _all_run(self, config: dict):
+        import sidecar_fixer
+        self._running = True
+        self._emit('status', {'state': 'running'})
+        mode = config.get('output_mode') or 'inplace'
+        dry = bool(config.get('dry_run', False))
+        folder = Path(str(config.get('folder') or '').strip()).expanduser()
+        dst_txt = str(config.get('dst') or '').strip()
+        dst = Path(dst_txt).expanduser() if dst_txt else None
+        fix_zips = config.get('fix_zips', True)
+        fix_sidecars = config.get('fix_sidecars', True)
+        try:
+            if not str(config.get('folder') or '').strip() or not folder.is_dir():
+                self._log(f'ERROR: folder not found: {folder}', 'err')
+                return self._finish_error()
+            if mode not in ('inplace', 'copy', 'move'):
+                self._log(f'ERROR: unknown output mode {mode!r}', 'err')
+                return self._finish_error()
+            if not (fix_zips or fix_sidecars):
+                self._log('ERROR: nothing to do: tick zips, sidecars or both.', 'err')
+                return self._finish_error()
+            if mode != 'inplace':
+                if dst is None and not dry:
+                    self._log('ERROR: choose the output folder for the fixed files '
+                              '(or pick "Fix in place").', 'err')
+                    return self._finish_error()
+                if dst is not None and (self._inside(dst, folder) or self._inside(folder, dst)):
+                    self._log('ERROR: the output folder must be outside the folder being '
+                              'fixed (and not contain it).', 'err')
+                    return self._finish_error()
+            backup = Path(str(config.get('backup_dir') or '').strip()
+                          or self.default_backup_dir(str(folder))).expanduser()
+
+            # The DATs: the chosen DAT folder/file, else the ones in the folder
+            dat_txt = str(config.get('dat_dir') or '').strip()
+            if dat_txt:
+                d = Path(dat_txt).expanduser()
+                if d.is_file():
+                    dats = [d]
+                elif d.is_dir():
+                    dats = sorted(x for x in d.rglob('*') if x.is_file()
+                                  and x.suffix.lower() in ('.dat', '.xml'))
+                else:
+                    self._log(f'ERROR: DAT folder not found: {d}', 'err')
+                    return self._finish_error()
+            else:
+                dats = sidecar_fixer.find_dats(folder)
+            if not dats:
+                self._log('ERROR: no DAT found. Choose the DAT folder, or put the DAT(s) '
+                          'in the folder being fixed.', 'err')
+                return self._finish_error()
+
+            what = ' + '.join(x for x, on in (('zips', fix_zips), ('.sfv/.nfo/.diz/.jpg', fix_sidecars)) if on)
+            self._log(f'═══ FIX RELEASES: {what} in {folder} ═══', 'info')
+            self._log(f'  DATs: {len(dats)} file(s): ' + ', '.join(x.name for x in dats[:5])
+                      + (' ...' if len(dats) > 5 else ''), 'dim')
+            if mode == 'inplace':
+                self._log(f'  Fixed files replace the wrong ones IN PLACE; every replaced '
+                          f'original is moved to {backup} first (nothing is deleted)',
+                          'warn' if not dry else 'dim')
+            else:
+                self._log(f'  Fixed and confirmed files are {"MOVED" if mode == "move" else "COPIED"} '
+                          f'to {dst} (one folder per release)' + ('; originals are removed only after both '
+                                                      'passes have finished' if mode == 'move' else
+                                                      '; originals are not changed'), 'dim')
+            if dry:
+                self._log('  TEST ONLY: nothing will be written, moved or replaced', 'warn')
+
+            self._inplace = mode == 'inplace'
+            self._scan_root = folder
+            self._backup_root = backup
+            self._deferred = [] if mode == 'move' else None
+
+            zip_res = sc_res = None
+            if fix_zips:
+                self._log('', '')
+                self._log('─── Step 1: zips ───', 'info')
+                zcfg = dict(config, src=str(folder), dat_list=[str(x) for x in dats],
+                            dst=str(dst) if dst else '', move_mode=(mode == 'move'))
+                zip_res = self._run(zcfg, standalone=False)
+                if zip_res is None:
+                    return           # _run reported the error
+            if fix_sidecars and not self._stop_flag.is_set():
+                self._log('', '')
+                self._log('─── Step 2: .sfv / .nfo / .diz / .jpg ───', 'info')
+                self._running = True
+                extras = config.get('sc_extras') or ''
+                scfg = {
+                    'folder': str(folder), 'dat_files': [str(x) for x in dats],
+                    'extras_dirs': [x.strip() for x in str(extras).split(';') if x.strip()],
+                    'backup_dir': str(backup), 'dry_run': dry,
+                    'add_missing': config.get('sc_add_missing', True),
+                    'make_sfv': config.get('sc_make_sfv', True),
+                    'update_rsr_store': config.get('sc_update_rsr', True),
+                    'use_rsr_store': config.get('use_rsr_store', True),
+                    'use_extras_store': config.get('sc_use_extras', True),
+                    'use_srrdb': config.get('sc_use_srrdb', True),
+                }
+                if mode != 'inplace' and dst is not None:
+                    scfg.update(out_dir=str(dst), out_mode=mode, skip_zip_files=bool(fix_zips),
+                                moved_out=self._deferred if self._deferred is not None else [])
+                sc_res = sidecar_fixer.run(scfg, log=self._log, progress=self._progress,
+                                           should_stop=self._stop_flag.is_set)
+
+            removed = 0
+            if self._deferred and not dry:
+                self._log('', '')
+                self._log(f'Removing {len(self._deferred)} original(s) that now sit verified '
+                          f'in the output folder (wrong ones go to the backup folder)', 'info')
+                for item in dict.fromkeys(
+                        (x[0], Path(x[1])) if isinstance(x, tuple) else ('rm', Path(x))
+                        for x in self._deferred):
+                    how, src = item
+                    try:
+                        if not src.is_file():
+                            continue
+                        if how == 'backup':
+                            try:
+                                rel = src.resolve().relative_to(folder.resolve())
+                            except ValueError:
+                                rel = Path(src.name)
+                            bak = sidecar_fixer._backup_slot(backup / rel)
+                            bak.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.move(str(src), str(bak))
+                            self._log(f'  the wrong original {src.name} moved to {bak}', 'dim')
+                        else:
+                            src.unlink()
+                        removed += 1
+                    except OSError as e:
+                        self._log(f'  could not remove {src}: {e}', 'warn')
+            zs = (zip_res or {}).get('stats', {})
+            ss = (sc_res or {}).get('stats', {})
+            self._log('', '')
+            self._log('═══ FIX RELEASES DONE ═══', 'ok')
+            if zip_res is not None:
+                self._log(f'  Zips: {zs.get("already_match", 0)} already right, '
+                          f'{zs.get("fixed", 0)} fixed, {zs.get("unresolved", 0) + zs.get("foreign_packer", 0)} '
+                          f'could not be fixed, {zs.get("no_dat_entry", 0)} not in the DATs', 'ok')
+            if sc_res is not None:
+                self._log(f'  Sidecars: {ss.get("ok", 0)} already right, {ss.get("fixed", 0)} fixed, '
+                          f'{ss.get("added", 0)} added, {ss.get("not_found", 0)} not found', 'ok')
+            if removed:
+                self._log(f'  {removed} original(s) removed after being moved', 'dim')
+            details = dict((zip_res or {}).get('details', {}))
+            details.update({'sc_' + k: v for k, v in (sc_res or {}).get('details', {}).items()})
+            self._running = False
+            self._emit('status', {'state': 'done', 'mode': 'all', 'stats': zs,
+                                  'sc_stats': ss, 'has_zips': zip_res is not None,
+                                  'has_sidecars': sc_res is not None, 'details': details})
+        except Exception as e:
+            import traceback
+            self._log(f'ERROR: {e}', 'err')
+            self._log(traceback.format_exc(), 'dim')
+            self._finish_error()
+        finally:
+            self._inplace = False
+            self._scan_root = self._backup_root = None
+            self._deferred = None
 
     def stop_run(self):
         self._stop_flag.set()
@@ -4664,25 +4863,36 @@ class SceneRecreatorAPI:
 
         return {'moved': moved, 'copied': copied, 'failed': failed}
 
-    def _run(self, config: dict):
+    def _run(self, config: dict, standalone: bool = True):
+        """The zip pass. standalone=False (the combined run) returns
+        {'stats', 'details'} instead of reporting 'done' itself, and None
+        after an error it has already reported."""
         self._running = True
         self._emit('status', {'state': 'running'})
+        if standalone:
+            self._inplace = False
+            self._deferred = None
 
         src_dir = Path(config.get('src', '')).expanduser()
         dat_dir = Path(config.get('dat_dir', '')).expanduser()
+        dat_list = [Path(x) for x in (config.get('dat_list') or [])]
         dst_dir = Path(config.get('dst', '')).expanduser()
         dry_run = bool(config.get('dry_run', False))
         move_mode = bool(config.get('move_mode', False))  # False = copy (default)
+        backup_root = self._backup_root if self._inplace else None
+
+        def under_backup(pp: Path) -> bool:
+            return backup_root is not None and self._inside(pp, backup_root)
 
         if not src_dir.is_dir():
             self._log(f'ERROR: Source folder not found: {src_dir}', 'err')
             self._finish_error()
             return
-        if not dat_dir.is_dir():
+        if not dat_list and not dat_dir.is_dir():
             self._log(f'ERROR: DAT folder not found: {dat_dir}', 'err')
             self._finish_error()
             return
-        if not dry_run and not dst_dir:
+        if not dry_run and not self._inplace and not str(config.get('dst', '')).strip():
             self._log('ERROR: Output folder required (unless dry-run).', 'err')
             self._finish_error()
             return
@@ -4692,12 +4902,18 @@ class SceneRecreatorAPI:
             self._finish_error()
             return
 
-        self._log(f'Parsing DAT file(s) in: {dat_dir}', 'info')
-        dat_index = build_dat_index(dat_dir)
+        if dat_list:
+            self._log(f'Parsing {len(dat_list)} DAT file(s)', 'info')
+            dat_index = build_dat_index(dat_list)
+        else:
+            self._log(f'Parsing DAT file(s) in: {dat_dir}', 'info')
+            dat_index = build_dat_index(dat_dir)
         self._log(f'Indexed {len(dat_index)} unique scene filename(s) across all DATs', 'dim')
 
         if not dat_index:
             self._log('No usable DAT entries found.', 'warn')
+            if not standalone:
+                return {'stats': {}, 'details': {}}
             self._finish_done()
             return
 
@@ -4796,9 +5012,13 @@ class SceneRecreatorAPI:
         self._log(f'Scanning: {src_dir}', 'info')
         zip_files = sorted(
             p for p in src_dir.rglob('*') if p.is_file() and p.suffix.lower() == '.zip'
+            and not under_backup(p)
         )
         self._log(f'Found {len(zip_files)} .zip file(s) to check', 'dim')
-        self._log(f'Mode: {"MOVE" if move_mode else "COPY"} confirmed files to output', 'dim')
+        if self._inplace:
+            self._log('Mode: FIX IN PLACE (a replaced original goes to the backup folder)', 'dim')
+        else:
+            self._log(f'Mode: {"MOVE" if move_mode else "COPY"} confirmed files to output', 'dim')
 
         # One-time recursive index of every loose .nfo/.diz anywhere
         # under the scan folder (not just alongside each zip) — built
@@ -4811,7 +5031,7 @@ class SceneRecreatorAPI:
         # they happen to live in.
         loose_sidecar_index = {}  # lowercased stem -> list[Path]
         for p in src_dir.rglob('*'):
-            if p.is_file() and p.suffix.lower() in ('.nfo', '.diz'):
+            if p.is_file() and p.suffix.lower() in ('.nfo', '.diz') and not under_backup(p):
                 loose_sidecar_index.setdefault(p.stem.lower(), []).append(p)
         if loose_sidecar_index:
             total_loose = sum(len(v) for v in loose_sidecar_index.values())
@@ -4820,7 +5040,7 @@ class SceneRecreatorAPI:
                 f'for sidecar matching', 'dim'
             )
 
-        if not dry_run:
+        if not dry_run and not self._inplace:
             dst_dir.mkdir(parents=True, exist_ok=True)
 
         stats = {
@@ -4918,7 +5138,7 @@ class SceneRecreatorAPI:
                 self._log(f'✓ {zpath.name}: already matches DAT CRC ({current_crc})', 'ok')
                 confirmed_candidate = matched_candidate
                 confirmed_bytes = data
-                if not dry_run:
+                if not dry_run and not self._inplace:
                     self._place_file(zpath, data, confirmed_candidate, dst_dir, move_mode)
             else:
                 # Cheap, early check: is this zip already known to be
@@ -5304,7 +5524,7 @@ class SceneRecreatorAPI:
             # on disk, and checks them against any sibling ROM entries
             # in the same DAT game block that have a hash for that exact
             # sidecar filename.
-            if confirmed_candidate and not self._stop_flag.is_set():
+            if confirmed_candidate and not self._stop_flag.is_set() and not self._inplace:
                 self._handle_sidecars(
                     zpath, confirmed_candidate, dst_dir, move_mode, dry_run, stats,
                     zip_bytes=confirmed_bytes, loose_sidecar_index=loose_sidecar_index
@@ -5492,7 +5712,13 @@ class SceneRecreatorAPI:
 
         # Write near-miss report
         if near_misses and not dry_run:
-            report_path = dst_dir / '_near_miss_report.json'
+            if self._inplace:
+                # Never a stray file in the folder being fixed (RomVault's)
+                rep_dir = Path(__file__).parent / 'reports'
+                rep_dir.mkdir(exist_ok=True)
+                report_path = rep_dir / f'near_miss_{time.strftime("%Y-%m-%d_%H%M%S")}.json'
+            else:
+                report_path = dst_dir / '_near_miss_report.json'
             try:
                 report_path.write_text(json.dumps(near_misses, indent=2), encoding='utf-8')
                 self._log(f'Near-miss report written: {report_path.name}', 'dim')
@@ -5533,6 +5759,20 @@ class SceneRecreatorAPI:
 
         set_job(None)
         self._progress(100, 'Complete')
+        zip_stats = {
+            'already_match': stats['already_match'],
+            'fixed': n_fixed_total,
+            'unresolved': stats['unresolved'],
+            'foreign_packer': n_foreign,
+            'no_dat_entry': stats['no_dat_entry'],
+            'leftovers_only': stats.get('leftovers_only', 0),
+            'sidecar_matched': stats['sidecar_matched'],
+            'sidecar_fixed': stats['sidecar_fixed'],
+            'sidecar_no_hash': stats['sidecar_no_hash'],
+            'skipped': stats.get('skipped', 0),
+        }
+        if not standalone:
+            return {'stats': zip_stats, 'details': details}
         self._running = False
         self._emit('status', {'state': 'done', 'stats': {
             'already_match': stats['already_match'],
@@ -5767,19 +6007,84 @@ class SceneRecreatorAPI:
         """Write `data` (the confirmed-good bytes) to the DAT-game-named
         output folder, then move or copy metadata/remove the original
         per the move_mode toggle. Only ever called for hash-confirmed
-        files (already-matching or successfully-repaired-and-verified)."""
+        files (already-matching or successfully-repaired-and-verified).
+        In the combined run's in-place mode the bytes replace src_path
+        itself (_replace_in_place); in its move mode the original is
+        removed at the end of the run, not here."""
+        if self._inplace:
+            self._replace_in_place(src_path, data)
+            return
         out_dir = self._game_output_dir(candidate, dst_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / src_path.name
         try:
             out_path.write_bytes(data)
-            if move_mode:
+            if move_mode and self._deferred is not None:
+                # Removed at the end of the run; a WRONG original (this is
+                # its fixed copy) goes to the backup folder instead
+                try:
+                    same = src_path.stat().st_size == len(data) and src_path.read_bytes() == data
+                except OSError:
+                    same = False
+                self._deferred.append(src_path if same else ('backup', src_path))
+            elif move_mode:
                 try:
                     src_path.unlink()
                 except Exception as e:
                     self._log(f'    Warning: could not remove original {src_path.name}: {e}', 'warn')
         except Exception as e:
             self._log(f'    ERROR writing output for {src_path.name}: {e}', 'err')
+
+    def _replace_in_place(self, path: Path, data: bytes) -> bool:
+        """Put the verified bytes where the wrong file was. The new copy is
+        written beside it and read back first; only then is the original
+        moved to the backup folder (same relative path, never overwriting
+        an earlier backup) and the new copy renamed into its place. If the
+        rename fails the original is put back. Nothing is deleted."""
+        import sidecar_fixer
+        try:
+            if path.stat().st_size == len(data) and path.read_bytes() == data:
+                return True
+        except OSError:
+            pass
+        root = self._scan_root or path.parent
+        try:
+            rel = path.resolve().relative_to(Path(root).resolve())
+        except (ValueError, OSError):
+            rel = Path(path.name)
+        bak = sidecar_fixer._backup_slot(Path(self._backup_root or (path.parent / '_recreator_backup')) / rel)
+        tmp = path.with_name(path.name + '.recreator-tmp')
+        try:
+            with open(tmp, 'wb') as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            if tmp.read_bytes() != data:
+                raise OSError('the new copy reads back different from what was written')
+            bak.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(path), str(bak))
+        except Exception as e:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            self._log(f'    ERROR: {path.name} not replaced, original left as it was: {e}', 'err')
+            return False
+        try:
+            os.replace(tmp, path)
+        except Exception as e:
+            try:
+                shutil.move(str(bak), str(path))
+            except Exception:
+                self._log(f'    ERROR: the original of {path.name} is in {bak}', 'err')
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            self._log(f'    ERROR: {path.name} not replaced: {e}', 'err')
+            return False
+        self._log(f'    fixed in place: {path}  (the old copy is in {bak})', 'dim')
+        return True
 
     # ── Texts for an edited nfo/diz ──────────────────────────────────────
 
