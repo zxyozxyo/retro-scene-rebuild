@@ -113,6 +113,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
     <div class="tab" onclick="switchTab('rebuild')">Rebuilder</div>
     <div class="tab" onclick="switchTab('size')">Size Calc</div>
     <div class="tab" onclick="switchTab('split')">Split by Size</div>
+    <div class="tab" onclick="switchTab('datesplit')">Split by Date</div>
     <div class="tab" onclick="switchTab('stripmia')">Strip MIA</div>
   </div>
 
@@ -269,6 +270,60 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
           </table>
           <div class="hint" id="split-names" style="margin-top:8px;font-family:var(--mono);user-select:text;-webkit-user-select:text"></div>
           <div class="hint" style="margin-top:6px">Sizes are on-disk sizes on an NTFS drive. Drives are sold in decimal TB (1 TB = 1,000,000,000,000 bytes) but Windows counts in 1024s, so a &ldquo;20 TB&rdquo; drive shows as 18.19 TB in Explorer. &ldquo;Fits on&rdquo; is the smallest drive you can buy that holds the part, keeping the free space above.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TAB: SPLIT BY DATE ═══ -->
+    <div class="tab-body" id="tab-datesplit">
+      <div class="panel">
+        <div class="panel-hdr"><div class="dot" style="background:var(--info)"></div>Split by Date &mdash; one DAT into parts by month or by dates you choose</div>
+        <div class="panel-body">
+          <div class="hint" style="margin-bottom:8px">Each game's date is read from the start of its name (YYYY-MM-DD). Pick a DAT, choose where the parts start, and each part is saved beside the original (or in the folder below) with <b>_(Part_1_of_2)_(date range)</b> added to the name. Every game ends up in exactly one part, unchanged.</div>
+          <div class="row"><label>DAT to split</label><input class="path-input" id="dsplit-file" placeholder="e.g. 3DS_Scene_2016_(...).dat" onchange="dsplitAnalyse()"/><button class="browse-btn" onclick="dsplitBrowse()">Browse&hellip;</button></div>
+          <div id="dsplit-info" class="hint"></div>
+        </div>
+      </div>
+      <div class="panel" id="dsplit-settings" style="display:none">
+        <div class="panel-hdr"><div class="dot" style="background:var(--acc)"></div>Where the parts start</div>
+        <div class="panel-body">
+          <div class="row"><label>Split</label>
+            <label class="opt"><input type="radio" name="dsplit-mode" value="dates" checked onchange="dsplitModeChanged()"> At these dates</label>
+            <label class="opt"><input type="radio" name="dsplit-mode" value="every" onchange="dsplitModeChanged()"> Every few months</label>
+          </div>
+          <div class="row" id="dsplit-dates-wrap"><label>New part starts</label>
+            <input class="path-input" id="dsplit-dates" placeholder="e.g. 2024-09   (Jan–Aug, then Sep–Dec)" oninput="dsplitSchedulePlan()"/>
+          </div>
+          <div class="hint split-win" id="dsplit-dates-hint">One or more dates, YYYY-MM or YYYY-MM-DD, separated by commas or spaces. Each one is the first day of a new part: <b>2024-05, 2024-09</b> gives Jan&ndash;Apr, May&ndash;Aug and Sep&ndash;Dec.</div>
+          <div class="row" id="dsplit-every-wrap" style="display:none"><label>Months per part</label>
+            <select class="path-input split-num" id="dsplit-months" onchange="dsplitSchedulePlan()" style="flex:0 0 120px">
+              <option value="1">1 (monthly)</option><option value="2">2</option><option value="3">3 (quarters)</option>
+              <option value="4" selected>4</option><option value="6">6 (halves)</option><option value="12">12 (yearly)</option>
+            </select>
+            <span class="hint">counted from January: 4 gives Jan&ndash;Apr, May&ndash;Aug, Sep&ndash;Dec</span>
+          </div>
+          <div class="row" id="dsplit-nuke-wrap"><label>NUKED releases</label>
+            <label class="opt"><input type="radio" name="dsplit-nuke" value="date" checked onchange="dsplitSchedulePlan()"> Keep by date</label>
+            <label class="opt"><input type="radio" name="dsplit-nuke" value="own" onchange="dsplitSchedulePlan()"> Their own part</label>
+            <label class="opt"><input type="radio" name="dsplit-nuke" value="first" onchange="dsplitSchedulePlan()"> All on the first part</label>
+            <label class="opt"><input type="radio" name="dsplit-nuke" value="last" onchange="dsplitSchedulePlan()"> All on the last part</label>
+          </div>
+          <div class="row" id="dsplit-undated-wrap"><label>Games with no date</label>
+            <label class="opt"><input type="radio" name="dsplit-undated" value="own" checked onchange="dsplitSchedulePlan()"> Their own part</label>
+            <label class="opt"><input type="radio" name="dsplit-undated" value="first" onchange="dsplitSchedulePlan()"> On the first part</label>
+            <label class="opt"><input type="radio" name="dsplit-undated" value="last" onchange="dsplitSchedulePlan()"> On the last part</label>
+          </div>
+          <div class="row"><label>Output folder</label><input class="path-input" id="dsplit-outdir" placeholder="Blank = same folder as the DAT"/><button class="browse-btn" onclick="browseFolder('dsplit-outdir')">Browse&hellip;</button></div>
+        </div>
+      </div>
+      <div class="panel" id="dsplit-preview-panel" style="display:none">
+        <div class="panel-hdr"><div class="dot" style="background:var(--warn)"></div><span id="dsplit-summary">Preview</span></div>
+        <div class="panel-body" style="overflow-x:auto">
+          <table class="split-table">
+            <thead><tr><th>Part</th><th>Period</th><th>Games dated</th><th>Games</th><th>NUKED</th><th>Size</th><th>Windows shows</th></tr></thead>
+            <tbody id="dsplit-rows"></tbody>
+          </table>
+          <div class="hint" id="dsplit-names" style="margin-top:8px;font-family:var(--mono);user-select:text;-webkit-user-select:text"></div>
         </div>
       </div>
     </div>
@@ -434,7 +489,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--text);fo
 let activeTab = 'merge';
 function switchTab(name) {
   activeTab = name;
-  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['merge','diff','smart','ext','intdedupe','integrity','create','rebuild','size','split','stripmia'][i] === name));
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['merge','diff','smart','ext','intdedupe','integrity','create','rebuild','size','split','datesplit','stripmia'][i] === name));
   document.querySelectorAll('.tab-body').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
 }
@@ -654,6 +709,17 @@ function runActive() {
     api.run_split(Object.assign(splitConfig(), {
       output_dir: document.getElementById('split-outdir').value.trim(),
     }));
+  } else if (activeTab === 'datesplit') {
+    if (!dsplitInfo || !dsplitLastOk) {
+      addLog(dsplitInfo ? 'Fix the split dates first (see the preview).' : 'Choose a DAT to split first.', 'err');
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-stop').disabled = true;
+      setStatus('idle');
+      return;
+    }
+    api.run_date_split(Object.assign(dsplitConfig(), {
+      output_dir: document.getElementById('dsplit-outdir').value.trim(),
+    }));
   } else if (activeTab === 'stripmia') {
     api.run_strip_mia({
       input: document.getElementById('stripmia-input').value.trim(),
@@ -852,6 +918,97 @@ async function splitPlan() {
   document.getElementById('split-names').innerHTML = names;
 }
 
+// ── Split by Date ────────────────────────────────────────────────────────────
+let dsplitInfo = null, dsplitPlanSeq = 0, dsplitPlanTimer = null, dsplitLastOk = false;
+
+async function dsplitBrowse() {
+  await browseSingle('dsplit-file');
+  dsplitAnalyse();
+}
+
+async function dsplitAnalyse() {
+  const path = document.getElementById('dsplit-file').value.trim();
+  const info = document.getElementById('dsplit-info');
+  dsplitInfo = null; dsplitLastOk = false;
+  document.getElementById('dsplit-settings').style.display = 'none';
+  document.getElementById('dsplit-preview-panel').style.display = 'none';
+  if (!path) { info.textContent = ''; return; }
+  info.textContent = 'Reading DAT…';
+  const r = await window.pywebview.api.split_analyse(path);
+  if (!r || !r.ok) { info.textContent = 'Could not read DAT: ' + (r && r.error); return; }
+  dsplitInfo = r;
+  let t = `<b>${escHtml(r.dat_name)}</b> &mdash; ${r.games.toLocaleString()} games, ${fmtDec(r.data_bytes)} (Windows shows ${fmtWin(r.data_bytes)})`;
+  t += r.first_date ? `<br>Dated ${r.first_date} to ${r.last_date}` : '<br><span style="color:var(--danger)">No game names start with a date, so this DAT cannot be split by date.</span>';
+  if (r.nuked) t += ` &middot; ${r.nuked} NUKED`;
+  if (r.undated) t += ` &middot; ${r.undated} without a date`;
+  info.innerHTML = t;
+  if (!r.first_date) return;
+  document.getElementById('dsplit-nuke-wrap').style.display = r.nuked ? '' : 'none';
+  document.getElementById('dsplit-undated-wrap').style.display = r.undated ? '' : 'none';
+  const dates = document.getElementById('dsplit-dates');
+  if (!dates.value.trim()) dates.placeholder = `e.g. ${r.first_date.slice(0, 4)}-09   (Jan–Aug, then Sep–Dec)`;
+  document.getElementById('dsplit-settings').style.display = '';
+  dsplitSchedulePlan();
+}
+
+function dsplitModeChanged() {
+  const every = document.querySelector('input[name="dsplit-mode"]:checked').value === 'every';
+  document.getElementById('dsplit-dates-wrap').style.display = every ? 'none' : '';
+  document.getElementById('dsplit-dates-hint').style.display = every ? 'none' : '';
+  document.getElementById('dsplit-every-wrap').style.display = every ? '' : 'none';
+  dsplitSchedulePlan();
+}
+
+function dsplitConfig() {
+  return {
+    path: dsplitInfo.path,
+    mode: document.querySelector('input[name="dsplit-mode"]:checked').value,
+    months: parseInt(document.getElementById('dsplit-months').value, 10),
+    dates: document.getElementById('dsplit-dates').value,
+    nuke_mode: document.querySelector('input[name="dsplit-nuke"]:checked').value,
+    undated: document.querySelector('input[name="dsplit-undated"]:checked').value,
+  };
+}
+
+function dsplitSchedulePlan() {
+  clearTimeout(dsplitPlanTimer);
+  dsplitPlanTimer = setTimeout(dsplitPlan, 150);
+}
+
+async function dsplitPlan() {
+  if (!dsplitInfo) return;
+  const cfg = dsplitConfig();
+  const seq = ++dsplitPlanSeq;
+  const panel = document.getElementById('dsplit-preview-panel');
+  const summary = document.getElementById('dsplit-summary');
+  const rows = document.getElementById('dsplit-rows');
+  const names = document.getElementById('dsplit-names');
+  dsplitLastOk = false;
+  if (cfg.mode === 'dates' && !cfg.dates.trim()) {
+    panel.style.display = '';
+    summary.textContent = 'Type the date(s) where a new part starts';
+    rows.innerHTML = ''; names.innerHTML = '';
+    return;
+  }
+  const r = await window.pywebview.api.date_split_plan(cfg);
+  if (seq !== dsplitPlanSeq) return;   // a newer edit is on its way
+  panel.style.display = '';
+  if (!r || !r.ok) { summary.textContent = 'Error: ' + (r && r.error); rows.innerHTML = ''; names.innerHTML = ''; return; }
+  const n = r.parts.length;
+  summary.textContent = n < 2 ? 'Those dates leave everything in one part — nothing to split' : `${n} parts`;
+  dsplitLastOk = n >= 2;
+  rows.innerHTML = r.parts.map(p => {
+    let period;
+    if (p.label === 'undated') period = 'no date';
+    else if (p.label === 'NUKED') period = 'NUKED';
+    else period = `${p.period_start || 'start'} → ${p.period_end || 'end'}`;
+    const dates = p.first_date ? (p.first_date === p.last_date ? p.first_date : `${p.first_date} → ${p.last_date}`) : '—';
+    return `<tr><td>${p.part} of ${n}</td><td>${period}</td><td>${dates}</td><td>${p.games.toLocaleString()}</td>`
+      + `<td>${p.nuked || ''}</td><td>${fmtDec(p.data_bytes)}</td><td>${fmtWin(p.data_bytes)}</td></tr>`;
+  }).join('');
+  names.innerHTML = r.parts.map(p => escHtml(p.file_name)).join('<br>');
+}
+
 function clearStats() {
   document.getElementById('stats-panel').style.display = 'none';
 }
@@ -884,6 +1041,11 @@ window.handlePythonDrop = function(paths) {
   if (activeTab === 'split') {
     document.getElementById('split-file').value = paths[0];
     splitAnalyse();
+    return;
+  }
+  if (activeTab === 'datesplit') {
+    document.getElementById('dsplit-file').value = paths[0];
+    dsplitAnalyse();
     return;
   }
   // Find which list is in the active tab

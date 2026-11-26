@@ -5,7 +5,9 @@ Merges multiple DATs, deduplicates by ROM hash, outputs RomVault-compatible
 CLRMamePro format .dat files.
 """
 
+import bisect
 import copy
+from datetime import datetime, timedelta
 from glob import escape as glob_escape
 import os
 import re
@@ -700,6 +702,139 @@ def write_split_part(src: SplitSource, items: list, dest: Path,
         hdr.name = (hdr.name or src.path.stem) + suffix
         hdr.description = (hdr.description or src.path.stem) + suffix
         write_clrmamepro_dat(dest, hdr, [it.node for it in items])
+
+
+# ── Split by Date ────────────────────────────────────────────────────────
+
+_CUT_RE = re.compile(r'^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$')
+
+
+def parse_cut_dates(text: str) -> list:
+    """'2024-09, 2025-01-15' -> ['2024-09-01', '2025-01-15'] (sorted, unique).
+    Each date is the first day of a new part. Raises ValueError on a typo."""
+    cuts = set()
+    for tok in re.split(r'[\s,;]+', (text or '').strip()):
+        if not tok:
+            continue
+        m = _CUT_RE.match(tok)
+        if not m:
+            raise ValueError(f'"{tok}" is not a date — use YYYY-MM or YYYY-MM-DD')
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3) or 1)
+        try:
+            datetime(y, mo, d)
+        except ValueError:
+            raise ValueError(f'"{tok}" is not a real date')
+        cuts.add(f'{y:04d}-{mo:02d}-{d:02d}')
+    return sorted(cuts)
+
+
+def cuts_every_months(first_date: str, last_date: str, months: int) -> list:
+    """Calendar-aligned period starts between two dates: every 4 months gives
+    Jan / May / Sep, every 6 gives Jan / Jul, every 12 gives each New Year."""
+    if not (first_date and last_date) or months < 1:
+        return []
+    y, m = int(first_date[:4]), int(first_date[5:7])
+    m = m - (m - 1) % months            # back to the start of its period
+    cuts = []
+    while True:
+        m += months
+        y, m = y + (m - 1) // 12, (m - 1) % 12 + 1
+        cut = f'{y:04d}-{m:02d}-01'
+        if cut > last_date:
+            return cuts
+        cuts.append(cut)
+
+
+def _day_before(date: str) -> str:
+    return (datetime.strptime(date, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+
+
+def plan_date_split(src: SplitSource, cuts: list, nuke_mode: str = 'date',
+                    undated: str = 'own') -> dict:
+    """Split at the given dates (each one starts a new part).
+    nuke_mode: 'date' keeps NUKED games in their period; 'first' / 'last'
+    put them all on the first / last part; 'own' makes a NUKED-only part.
+    undated: games with no date in the name -> 'own' part, 'first' or 'last'.
+    Periods with no games are left out."""
+    cuts = sorted(set(cuts))
+    bounds = [''] + cuts                # part i starts at bounds[i]
+    periods = [[] for _ in bounds]
+    nuked_aside, undated_items = [], []
+    for it in src.items:
+        if it.nuked and nuke_mode in ('first', 'last', 'own'):
+            nuked_aside.append(it)
+        elif not it.date:
+            undated_items.append(it)
+        else:
+            periods[bisect.bisect_right(cuts, it.date)].append(it)
+
+    parts = []
+    for i, items in enumerate(periods):
+        if items:
+            start = bounds[i]
+            end = _day_before(bounds[i + 1]) if i + 1 < len(bounds) else ''
+            parts.append({'items': items, 'period_start': start,
+                          'period_end': end, 'label': ''})
+
+    def attach(group, where, label):
+        if not group:
+            return
+        if where == 'own' or not parts:
+            part = {'items': list(group), 'period_start': '', 'period_end': '',
+                    'label': label}
+            if label == 'NUKED' and nuke_mode == 'first':
+                parts.insert(0, part)
+            else:
+                parts.append(part)
+        elif where == 'first':
+            parts[0]['items'] = list(group) + parts[0]['items']
+        else:
+            parts[-1]['items'] = parts[-1]['items'] + list(group)
+
+    attach(undated_items, undated, 'undated')
+    attach(nuked_aside, nuke_mode, 'NUKED')
+
+    out = []
+    total = len(parts)
+    for i, p in enumerate(parts, 1):
+        items = p['items']
+        dated = [it.date for it in items if not it.nuked and it.date]
+        if p['label'] == 'NUKED':
+            dated = [it.date for it in items if it.date]
+        d = {
+            'part': i,
+            'games': len(items),
+            'nuked': sum(1 for it in items if it.nuked),
+            'undated': sum(1 for it in items if not it.date),
+            'first_date': min(dated) if dated else '',
+            'last_date': max(dated) if dated else '',
+            'period_start': p['period_start'],
+            'period_end': p['period_end'],
+            'label': p['label'],
+            'data_bytes': sum(it.data_bytes for it in items),
+        }
+        d['info'] = _date_part_info(d, nuke_mode)
+        name = f"{src.path.stem}_(Part_{i}_of_{total})"
+        if d['info']:
+            name += f"_({d['info']})"
+        d['file_name'] = name + (src.path.suffix or '.dat')
+        out.append(d)
+    return {'parts': out, 'items': [p['items'] for p in parts], 'cuts': cuts}
+
+
+def _date_part_info(p: dict, nuke_mode: str) -> str:
+    """What goes in the name's second brackets: the games' date range,
+    'NUKED' / 'undated' for a part of its own, '+NUKED' where they were
+    added to the first or last part."""
+    if p['label'] == 'undated':
+        return 'undated'
+    if p['label'] == 'NUKED':
+        return 'NUKED' + (f"_{p['first_date']}_to_{p['last_date']}"
+                          if p['first_date'] else '')
+    info = _split_part_info(p, nuke_mode if nuke_mode in ('first', 'last') else 'date')
+    if p['undated'] and p['first_date']:
+        info += '+undated'
+    return info
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2513,6 +2648,87 @@ class DatMergerAPI:
             for f in stale:
                 self._log(f'  Note: older split file still in the folder: {f.name}', 'warn')
             self._log(f'Done: {total} part DATs written to {out_dir}', 'ok')
+            ok = True
+        except Exception as e:
+            self._log(f'Split failed: {e}', 'err')
+        finally:
+            self._progress(100, 'Complete' if ok else 'Stopped')
+            self._running = False
+            self._emit('done', {'success': ok})
+
+    # ══════════════════════════════════════════════════════════════════
+    # FEATURE: SPLIT BY DATE — one DAT -> parts by month / chosen dates
+    # ══════════════════════════════════════════════════════════════════
+    def _date_split(self, config: dict):
+        src = self._split_source(config['path'])
+        if config.get('mode') == 'every':
+            dated = [it.date for it in src.items if it.date]
+            cuts = cuts_every_months(min(dated, default=''), max(dated, default=''),
+                                     int(config.get('months') or 0))
+        else:
+            cuts = parse_cut_dates(config.get('dates', ''))
+        nuke_mode = config.get('nuke_mode', 'date')
+        plan = plan_date_split(src, cuts, nuke_mode, config.get('undated', 'own'))
+        return src, plan, nuke_mode
+
+    def date_split_plan(self, config: dict) -> dict:
+        """Preview: config = {path, mode 'every'|'dates', months, dates,
+        nuke_mode, undated}. Returns the parts without writing."""
+        try:
+            _, plan, _ = self._date_split(config)
+            plan.pop('items')
+            plan['ok'] = True
+            return plan
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def run_date_split(self, config: dict):
+        """config = date_split_plan's config + output_dir ('' = beside the DAT)."""
+        if self._running:
+            return
+        t = threading.Thread(target=self._date_split_thread, args=(config,), daemon=True)
+        t.start()
+
+    def _date_split_thread(self, config: dict):
+        self._running = True
+        self._stop.clear()
+        ok = False
+        try:
+            path = (config.get('path') or '').strip().strip('"')
+            if not path or not os.path.isfile(path):
+                self._log('Choose a DAT to split first.', 'err')
+                return
+            config = dict(config, path=path)
+            self._log('=' * 50, 'info')
+            self._log(f'Split by Date — {Path(path).name}', 'ok')
+            self._log('=' * 50, 'info')
+            self._progress(5, 'Reading DAT...')
+            src, plan, nuke_mode = self._date_split(config)
+            parts, total = plan['parts'], len(plan['parts'])
+            if total < 2:
+                self._log('Those dates leave everything in one part; nothing to split.', 'warn')
+                return
+            if sum(p['games'] for p in parts) != len(src.items):
+                self._log('The parts would not add up to the whole DAT; nothing written.', 'err')
+                return
+
+            out_dir = Path((config.get('output_dir') or '').strip() or src.path.parent)
+            stale = [f for f in out_dir.glob(f'{glob_escape(src.path.stem)}_(Part_*')
+                     if f.name not in {p['file_name'] for p in parts}]
+            for i, (p, items) in enumerate(zip(parts, plan['items'])):
+                if self._stop.is_set():
+                    self._log('Stopped.', 'warn')
+                    return
+                self._progress(10 + int(85 * i / total), f'Writing part {i + 1} of {total}...')
+                dest = out_dir / p['file_name']
+                write_split_part(src, items, dest, p['part'], total, p['info'])
+                self._log(f"  Part {p['part']} of {total}: {p['games']} games"
+                          f"{' (' + str(p['nuked']) + ' NUKED)' if p['nuked'] else ''}, "
+                          f"{p['data_bytes'] / 1e9:,.1f} GB -> {dest.name}", 'ok')
+            for f in stale:
+                self._log(f'  Note: older split file still in the folder: {f.name}', 'warn')
+            self._log(f'Done: {total} part DATs written to {out_dir} '
+                      f'({len(src.items):,} games, every one in exactly one part)', 'ok')
             ok = True
         except Exception as e:
             self._log(f'Split failed: {e}', 'err')
