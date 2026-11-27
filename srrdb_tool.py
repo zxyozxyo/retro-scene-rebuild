@@ -446,6 +446,24 @@ def _strip_date_prefix(name: str) -> str:
     return m.group(1) if m and len(m.group(1)) >= 4 else (name or "")
 
 
+def _srrdb_name_variants(name: str) -> list:
+    """Names to try on srrdb, in order: as given, dots<->underscores swapped,
+    then the same two with a leading date removed. DATs sometimes put a pre
+    date in front (2009-05-10-Release, 01.08.26-Release) that srrdb's name
+    lacks; the stripped forms are only tried after the exact name misses."""
+    out = []
+    def add(n):
+        alt = n.replace(".", "_") if "." in n else n.replace("_", ".")
+        for v in (n, alt):
+            if v and v not in out:
+                out.append(v)
+    add(name or "")
+    m = re.match(r"^(?:\d{4}[-._]\d{2}[-._]\d{2}|\d{2}[-._]\d{2}[-._]\d{2})[-._](.+)$", name or "")
+    if m and len(m.group(1)) >= 4:
+        add(m.group(1))
+    return out
+
+
 def _find_script(base_name: str) -> str | None:
     """Find srr.py / srs.py in the current Python's Scripts directory."""
     scripts_dir = Path(sys.executable).parent / "Scripts"
@@ -1214,10 +1232,7 @@ class SrrdbToolAPI:
         dest = Path(dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
 
-        names_to_try = [release_name]
-        alt = release_name.replace(".", "_") if "." in release_name else release_name.replace("_", ".")
-        if alt != release_name:
-            names_to_try.append(alt)
+        names_to_try = _srrdb_name_variants(release_name)
 
         # 0 — serve from the persistent SRR cache if we've ever fetched this
         # release. This is the guard against re-hitting srrdb's rate-limited
@@ -1262,11 +1277,7 @@ class SrrdbToolAPI:
         """Fetch a release's metadata from the srrdb JSON API (api.srrdb.com —
         NOT behind the download host's bot-wall). Returns the parsed dict with a
         '_resolved_name' key, or None. Retries dots/underscores like download."""
-        names = [release_name]
-        alt = (release_name.replace(".", "_") if "." in release_name
-               else release_name.replace("_", "."))
-        if alt != release_name:
-            names.append(alt)
+        names = _srrdb_name_variants(release_name)
         for name in names:
             try:
                 req = Request(f"{SRRDB_API}/details/{quote(name)}",
