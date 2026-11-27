@@ -134,6 +134,14 @@ details.more summary:hover{color:var(--acc)}
         <span class="lbl">Fix</span>
         <label class="opt"><input type="checkbox" id="fix_zips" checked> Zips</label>
         <label class="opt"><input type="checkbox" id="fix_sidecars" checked> .sfv / .nfo / .diz / .jpg</label>
+        <label class="opt" title="A download that holds the whole release (its zip or rar set plus the nfo/sfv) inside one more .7z, .rar or .zip is unpacked first, then fixed"><input type="checkbox" id="unwrap" checked onchange="updateModeRows()"> Unpack downloads (.7z / .rar / .zip holding a release)</label>
+      </div>
+      <div class="row" id="row-wrap" style="gap:16px;flex-wrap:wrap">
+        <span class="lbl">Download</span>
+        <span class="hint" style="margin:0">once its release matches the DAT:</span>
+        <label class="opt"><input type="radio" name="wrapper_after" id="wrap_backup" value="backup" checked> Move to the backup folder</label>
+        <label class="opt"><input type="radio" name="wrapper_after" id="wrap_delete" value="delete"> Delete</label>
+        <label class="opt"><input type="radio" name="wrapper_after" id="wrap_keep" value="keep"> Leave it</label>
       </div>
       <div class="row" style="gap:6px">
         <button class="btn btn-acc btn-big" id="btn-start" onclick="startRun()">▶ Fix releases</button>
@@ -299,6 +307,9 @@ window.addEventListener('pywebviewready', async () => {
   if (omEl) omEl.checked = true;
   if (cfg.fix_zips === false) document.getElementById('fix_zips').checked = false;
   if (cfg.fix_sidecars === false) document.getElementById('fix_sidecars').checked = false;
+  if (cfg.unwrap === false) document.getElementById('unwrap').checked = false;
+  const wa = document.getElementById('wrap_' + (cfg.wrapper_after || 'backup'));
+  if (wa) wa.checked = true;
 
   // Load reference folders — supports the new list format and the
   // older single ref_dir key for backwards compatibility with configs
@@ -551,6 +562,13 @@ async function updateModeRows() {
     move: 'Like copy, then the originals that reached the output are removed at the end of the run. Wrong originals go to the backup folder.',
   }[m];
   document.getElementById('mode-hint').textContent = hint;
+  // copy mode never changes the folder, so the download is always left
+  const uw = document.getElementById('unwrap').checked;
+  document.getElementById('row-wrap').style.display = (uw && m !== 'copy') ? '' : 'none';
+}
+function wrapperAfter() {
+  const el = document.querySelector('input[name="wrapper_after"]:checked');
+  return el ? el.value : 'backup';
 }
 async function addRefFolder() {
   const p = await window.pywebview.api.browse_folder();
@@ -602,6 +620,8 @@ async function startRun() {
     backup_dir: document.getElementById('sc_backup').value.trim(),
     fix_zips: document.getElementById('fix_zips').checked,
     fix_sidecars: document.getElementById('fix_sidecars').checked,
+    unwrap: document.getElementById('unwrap').checked,
+    wrapper_after: wrapperAfter(),
     ref_dirs: refFolders.slice(),
     use_fingerprint_db: document.getElementById('use_fp_db').checked,
     auto_retry_excluding_suspect_refs: document.getElementById('auto_retry').checked,
@@ -612,8 +632,12 @@ async function startRun() {
     sidecar_dirs: sidecarDirs(),
     ...sidecarFields() };
   if (output_mode === 'inplace' && !dry_run) {
+    const del = run_cfg.unwrap && run_cfg.wrapper_after === 'delete';
     const ok = confirm('Fix in place:\n' + folder + '\n\nWrong files that can be fixed are replaced. ' +
-      'Each replaced original is moved to the backup folder first; nothing is deleted.\n\nGo ahead?');
+      'Each replaced original is moved to the backup folder first.' +
+      (run_cfg.unwrap ? '\n\nDownloads holding a release are unpacked beside themselves; once the release ' +
+        'matches the DAT the download is ' + (del ? 'DELETED.' : run_cfg.wrapper_after === 'keep' ?
+        'left where it is.' : 'moved to the backup folder.') : '') + '\n\nGo ahead?');
     if (!ok) return;
   }
   await window.pywebview.api.save_config(run_cfg);

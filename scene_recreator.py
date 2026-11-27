@@ -4551,6 +4551,7 @@ class SceneRecreatorAPI:
         dst = Path(dst_txt).expanduser() if dst_txt else None
         fix_zips = config.get('fix_zips', True)
         fix_sidecars = config.get('fix_sidecars', True)
+        staging = None
         try:
             if not str(config.get('folder') or '').strip() or not folder.is_dir():
                 self._log(f'ERROR: folder not found: {folder}', 'err')
@@ -4613,22 +4614,37 @@ class SceneRecreatorAPI:
             self._backup_root = backup
             self._deferred = [] if mode == 'move' else None
 
+            # Step 0: downloads that hold a whole release in one more archive
+            uw = {'wrapped': [], 'staging': None, 'skip': [], 'look': None}
+            if config.get('unwrap', True):
+                uw = self._unwrap_step(folder, dats, mode, dst, backup, dry)
+                staging = uw['staging']
+            roots = [folder]
+            if staging is not None and staging.is_dir() and any(staging.iterdir()):
+                roots.append(staging)
+
             zip_res = sc_res = None
-            if fix_zips:
+            for ri, root in enumerate(roots):
+              if self._stop_flag.is_set():
+                break
+              where = '' if ri == 0 else ' (the unpacked downloads)'
+              if fix_zips:
                 self._log('', '')
-                self._log('─── Step 1: zips ───', 'info')
-                zcfg = dict(config, src=str(folder), dat_list=[str(x) for x in dats],
-                            dst=str(dst) if dst else '', move_mode=(mode == 'move'))
-                zip_res = self._run(zcfg, standalone=False)
-                if zip_res is None:
+                self._log(f'─── Step 1: zips{where} ───', 'info')
+                zcfg = dict(config, src=str(root), dat_list=[str(x) for x in dats],
+                            dst=str(dst) if dst else '', move_mode=(mode == 'move'),
+                            skip_paths=[str(x) for x in uw['skip']])
+                r = self._run(zcfg, standalone=False)
+                if r is None:
                     return           # _run reported the error
-            if fix_sidecars and not self._stop_flag.is_set():
+                zip_res = r if zip_res is None else self._merge_results(zip_res, r)
+              if fix_sidecars and not self._stop_flag.is_set():
                 self._log('', '')
-                self._log('─── Step 2: .sfv / .nfo / .diz / .jpg ───', 'info')
+                self._log(f'─── Step 2: .sfv / .nfo / .diz / .jpg{where} ───', 'info')
                 self._running = True
                 extras = config.get('sc_extras') or ''
                 scfg = {
-                    'folder': str(folder), 'dat_files': [str(x) for x in dats],
+                    'folder': str(root), 'dat_files': [str(x) for x in dats],
                     'extras_dirs': [x.strip() for x in str(extras).split(';') if x.strip()],
                     'backup_dir': str(backup), 'dry_run': dry,
                     'add_missing': config.get('sc_add_missing', True),
@@ -4641,8 +4657,9 @@ class SceneRecreatorAPI:
                 if mode != 'inplace' and dst is not None:
                     scfg.update(out_dir=str(dst), out_mode=mode, skip_zip_files=bool(fix_zips),
                                 moved_out=self._deferred if self._deferred is not None else [])
-                sc_res = sidecar_fixer.run(scfg, log=self._log, progress=self._progress,
-                                           should_stop=self._stop_flag.is_set)
+                r = sidecar_fixer.run(scfg, log=self._log, progress=self._progress,
+                                      should_stop=self._stop_flag.is_set)
+                sc_res = r if sc_res is None else self._merge_results(sc_res, r)
 
             removed = 0
             if self._deferred and not dry:
@@ -4653,6 +4670,8 @@ class SceneRecreatorAPI:
                         (x[0], Path(x[1])) if isinstance(x, tuple) else ('rm', Path(x))
                         for x in self._deferred):
                     how, src = item
+                    if staging is not None and self._inside(src, staging):
+                        continue         # an unpacked copy: the staging folder goes at the end
                     try:
                         if not src.is_file():
                             continue
@@ -4670,10 +4689,17 @@ class SceneRecreatorAPI:
                         removed += 1
                     except OSError as e:
                         self._log(f'  could not remove {src}: {e}', 'warn')
+            uws = self._finish_wrappers(uw, mode, dst, backup, folder, dry,
+                                        config.get('wrapper_after') or 'backup')
             zs = (zip_res or {}).get('stats', {})
             ss = (sc_res or {}).get('stats', {})
             self._log('', '')
             self._log('═══ FIX RELEASES DONE ═══', 'ok')
+            if uw['wrapped']:
+                self._log(f'  Downloads: {len(uw["wrapped"])} unpacked, {uws["complete"]} now complete, '
+                          f'{uws["disposed"]} download file(s) '
+                          f'{"deleted" if (config.get("wrapper_after") == "delete") else "moved to the backup folder"}',
+                          'ok')
             if zip_res is not None:
                 self._log(f'  Zips: {zs.get("already_match", 0)} already right, '
                           f'{zs.get("fixed", 0)} fixed, {zs.get("unresolved", 0) + zs.get("foreign_packer", 0)} '
@@ -4698,6 +4724,166 @@ class SceneRecreatorAPI:
             self._inplace = False
             self._scan_root = self._backup_root = None
             self._deferred = None
+            if staging is not None:
+                shutil.rmtree(staging, ignore_errors=True)
+
+    @staticmethod
+    def _merge_results(a: dict, b: dict) -> dict:
+        """Add one pass's {'stats', 'details'} to another's."""
+        def merge(x, y):
+            for k, v in (y or {}).items():
+                if isinstance(v, bool) or not isinstance(v, (int, float, dict, list)):
+                    x.setdefault(k, v)
+                elif isinstance(v, (int, float)):
+                    x[k] = (x.get(k) or 0) + v if isinstance(x.get(k, 0), (int, float)) else v
+                elif isinstance(v, dict):
+                    merge(x.setdefault(k, {}), v)
+                else:
+                    x.setdefault(k, []).extend(v)
+            return x
+        out = {'stats': merge(dict(a.get('stats') or {}), b.get('stats')),
+               'details': merge({k: list(v) if isinstance(v, list) else v
+                                 for k, v in (a.get('details') or {}).items()}, b.get('details'))}
+        for k in b:
+            if k not in out:
+                out[k] = b[k]
+        return out
+
+    def _unwrap_step(self, folder: Path, dats: list, mode: str, dst, backup: Path, dry: bool) -> dict:
+        """Find downloads that hold a release inside one more .7z/.rar/.zip
+        and unpack them: in place (beside the download, so the release
+        ends up in the folder) or, for copy/move and test runs, into a
+        staging folder the passes read from and that is removed at the end."""
+        import tempfile
+        import release_unwrap as ru
+        import sidecar_fixer
+        res = {'wrapped': [], 'staging': None, 'skip': [], 'look': None}
+        self._log('', '')
+        self._log('─── Step 0: releases packed inside a downloaded .7z / .rar / .zip ───', 'info')
+        look = ru.DatLookup(dats)
+        res['look'] = look
+        skip = [backup] + ([dst] if dst is not None else [])
+        found = ru.find_wrappers(folder, look, skip=skip, should_stop=self._stop_flag.is_set)
+        if not found:
+            self._log('  none found', 'dim')
+            return res
+        self._log(f'  {len(found)} download(s) to unpack', 'info')
+        in_folder = mode == 'inplace' and not dry
+        staging = None
+        if not in_folder:
+            if dst is not None and not dry:
+                dst.mkdir(parents=True, exist_ok=True)
+                staging = dst / f'{ru.UNPACK_PREFIX}_{time.strftime("%Y%m%d_%H%M%S")}'
+                staging.mkdir()
+            else:
+                staging = Path(tempfile.mkdtemp(prefix='recreator-unpack-'))
+            res['staging'] = staging
+            self._log(f'  unpacking into {staging} (removed at the end of the run)', 'dim')
+        for n, (arc, verdict, gi, entries) in enumerate(found, 1):
+            if self._stop_flag.is_set():
+                break
+            try:
+                rel = arc.relative_to(folder)
+            except ValueError:
+                rel = arc
+            gname = look.games[gi][0] if gi is not None else None
+            self._log(f'  [{n}/{len(found)}] {rel}: '
+                      + (f'holds {gname}' if gname else 'holds only other archives, looking inside'),
+                      'info')
+            work_parent = arc.parent if in_folder else staging
+            need = sum(e[1] for e in entries)
+            try:
+                free = shutil.disk_usage(work_parent).free
+            except OSError:
+                free = 0
+            if free and free < need * 1.05 + (256 << 20):
+                self._log(f'    skipped: needs {need / 2**30:.1f} GB, only {free / 2**30:.1f} GB free there',
+                          'warn')
+                continue
+            k = 1
+            while (work_parent / f'{ru.UNPACK_PREFIX}_{k}').exists():
+                k += 1
+            tmp = work_parent / f'{ru.UNPACK_PREFIX}_{k}'
+            if not ru.extract(arc, tmp, self._log):
+                shutil.rmtree(tmp, ignore_errors=True)
+                continue
+            if ru.unpack_nested(tmp, look, self._log) == 0 and verdict == 'maybe':
+                self._log('    no release from the DATs inside', 'dim')
+                shutil.rmtree(tmp, ignore_errors=True)
+                continue
+            r = ru.content_root(tmp)
+            g = ru.best_game(r, look)
+            if g is None:
+                self._log('    no release from the DATs inside after all', 'dim')
+                shutil.rmtree(tmp, ignore_errors=True)
+                continue
+            gname = look.games[g][0]
+            if in_folder:
+                parent = arc.parent
+                kids = list(r.iterdir())
+                if parent != folder and look.game_of_folder(parent.name) == g \
+                        and not any((parent / x.name).exists() for x in kids):
+                    target = parent              # the release's own folder
+                else:
+                    target = parent / (r.name if r != tmp else sidecar_fixer.safe_dir_name(gname))
+                    if target.exists() and any(target.iterdir()):
+                        self._log(f'    left packed: {target} already exists (unpacked before?)', 'warn')
+                        shutil.rmtree(tmp, ignore_errors=True)
+                        continue
+            else:
+                target = staging / sidecar_fixer.safe_dir_name(gname)
+                j = 2
+                while target.exists():
+                    target = staging / f'{sidecar_fixer.safe_dir_name(gname)} ({j})'
+                    j += 1
+            try:
+                if r != tmp and not target.exists():
+                    shutil.move(str(r), str(target))
+                else:
+                    ru.move_tree_into(r, target)
+            except OSError as e:
+                self._log(f'    could not place the unpacked files: {e}', 'err')
+                shutil.rmtree(tmp, ignore_errors=True)
+                continue
+            shutil.rmtree(tmp, ignore_errors=True)
+            self._log(f'    unpacked {gname} to {target}', 'ok')
+            res['wrapped'].append((arc, g, target))
+            res['skip'].extend(ru.volumes_of(arc))
+        return res
+
+    def _finish_wrappers(self, uw: dict, mode: str, dst, backup: Path, folder: Path,
+                         dry: bool, after: str) -> dict:
+        """After both passes: a download whose release now matches the DAT in
+        full is moved to the backup folder, deleted or left (after); one
+        whose release is still incomplete is always left."""
+        import release_unwrap as ru
+        import sidecar_fixer
+        out = {'complete': 0, 'disposed': 0}
+        if not uw.get('wrapped'):
+            return out
+        look = uw['look']
+        self._log('', '')
+        self._log('─── The downloads ───', 'info')
+        for arc, g, target in uw['wrapped']:
+            gname = look.games[g][0]
+            if dry:
+                self._log(f'  {arc.name}: test run, so {gname} is not checked and the download '
+                          f'is not touched', 'dim')
+                continue
+            where = target if mode == 'inplace' else dst / sidecar_fixer.safe_dir_name(gname)
+            right, total, missing = ru.release_status(where, look, g)
+            if right == total:
+                out['complete'] += 1
+                self._log(f'  {gname}: all {total} file(s) match the DAT', 'ok')
+                if mode == 'copy':
+                    self._log(f'  the download {arc.name} is left (copy mode never changes the folder)', 'dim')
+                else:
+                    out['disposed'] += ru.dispose(arc, after, backup, folder, self._log, dry)
+            else:
+                self._log(f'  {gname}: {right} of {total} file(s) match the DAT (not right: '
+                          + ', '.join(missing[:4]) + (' ...' if len(missing) > 4 else '')
+                          + f'); the download {arc.name} is kept', 'warn')
+        return out
 
     def stop_run(self):
         self._stop_flag.set()
@@ -4881,7 +5067,20 @@ class SceneRecreatorAPI:
         move_mode = bool(config.get('move_mode', False))  # False = copy (default)
         backup_root = self._backup_root if self._inplace else None
 
+        skip_paths = set()
+        for x in config.get('skip_paths') or ():
+            try:
+                skip_paths.add(str(Path(x).resolve()).lower())
+            except OSError:
+                pass
+
         def under_backup(pp: Path) -> bool:
+            if skip_paths:
+                try:
+                    if str(pp.resolve()).lower() in skip_paths:
+                        return True
+                except OSError:
+                    pass
             return backup_root is not None and self._inside(pp, backup_root)
 
         if not src_dir.is_dir():
