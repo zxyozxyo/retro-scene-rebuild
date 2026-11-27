@@ -4568,7 +4568,7 @@ class SceneRecreatorAPI:
         try:
             import json as _j, base64 as _b64
             b64 = _b64.b64encode(
-                _j.dumps(data, ensure_ascii=False).encode('utf-8')
+                _j.dumps(data, ensure_ascii=True).encode('utf-8')
             ).decode('ascii')
             js = "(function(){var d=JSON.parse(atob('"+b64+"'));window.srEvent('"+event+"',d);})()"
             self._window.evaluate_js(js)
