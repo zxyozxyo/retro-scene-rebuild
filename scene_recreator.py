@@ -1194,6 +1194,10 @@ def _looks_like_junk_entry(name: str, uncomp_size: int, total_entries: int) -> b
         any(hint in fp for hint in _JUNK_NAME_HINTS) for fp in folder_parts
     ):
         return False
+    # A courier's random-named nfo added beside the group's own, e.g.
+    # "ty1g0f7a.nfo" next to "-MI-" (seen on MiRAGE/bADkARMA zips)
+    if re.fullmatch(r'ty(?:\d[a-z]){3}\.nfo', base) and not folder_parts:
+        return True
     if base.endswith('.nfo') and not any(h in base for h in _JUNK_NAME_HINTS) and not any(
         any(hint in fp for hint in _JUNK_NAME_HINTS) for fp in folder_parts
     ):
@@ -1370,7 +1374,8 @@ def _extract_local_entry_verbatim(data: bytes, rec: 'ZipCDRecord', fix_descripto
     return data[pos:entry_end]
 
 
-def _rebuild_zip_surgical(records: list, data: bytes, keep_indices: list, fix_descriptors: bool = False) -> bytes:
+def _rebuild_zip_surgical(records: list, data: bytes, keep_indices: list, fix_descriptors: bool = False,
+                          comment: bytes = b'') -> bytes:
     """
     Rebuild a zip by keeping ONLY the listed entries (by index into
     `records`), using each kept entry's EXACT original local-file-entry
@@ -1429,7 +1434,7 @@ def _rebuild_zip_surgical(records: list, data: bytes, keep_indices: list, fix_de
 
     local_blob = b''.join(local_parts)
     cd_blob = b''.join(cd_parts)
-    eocd = build_eocd(len(keep_indices), len(cd_blob), len(local_blob))
+    eocd = build_eocd(len(keep_indices), len(cd_blob), len(local_blob), comment)
 
     return local_blob + cd_blob + eocd
 
@@ -1505,9 +1510,23 @@ def technique_surgical_delete(data: bytes, target_crc: str,
     for r in image_candidates:
         if r not in candidates:
             candidates.append(r)
+    # A second .nfo / a .txt is the same "maybe added" case: a courier's
+    # nfo can have any name. Safe for the same reason (CRC decides).
+    nfo_like = [r for r in records if r.name.lower().endswith(('.nfo', '.txt'))]
+    if len(nfo_like) >= 2 or any(_looks_like_junk_entry(r.name, r.uncomp_size, len(records)) for r in records):
+        for r in nfo_like:
+            if r not in candidates:
+                candidates.append(r)
 
     if not candidates:
         return RepairAttempt("surgical_delete", False, detail="no candidate junk entries identified")
+    # the zip comment as found: an added entry and the comment do not
+    # always go together, so the rebuild is tried with and without it
+    _eo = data.rfind(EOCD_SIG)
+    orig_comment = b''
+    if _eo >= 0 and _eo + 22 <= len(data):
+        _cl = struct.unpack_from('<H', data, _eo + 20)[0]
+        orig_comment = data[_eo + 22:_eo + 22 + _cl]
 
     # Try removing each non-empty subset of candidates, smallest first
     # (most likely real-world case is removing exactly the junk files
@@ -1562,6 +1581,28 @@ def technique_surgical_delete(data: bytes, target_crc: str,
                     f"descriptor header(s) on survivors — compressed bytes carried over "
                     f"byte-for-byte, unchanged (no recompression)"
                 )
+
+    # Same combinations, keeping the zip comment (an added entry without
+    # a removed comment)
+    if orig_comment:
+        for r in range(1, min(len(candidate_indices), 4) + 1):
+            for remove_combo in combinations(candidate_indices, r):
+                keep_indices = [i for i in all_indices if i not in remove_combo]
+                for fix in (False, True):
+                    try:
+                        cz = _rebuild_zip_surgical(records, data, keep_indices, fix_descriptors=fix,
+                                                   comment=orig_comment)
+                    except Exception:
+                        continue
+                    tried += 1
+                    if crc32_of(cz) == target_crc:
+                        removed_names = ', '.join(records[i].name for i in remove_combo)
+                        return RepairAttempt(
+                            "surgical_delete", True, cz,
+                            f"surgically removed entr{'y' if len(remove_combo)==1 else 'ies'} "
+                            f"({removed_names}), zip comment kept"
+                            + (", descriptor header(s) corrected" if fix else "")
+                            + " — surviving entries' compressed bytes carried over byte-for-byte")
 
     return RepairAttempt(
         "surgical_delete", False,
@@ -1847,6 +1888,16 @@ def technique_data_descriptor_add(data: bytes, target_crc: str) -> RepairAttempt
     # writes), then all of them, then every subset of a small archive
     singles = sorted(range(n), key=lambda i: -records[i].comp_size)
     subsets = [{i} for i in singles] + [set(range(n))]
+    # every file (not folder entries), and every file under one top folder
+    # (a folder added by another zipper, e.g. MiRAGE "Box and Label Art/")
+    files = {i for i, r in enumerate(records) if not r.name.endswith('/')}
+    groups = {}
+    for i in files:
+        if '/' in records[i].name:
+            groups.setdefault(records[i].name.split('/', 1)[0], set()).add(i)
+    for g in [files] + list(groups.values()) + [files - g for g in groups.values()]:
+        if g and g not in subsets:
+            subsets.append(g)
     if n <= 6:
         for k in range(2, n):
             subsets += [set(c) for c in itertools.combinations(range(n), k)]
@@ -3368,10 +3419,99 @@ def repair_loose_text_file(data: bytes, target_crc: str) -> RepairAttempt:
     return RepairAttempt("line_ending_fix", False, detail="tried CRLF/LF and frame-border padding, no match")
 
 
+_ZIP_TAGS = None
+
+
+def _zip_tags() -> dict:
+    """zip_tags.json beside this script: courier entries (local entry bytes
+    + central record) and zip comments seen added to scene zips."""
+    global _ZIP_TAGS
+    if _ZIP_TAGS is None:
+        import base64
+        _ZIP_TAGS = {'entries': [], 'comments': []}
+        try:
+            raw = json.loads((Path(__file__).parent / 'zip_tags.json').read_text(encoding='utf-8'))
+            _ZIP_TAGS['entries'] = [(t['name'], base64.b64decode(t['local']), base64.b64decode(t['central']))
+                                    for t in raw.get('entries', [])]
+            _ZIP_TAGS['comments'] = [base64.b64decode(c['comment']) for c in raw.get('comments', [])]
+        except (OSError, ValueError, KeyError):
+            pass
+    return _ZIP_TAGS
+
+
+def technique_courier_tag_add(data: bytes, target_crc: str) -> RepairAttempt:
+    """
+    The reverse of surgical_delete for the courier additions in zip_tags.json:
+    a DAT made from copies that passed through a courier expects its tag
+    entry (e.g. "-MI-") inside the zip and/or its comment. Each known entry
+    is put in at every position, with the zip's own comment, none, or each
+    known comment; every original byte is carried over, only offsets move.
+    Kept only on an exact CRC match.
+    """
+    tags = _zip_tags()
+    if not tags['entries'] and not tags['comments']:
+        return RepairAttempt("courier_tag_add", False, detail="no zip_tags.json")
+    try:
+        records = parse_central_directory(data)
+    except Exception as e:
+        return RepairAttempt("courier_tag_add", False, detail=f"parse error: {e}")
+    eo = find_eocd(data)
+    if eo is None or eo < 0:
+        return RepairAttempt("courier_tag_add", False, detail="no EOCD found")
+    own_comment = data[eo + 22:eo + 22 + struct.unpack_from('<H', data, eo + 20)[0]]
+    have = {r.name for r in records}
+    pieces = []
+    for rec in records:
+        lo = rec.local_offset
+        nl, el = struct.unpack_from('<HH', data, lo + 26)
+        end = lo + 30 + nl + el + rec.comp_size
+        if rec.flag_bits & 0x08:
+            end += 16 if data[end:end + 4] == b'PK\x07\x08' else 12
+        pieces.append((data[lo:end], rec.raw))
+    comments = list(dict.fromkeys([own_comment, b''] + tags['comments']))
+    singles = [t for t in tags['entries'] if t[0] not in have]
+    # one entry anywhere, or two different ones appended (e.g. "-MI-" then
+    # "adverts/Uzi.vert")
+    plans = [(None, None)] + [((t,), pos) for t in singles for pos in range(len(pieces), -1, -1)]
+    plans += [((a, b), len(pieces)) for a in singles for b in singles if a[0] != b[0]]
+    tried = 0
+    for ents, pos in plans:
+        ent = ents[0] if ents else None
+        if True:
+            parts = list(pieces)
+            if ents:
+                for k, t in enumerate(ents):
+                    parts.insert(pos + k, (t[1], t[2]))
+            body = bytearray()
+            cd = bytearray()
+            for local, central in parts:
+                c = bytearray(central)
+                struct.pack_into('<I', c, 42, len(body))
+                body += local
+                cd += c
+            for com in comments:
+                if ent is None and com == own_comment:
+                    continue
+                cand = bytes(body + cd) + build_eocd(len(parts), len(cd), len(body), com)
+                tried += 1
+                if crc32_of(cand) == target_crc:
+                    what = []
+                    if ents:
+                        what.append(f'put the courier entr{"y" if len(ents) == 1 else "ies"} '
+                                    f'{" + ".join(t[0] for t in ents)} back at position {pos + 1}')
+                    if com != own_comment:
+                        what.append('set the zip comment' if com else 'removed the zip comment')
+                    return RepairAttempt("courier_tag_add", True, cand,
+                                         ' and '.join(what) + ' — every original byte carried over')
+    return RepairAttempt("courier_tag_add", False,
+                         detail=f"tried {tried} known courier entry/comment placement(s), no match")
+
+
 TECHNIQUES = [
     technique_surgical_delete,
     technique_data_descriptor_strip,
     technique_data_descriptor_add,
+    technique_courier_tag_add,
     technique_local_header_reconstruct,
     technique_eocd_comment_strip,
     technique_grow_append_truncate,
@@ -5352,6 +5492,12 @@ class SceneRecreatorAPI:
                 # in the file that could ever reconstruct the missing
                 # content, so attempting repair would only waste time.
                 leftovers_check = detect_leftovers_only(data, candidates[0].get('size'))
+                if leftovers_check['is_leftovers_only'] and any(
+                        t(data, c['crc']).success for c in candidates if c.get('crc')
+                        for t in (technique_courier_tag_add, technique_data_descriptor_add)):
+                    # a docs-only release short by a known courier entry or
+                    # by descriptors, not by its main file: repair it
+                    leftovers_check['is_leftovers_only'] = False
                 if leftovers_check['is_leftovers_only']:
                     stats['leftovers_only'] = stats.get('leftovers_only', 0) + 1
                     details.setdefault('leftovers_only', []).append({
