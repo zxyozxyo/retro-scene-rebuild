@@ -81,6 +81,159 @@ def _temp_base() -> Path:
             pass
     return Path(tempfile.gettempdir())
 
+
+# Every work folder is removed when its job ends, so the only ones left over
+# are from a run that was killed or restarted. Each new folder gets a file
+# beside it (<folder>.owner, never inside: a pack of the folder must not pick
+# it up) naming the process that owns it, so a later clean-up can tell a dead
+# run's folder from a live one -- also when two copies of the tool share
+# rsr-work.
+WORK_OWNER_SUFFIX = ".owner"
+# A folder made before owner files existed is only removed when nothing in it
+# has changed for this long. A live sweep writes into its folder constantly.
+WORK_UNMARKED_AGE_S = 24 * 3600
+
+
+def _process_start(pid: int):
+    """When process `pid` started, as a number, or None if it is not running.
+    The start time tells a reused process ID from the original owner."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        h = k32.OpenProcess(0x1000, False, int(pid))   # QUERY_LIMITED_INFORMATION
+        if not h:
+            # Access denied still means the process exists: count it as alive.
+            return -1 if ctypes.get_last_error() == 5 else None
+        try:
+            t = [wintypes.FILETIME() for _ in range(4)]
+            if not k32.GetProcessTimes(h, *[ctypes.byref(x) for x in t]):
+                return -1
+            code = wintypes.DWORD()
+            if k32.GetExitCodeProcess(h, ctypes.byref(code)) and code.value != 259:
+                return None                      # exited (259 = STILL_ACTIVE)
+            return (t[0].dwHighDateTime << 32) | t[0].dwLowDateTime
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return None
+    except OSError:
+        return -1
+    try:
+        return int(Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return -1
+
+
+def _mark_work_owner(work: Path) -> None:
+    try:
+        work.with_name(work.name + WORK_OWNER_SUFFIX).write_text(
+            json.dumps({"pid": os.getpid(), "start": _process_start(os.getpid())}),
+            "utf-8")
+    except OSError:
+        pass
+
+
+def _work_owner_alive(work: Path):
+    """True / False from the owner file, or None when the folder has none."""
+    try:
+        o = json.loads(work.with_name(work.name + WORK_OWNER_SUFFIX).read_text("utf-8"))
+        pid, start = int(o["pid"]), o.get("start")
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    now = _process_start(pid)
+    if now is None:
+        return False
+    # -1 = running but its start time is unreadable: keep, to be safe.
+    return now == -1 or start in (None, -1) or now == start
+
+
+def _newest_change(top: Path) -> float:
+    """The last time a run did anything here: the newest file write or folder
+    creation. A folder's own modified date is not used -- something outside
+    the tool updated it on every old work folder at once (seen 2026-11-27)."""
+    newest = top.stat().st_ctime                 # creation time on Windows
+    for dirpath, dirnames, filenames in os.walk(top):
+        for n in dirnames:
+            try:
+                newest = max(newest, os.stat(os.path.join(dirpath, n)).st_ctime)
+            except OSError:
+                pass
+        for n in filenames:
+            try:
+                st = os.stat(os.path.join(dirpath, n))
+                newest = max(newest, st.st_mtime, st.st_ctime)
+            except OSError:
+                pass
+    return newest
+
+
+def clean_stale_work(root: Path, log=None) -> tuple[int, int]:
+    """Remove work folders left behind by runs that are no longer running.
+
+    Removed only when one of these holds:
+    - its owner file names a process that has ended;
+    - it has no owner file and nothing in it changed for 24 hours.
+    The folder is first renamed, and Windows refuses that while any program
+    has a file open inside it, so a folder still in use is skipped. Other files at
+    the top of rsr-work and folders of other programs are never touched.
+    Returns (folders removed, bytes freed)."""
+    removed = freed = 0
+    try:
+        kids = [p for p in root.iterdir() if p.is_dir()]
+    except OSError:
+        return 0, 0
+    now = time.time()
+    # Owner files whose folder is already gone.
+    try:
+        for f in root.glob("rsr*" + WORK_OWNER_SUFFIX):
+            if f.is_file() and not f.with_name(f.name[:-len(WORK_OWNER_SUFFIX)]).exists():
+                f.unlink(missing_ok=True)
+    except OSError:
+        pass
+    for d in kids:
+        name = d.name
+        if not (name.startswith("rsr") or name.startswith("sol0_")):
+            continue
+        if not name.startswith("rsr-trash-"):
+            alive = _work_owner_alive(d)
+            if alive:
+                continue
+            if alive is None:
+                try:
+                    if now - _newest_change(d) < WORK_UNMARKED_AGE_S:
+                        continue
+                except OSError:
+                    continue
+            trash = root / f"rsr-trash-{name}"
+            try:
+                d.rename(trash)
+            except OSError:
+                continue                         # in use, or already gone
+            try:
+                d.with_name(name + WORK_OWNER_SUFFIX).unlink()
+            except OSError:
+                pass
+        else:
+            trash = d
+        size = 0
+        for dirpath, _dn, filenames in os.walk(trash):
+            for n in filenames:
+                try:
+                    size += os.path.getsize(os.path.join(dirpath, n))
+                except OSError:
+                    pass
+        _rmtree(trash)
+        if not trash.exists():
+            removed += 1
+            freed += size
+        elif log:
+            log(f"could not fully remove old work folder {trash}", "dim")
+    return removed, freed
+
 RAR4_SIG      = b"Rar!\x1a\x07\x00"
 RAR5_SIG      = b"Rar!\x1a\x07\x01\x00"
 
@@ -1174,6 +1327,13 @@ def _rmtree(path: Path):
         except Exception:
             pass
     shutil.rmtree(path, onerror=_onerror)
+    # A work folder's owner file sits beside it (see WORK_OWNER_SUFFIX).
+    try:
+        path = Path(path)
+        if not path.exists() and path.parent.name == "rsr-work":
+            path.with_name(path.name + WORK_OWNER_SUFFIX).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _zip_entry_size(sizes: dict, name: str) -> int:
@@ -5589,7 +5749,7 @@ class RsrToolAPI:
         # ends and choose between them.
         old = [e for e in exes[:6]]
         new = [e for e in reversed(exes[-4:])]
-        work = Path(tempfile.mkdtemp(prefix="rsr-cmt-", dir=self._work_root()))
+        work = Path(self._new_work("rsr-cmt-"))
         try:
             best = b""
             for n, exe in enumerate(new + old):
@@ -5619,6 +5779,14 @@ class RsrToolAPI:
             return best
         finally:
             _rmtree(work)
+
+    @classmethod
+    def _new_work(cls, prefix: str) -> str:
+        """A fresh scratch folder under rsr-work, marked with this process as
+        its owner so clean_stale_work never removes it while we run."""
+        work = tempfile.mkdtemp(prefix=prefix, dir=cls._work_root())
+        _mark_work_owner(Path(work))
+        return work
 
     @staticmethod
     def _work_root() -> Path:
@@ -5836,7 +6004,7 @@ class RsrToolAPI:
         300 KB is a build that hangs, and the only useful thing to learn about
         it is that it must never be run again."""
         out = {"s1": False, "vol": False, "hang": False, "alive": False}
-        work = Path(tempfile.mkdtemp(prefix="rsrdoscap", dir=self._work_root()))
+        work = Path(self._new_work("rsrdoscap"))
         try:
             for key, extra, volb in (("s1", ("-s1", "-ds"), 0),
                                      ("vol", (), 200000)):
@@ -6112,7 +6280,21 @@ class RsrToolAPI:
             pass
         return None
 
+    def _clean_old_work(self):
+        """Background: free the space of work folders left by stopped runs."""
+        def go():
+            try:
+                n, freed = clean_stale_work(self._work_root(), self._log)
+                if n:
+                    self._log(f"Removed {n} work folder(s) left by earlier "
+                              f"runs that were stopped — {freed / 2**30:,.1f} GB "
+                              f"freed.", "dim")
+            except Exception as e:
+                self._log(f"old work-folder clean-up skipped: {e}", "dim")
+        threading.Thread(target=go, daemon=True, name="rsr-work-clean").start()
+
     def _scan_run(self, roots, store: Path, s: dict):
+        self._clean_old_work()
         exes = self._pack_exes()
         if not exes:
             self._log("WinRAR pack not found (apps/winrar_pack-4.20/*.exe) — "
@@ -6511,7 +6693,7 @@ class RsrToolAPI:
                       f"needs about {need * 2 / (1 << 30):,.1f} GB — not "
                       f"tested, left where it is.", "warn")
             return False
-        work = Path(tempfile.mkdtemp(prefix="rsr-", dir=self._work_root()))
+        work = Path(self._new_work("rsr-"))
         content, out = work / "c", work / "o"
         content.mkdir()
         ok = False
@@ -7240,7 +7422,7 @@ class RsrToolAPI:
             broken_keep = [(folder / d["name"], d) for d in damaged]
             pair_seed = (folder, sib, union)
 
-        work = Path(tempfile.mkdtemp(prefix="rsr-", dir=self._work_root()))
+        work = Path(self._new_work("rsr-"))
         manifest = {
             "rsr_version": RSR_VERSION,
             "magic": RSR_MAGIC,
@@ -8277,8 +8459,7 @@ class RsrToolAPI:
         with those volumes as their content (see _capture_zip `nested`). A
         rebuild needs only the files inside the RAR -- the double pack the
         old 0day scene used for small apps and handheld games."""
-        work = Path(tempfile.mkdtemp(prefix="rsr-nest-",
-                                     dir=self._work_root()))
+        work = Path(self._new_work("rsr-nest-"))
         try:
             inner = work / "inner"
             inner.mkdir()
@@ -8351,7 +8532,7 @@ class RsrToolAPI:
         this layer's content with source "inner" -- the rebuild makes them
         from the RAR sets first -- and the RAR sets lead the manifest.
         `note` is merged into the manifest (why a nested try fell back)."""
-        work = Path(tempfile.mkdtemp(prefix="rsr-zip-", dir=self._work_root()))
+        work = Path(self._new_work("rsr-zip-"))
         manifest = {
             "rsr_version": RSR_VERSION, "magic": RSR_MAGIC,
             "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -15054,7 +15235,7 @@ class RsrToolAPI:
         man, z = self.read_rsr(rsr)
         embedded = {n: z.read(n) for n in z.namelist() if n != "manifest.json"}
         z.close()
-        work = Path(tempfile.mkdtemp(prefix="rsr-upg-", dir=self._work_root()))
+        work = Path(self._new_work("rsr-upg-"))
         changed, problems = [], []
         try:
             for si, st in enumerate(man.get("sets") or []):
@@ -16612,7 +16793,7 @@ class RsrToolAPI:
         if not exe.is_file():
             self._log(f"    ✗ LHA {packer} is not in apps/{rel}.", "err")
             return None
-        work = Path(tempfile.mkdtemp(prefix="rsr-lha-", dir=self._work_root()))
+        work = Path(self._new_work("rsr-lha-"))
         try:
             src = work / "SRC"
             src.mkdir()
@@ -16847,7 +17028,7 @@ class RsrToolAPI:
             out.mkdir(parents=True, exist_ok=True)
             # The same prefix as a capture's work folder, and a set folder
             # (`set0` below) as short as the capture's: see _rebuild_set.
-            work = Path(tempfile.mkdtemp(prefix="rsr-", dir=self._work_root()))
+            work = Path(self._new_work("rsr-"))
             ok_all = True
             self._infer_set_folders(manifest, z)
             # A zip>rar release (see _capture_nested): its RAR sets are put
