@@ -22,6 +22,7 @@ import subprocess
 import zlib
 import sqlite3
 import hashlib
+import random
 from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
@@ -525,6 +526,43 @@ class SrrdbToolAPI:
     _api_lock = threading.Lock()
     _api_last_call = 0.0
     _api_cache: dict[str, dict] = {}
+
+    # The .srr / add downloads and the details lookup go straight to srrdb
+    # (not through _api_get), so they get their own pacing: a RANDOM gap
+    # between requests (a fixed beat looks like a bot), a back-off and retry
+    # on 429/502/503, and a session memory of names srrdb did not have, so a
+    # batch of sidecars never asks for the same missing name twice.
+    _dl_lock = threading.Lock()
+    _dl_last = 0.0
+    _srrdb_missing: set = set()
+
+    @classmethod
+    def _srrdb_pace(cls, lo: float, hi: float):
+        with cls._dl_lock:
+            wait = cls._dl_last + random.uniform(lo, hi) - time.time()
+            if wait > 0:
+                time.sleep(wait)
+            cls._dl_last = time.time()
+
+    def _srrdb_fetch(self, req, timeout: int, lo: float, hi: float) -> bytes:
+        """GET with the random pause; on a rate-limit answer wait (Retry-After,
+        else 30 s then 75 s, plus jitter) and try again, twice at most."""
+        for attempt in range(3):
+            self._srrdb_pace(lo, hi)
+            try:
+                with urlopen(req, timeout=timeout) as r:
+                    return r.read()
+            except HTTPError as e:
+                if e.code not in (429, 502, 503) or attempt == 2:
+                    raise
+                try:
+                    wait = int(e.headers.get("Retry-After") or 0)
+                except (TypeError, ValueError):
+                    wait = 0
+                wait = min(max(wait, (30, 75)[attempt]), 180) + random.uniform(2, 10)
+                self._log(f"  srrdb busy (HTTP {e.code}) — waiting {wait:.0f}s, "
+                          "then trying again…", "warn")
+                time.sleep(wait)
 
     def clear_session_cache(self) -> dict:
         """Drop cached API responses — used by the GUI Rescan button so a
@@ -1205,8 +1243,7 @@ class SrrdbToolAPI:
         self._log(f"  → {url}", "dim")
         try:
             req = Request(url, headers={**HEADERS, "Referer": "https://www.srrdb.com/"})
-            with urlopen(req, timeout=60) as r:
-                data = r.read()
+            data = self._srrdb_fetch(req, 60, 3.0, 7.0)
             if not data:
                 return {"ok": False, "not_found": False, "error": "Empty response"}
             if data[:2] == b"PK":
@@ -1253,6 +1290,9 @@ class SrrdbToolAPI:
                 return {"ok": True, "srr_path": str(out_path),
                         "size": Path(out_path).stat().st_size, "cached": True}
 
+        if ("srr", release_name) in SrrdbToolAPI._srrdb_missing:
+            return {"ok": False, "not_found": True,
+                    "error": "Release not found on srrdb.com (already asked this session)"}
         for name in names_to_try:
             result = self._do_download_srr(name, dest)
             if result["ok"]:
@@ -1271,24 +1311,30 @@ class SrrdbToolAPI:
             if not result.get("not_found"):
                 return result  # non-404 error, don't retry
         tried = " / ".join(names_to_try)
-        return {"ok": False, "error": f"Release not found on srrdb.com (tried: {tried})"}
+        SrrdbToolAPI._srrdb_missing.add(("srr", release_name))
+        return {"ok": False, "not_found": True,
+                "error": f"Release not found on srrdb.com (tried: {tried})"}
 
     def _srrdb_details(self, release_name: str):
         """Fetch a release's metadata from the srrdb JSON API (api.srrdb.com —
         NOT behind the download host's bot-wall). Returns the parsed dict with a
         '_resolved_name' key, or None. Retries dots/underscores like download."""
         names = _srrdb_name_variants(release_name)
+        key = ("details", release_name)
+        if key in SrrdbToolAPI._srrdb_missing:
+            return None
         for name in names:
             try:
                 req = Request(f"{SRRDB_API}/details/{quote(name)}",
                               headers={**HEADERS, "Referer": "https://www.srrdb.com/"})
-                with urlopen(req, timeout=30) as r:
-                    data = json.loads(r.read().decode("utf-8", "replace"))
+                data = json.loads(self._srrdb_fetch(req, 30, 1.0, 2.5)
+                                  .decode("utf-8", "replace"))
                 if isinstance(data, dict) and (data.get("archived-files") or data.get("adds")):
                     data["_resolved_name"] = name
                     return data
             except Exception:
                 continue
+        SrrdbToolAPI._srrdb_missing.add(key)
         return None
 
     def _download_add(self, release: str, add_id, filename: str,
@@ -1304,8 +1350,7 @@ class SrrdbToolAPI:
             # Non-browser UA to bypass the Anubis challenge (see DL_HEADERS).
             req = Request(url, headers={**DL_HEADERS,
                                         "Referer": "https://www.srrdb.com/"})
-            with urlopen(req, timeout=120) as r:
-                data = r.read()
+            data = self._srrdb_fetch(req, 120, 3.0, 7.0)
         except HTTPError as e:
             return {"ok": False, "error": f"HTTP {e.code}"}
         except Exception as e:
