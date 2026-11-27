@@ -5339,6 +5339,11 @@ class SceneRecreatorAPI:
                 confirmed_bytes = data
                 if not dry_run and not self._inplace:
                     self._place_file(zpath, data, confirmed_candidate, dst_dir, move_mode)
+                elif not dry_run:
+                    # right bytes, maybe not the DAT's spelling of the name
+                    name = self._dat_file_name(zpath, confirmed_candidate)
+                    if name != zpath.name:
+                        self._rename_to_dat(zpath, name)
             else:
                 # Cheap, early check: is this zip already known to be
                 # just leftover sidecar files with the main content
@@ -6210,12 +6215,16 @@ class SceneRecreatorAPI:
         In the combined run's in-place mode the bytes replace src_path
         itself (_replace_in_place); in its move mode the original is
         removed at the end of the run, not here."""
+        name = self._dat_file_name(src_path, candidate)
         if self._inplace:
-            self._replace_in_place(src_path, data)
+            if self._replace_in_place(src_path, data) and name != src_path.name:
+                self._rename_to_dat(src_path, name)
             return
         out_dir = self._game_output_dir(candidate, dst_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / src_path.name
+        out_path = out_dir / name
+        if name != src_path.name:
+            self._log(f'    named {name} as the DAT spells it (was {src_path.name})', 'dim')
         try:
             out_path.write_bytes(data)
             if move_mode and self._deferred is not None:
@@ -6233,6 +6242,30 @@ class SceneRecreatorAPI:
                     self._log(f'    Warning: could not remove original {src_path.name}: {e}', 'warn')
         except Exception as e:
             self._log(f'    ERROR writing output for {src_path.name}: {e}', 'err')
+
+    @staticmethod
+    def _dat_file_name(src_path: Path, candidate: dict) -> str:
+        """The name the DAT gives a zip (its case, or its whole name when
+        the zip was matched by content under another name). Sidecars and
+        anything else keep their own name."""
+        rn = str((candidate or {}).get('rom_name') or '').replace(chr(92), '/').rsplit('/', 1)[-1]
+        if rn and src_path.suffix.lower() == '.zip' and rn.lower().endswith('.zip'):
+            return rn
+        return src_path.name
+
+    def _rename_to_dat(self, path: Path, name: str):
+        """In place: give a fixed zip the DAT's spelling. A case-only change
+        is a plain rename; a different name is skipped if that name is
+        already taken."""
+        new = path.with_name(name)
+        try:
+            if new.exists() and name.lower() != path.name.lower():
+                self._log(f'    left as {path.name}: {name} already exists there', 'warn')
+                return
+            os.rename(path, new)
+            self._log(f'    renamed {path.name} to {name} as the DAT spells it', 'dim')
+        except OSError as e:
+            self._log(f'    could not rename {path.name} to {name}: {e}', 'warn')
 
     def _replace_in_place(self, path: Path, data: bytes) -> bool:
         """Put the verified bytes where the wrong file was. The new copy is
