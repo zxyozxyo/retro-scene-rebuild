@@ -17771,7 +17771,16 @@ class RsrToolAPI:
             carried += rar3_splice.info(patch)["carried"]
             del a, b
         if not patches:
-            return None
+            # Every stream is the replay's own, yet the volumes differ: the
+            # headers or the file order are what moved. Compil_3in1_Ikaruga_
+            # ..._DC-JEFFMA (stored, rar 3.00) was packed in a FAT drive's
+            # order with a GBK folder name this PC cannot write, so all 18
+            # streams match and every header after the first is elsewhere.
+            # The original's own header bytes + the replay's streams rebuild
+            # it; the proof below still hash-checks every volume.
+            self._log("      every stream matches the replay — only the "
+                      "headers and file order differ; carrying the "
+                      "original's header bytes.", "dim")
         # every original volume as literal header bytes + stream runs
         per_vol: dict[str, list] = {}
         for fi, name in enumerate(names):
