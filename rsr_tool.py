@@ -4894,6 +4894,14 @@ class _LockedConn:
 
 
 class RsrToolAPI:
+    # The near-miss end step (decision splice, then the match list) holds
+    # several times the stream in memory: about 17.5 GB for a 4.7 GB Wii ISO.
+    # Two at once took the scanner to 40 GB and free RAM under 4 GB
+    # (2026-11-27), so for big sets only one runs at a time; the other
+    # releases keep sweeping meanwhile.
+    HEAVY_SPLICE_BYTES = 1 << 30
+    _heavy_gate = threading.Semaphore(1)
+
     def __init__(self):
         self._window = None
         self._ev_q: deque = deque()
@@ -14952,7 +14960,22 @@ class RsrToolAPI:
                 produced, verdict, volmeta, deltas, rr_maps =                     alt, v2, m2, d2, r2
                 break
         if verdict == "none":
-            got = self._splice_attempt(produced, vols, st, si, recipe)
+            try:
+                big = sum(Path(v).stat().st_size for v in vols) >= self.HEAVY_SPLICE_BYTES
+            except OSError:
+                big = False
+            if big and not RsrToolAPI._heavy_gate.acquire(blocking=False):
+                self._log("    another big set is working out its differences — "
+                          "waiting for it to finish (one at a time keeps "
+                          "memory in check)…", "dim")
+                while not RsrToolAPI._heavy_gate.acquire(timeout=30):
+                    if self._stop.is_set():
+                        return "none", volmeta, {}
+            try:
+                got = self._splice_attempt(produced, vols, st, si, recipe)
+            finally:
+                if big:
+                    RsrToolAPI._heavy_gate.release()
             if got:
                 return "delta", got[0], got[1]
             return "none", volmeta, {}
