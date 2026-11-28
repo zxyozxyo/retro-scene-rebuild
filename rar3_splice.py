@@ -1086,3 +1086,118 @@ def _apply(replayed: bytes, doc: dict, sink, decode_text: bool) -> int:
                          "accounts for")
     w.close()
     return w.total
+
+
+# ---------------------------------------------------------------------------
+# "MLS0": a stream carried as its MATCH LIST.
+#
+# Some originals cannot be replayed at all past some point, yet are plain LZ
+# all the way: Rapala.Tournament.Fishing.PAL.Wii-WiiD is rar 3.60 -mt2 for
+# its first 307 MB of output, then stops using 2-byte matches and never
+# reaches more than ~256 KB back (the packer PC's -mt2 split, not a switch).
+# Every later decision differs from any replay, but the stream is still only
+# literals and matches in blocks of 16,384 decisions, and the literals are
+# the file's own bytes. So the file + the original's matches (where, how
+# long, how far back) + the block layout write the original again bit for
+# bit: 3,445,494 matches = 8.4 MB for a 4.45 GB stream.
+
+MLS_MAGIC = b"MLS0"
+
+
+def _mls_cols(raw_g, raw_l, raw_d) -> bytes:
+    import lzma
+    parts = [lzma.compress(bytes(x), preset=9 | lzma.PRESET_EXTREME)
+             for x in (raw_g, raw_l, raw_d)]
+    return b"".join(len(p).to_bytes(8, "little") + p for p in parts)
+
+
+def mls_diff(original: bytes, max_bytes: int) -> bytes | None:
+    """The original stream as a match list, or None when it holds anything
+    but literals and matches (text blocks, filters) or the list would be
+    bigger than `max_bytes`."""
+    import array
+    g = array.array("I"); ln = array.array("H"); ds = array.array("I")
+    layout = []                        # [ntoks, keep, end bits, end nbits, times]
+    try:
+        blocks = read_blocks(original, decode_text=False)
+        return _mls_build(blocks, g, ln, ds, layout, max_bytes)
+    except (ValueError, IndexError, KeyError):
+        return None                    # not a RAR 3 LZ stream
+
+
+def _mls_build(blocks, g, ln, ds, layout, max_bytes):
+    out = last = 0
+    for tk, keep, end in blocks:
+        if end is None:
+            return None
+        sig = [len(tk), 1 if keep else 0, end[0], end[1]]
+        if layout and layout[-1][:4] == sig:
+            layout[-1][4] += 1
+        else:
+            layout.append(sig + [1])
+        for t in tk:
+            c = t[0]
+            if c == "L":
+                out += 1
+            elif c == "M":
+                if t[2] >= 1 << 32 or t[1] >= 1 << 16:
+                    return None
+                g.append(out - last); ln.append(t[1]); ds.append(t[2])
+                out += t[1]; last = out
+            else:
+                return None            # a filter or a text block
+        if len(g) * 10 > max_bytes * 8:   # hopeless long before the end
+            return None
+    head = json.dumps({"v": 1, "out": out, "layout": layout}).encode()
+    blob = (MLS_MAGIC + len(head).to_bytes(4, "little") + head
+            + _mls_cols(g.tobytes(), ln.tobytes(), ds.tobytes()))
+    return blob if len(blob) <= max_bytes else None
+
+
+def mls_apply(blob: bytes, plain, sink) -> int:
+    """Write the original stream again from its match list and the file's
+    own bytes (`plain`: bytes or a buffer) into `sink`."""
+    import array
+    import lzma
+    if not blob.startswith(MLS_MAGIC):
+        raise ValueError("not a match-list patch")
+    n = int.from_bytes(blob[4:8], "little")
+    doc = json.loads(blob[8:8 + n])
+    i = 8 + n
+    cols = []
+    for _ in range(3):
+        k = int.from_bytes(blob[i:i + 8], "little")
+        cols.append(lzma.decompress(blob[i + 8:i + 8 + k]))
+        i += 8 + k
+    g = array.array("I"); g.frombytes(cols[0])
+    ln = array.array("H"); ln.frombytes(cols[1])
+    ds = array.array("I"); ds.frombytes(cols[2])
+    if len(plain) != doc["out"]:
+        raise ValueError("the file is not the size the match list was made for")
+    mv = memoryview(plain)
+
+    def toks():
+        pos = 0
+        for k in range(len(g)):
+            gap = g[k]
+            if gap:
+                for x in mv[pos:pos + gap]:
+                    yield ("L", x)
+                pos += gap
+            yield ("M", ln[k], ds[k])
+            pos += ln[k]
+        for x in mv[pos:]:
+            yield ("L", x)
+
+    w = Writer(sink)
+    it = toks()
+    for ntok, keep, eb, en, times in doc["layout"]:
+        for _ in range(times):
+            blk = list(itertools.islice(it, ntok))
+            if len(blk) != ntok:
+                raise ValueError("the match list ran out before its blocks")
+            w.block(blk, bool(keep), (eb, en))
+    if next(it, None) is not None:
+        raise ValueError("the file has more data than the match list covers")
+    w.close()
+    return w.total

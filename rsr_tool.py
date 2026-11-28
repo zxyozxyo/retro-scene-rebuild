@@ -17716,6 +17716,18 @@ class RsrToolAPI:
                 if sol:
                     patches[name] = sol
                     continue
+            if patch is None and rar3:
+                # Decisions too many to carry, but maybe a plain LZ stream
+                # whose matches are few: the file's own bytes + where the
+                # original matched write it again (rar3_splice "MLS0").
+                del b
+                mls = self._splice_matchlist_try(produced[0], name, a, plain,
+                                                 raw_bytes)
+                if mls:
+                    patches[name] = mls
+                    del a
+                    continue
+                b = None
             if patch is None:
                 # A stream small enough is simply carried whole: the first
                 # file of Sega_Germany_..._Press_Disc-s1xty is 765 KB the
@@ -17893,6 +17905,17 @@ class RsrToolAPI:
                         b = rar_bitpatch.apply(b, blob)
                     except ValueError:
                         return None
+                elif blob.startswith(rar3_splice.MLS_MAGIC):
+                    data = self._splice_unpack(produced[0], name)
+                    if data is None:
+                        return None
+                    sink = bytearray()
+                    try:
+                        rar3_splice.mls_apply(blob, data, sink)
+                    except ValueError:
+                        return None
+                    del data
+                    b = bytes(sink)
                 else:
                     sink = bytearray()
                     rar3_splice.apply(b, blob, sink, decode_text)
@@ -17987,6 +18010,66 @@ class RsrToolAPI:
         finally:
             if tmp is not None and tmp.exists():
                 _rmtree(tmp)
+
+    def _splice_matchlist_try(self, head, name, a, plain,
+                              raw_bytes) -> bytes | None:
+        """An "MLS0" patch for `name`: the original stream as its match list,
+        written back from the file's own bytes and proved here -- or None.
+
+        For an original no replay follows past some point but whose stream
+        is still plain LZ: Rapala.Tournament.Fishing.PAL.Wii-WiiD parts from
+        every rar 3.60-4.11 -mt2 at byte 49,109,742 and differs in tens of
+        millions of decisions after, yet its 4.45 GB stream is 3,445,494
+        matches = 8.4 MB."""
+        import rar3_splice
+        want = plain.get(name)
+        if not want:
+            return None
+        cap = max(SPLICE_RAW_CEIL - raw_bytes, len(a) // 100)
+        short = name.split("/")[-1]
+        self._log(f"      {short}: trying its stream as a match list "
+                  f"(up to {cap:,} B)…", "dim")
+        t0 = time.monotonic()
+        blob = rar3_splice.mls_diff(a, cap)
+        if blob is None:
+            self._log(f"      {short}: not as a match list (filters, text "
+                      f"blocks or too many matches; "
+                      f"{time.monotonic() - t0:.0f}s).", "dim")
+            return None
+        data = self._splice_unpack(head, name)
+        if data is None or (len(data), zlib.crc32(data)) != want:
+            self._log(f"      {short}: the replay's copy of the file could not "
+                      "be unpacked to check the match list.", "dim")
+            return None
+
+        class _Same:
+            """A sink that compares what is written with the original."""
+            def __init__(self):
+                self.n = 0
+                self.ok = True
+
+            def write(self, chunk):
+                if self.ok and a[self.n:self.n + len(chunk)] != chunk:
+                    self.ok = False
+                self.n += len(chunk)
+
+        same = _Same()
+        try:
+            rar3_splice.mls_apply(blob, data, same)
+        except Exception as e:
+            self._log(f"      {short}: the match list does not write back "
+                      f"({e}).", "dim")
+            return None
+        del data
+        if not same.ok or same.n != len(a):
+            self._log(f"      {short}: the match list does not write the "
+                      "original again (a rule of the writer does not hold "
+                      "here).", "dim")
+            return None
+        self._log(f"      {short}: carried as a match list — {len(blob):,} B "
+                  f"for its {len(a):,} B stream, written back exactly "
+                  f"({time.monotonic() - t0:.0f}s).", "ok")
+        return blob
 
     def _splice_unpack(self, head, name) -> bytes | None:
         """One file of the replay, unpacked: the stream of a file the
